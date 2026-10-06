@@ -4,6 +4,8 @@ obj/
 .vs/
 # 发布产物（src/publish）；规则无前导斜杠，任意层级名为 publish 的目录都忽略
 publish/
+# 安装包产物（scripts/build-installer.ps1 输出：Setup.exe + RELEASES + nupkg）
+dist/
 *.log
 
 # 工具 / 助手元数据目录（不入库）

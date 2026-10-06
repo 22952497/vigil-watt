@@ -1,6 +1,7 @@
 using VigilWatt.App.Services;
 using VigilWatt.Core.Models;
 using VigilWatt.Core.Plugins;
+using VigilWatt.Core.Utils;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -25,6 +26,8 @@ public sealed partial class SettingsPage : Page
         StartMinimizedToggle.IsOn = s.StartMinimized;
         AutostartToggle.IsOn = AutostartService.IsEnabled();
         WidgetToggle.IsOn = s.WidgetEnabled;
+        UpdateSourceBox.Text = s.UpdateUrl;
+        UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)}";
 
         // 插件开关动态生成：新插件（IBatteryPlugin 实现）自动出现在设置页
         bool first = true;
@@ -90,6 +93,7 @@ public sealed partial class SettingsPage : Page
         s.StartMinimized = StartMinimizedToggle.IsOn;
         s.Autostart = AutostartToggle.IsOn;
         s.WidgetEnabled = WidgetToggle.IsOn;
+        s.UpdateUrl = UpdateSourceBox.Text.Trim();
         foreach (var (name, toggle) in _pluginToggles)
         {
             s.PluginEnabled[name] = toggle.IsOn;
@@ -125,5 +129,68 @@ public sealed partial class SettingsPage : Page
             timer.Stop();
         };
         timer.Start();
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        // 直接用输入框的值（可能还没保存），避免"明明填了却提示未配置"
+        var url = UpdateSourceBox.Text.Trim();
+        if (url.Length == 0)
+        {
+            UpdateStatusText.Text = "未配置更新源，请先填写并保存设置";
+            return;
+        }
+
+        CheckUpdateButton.IsEnabled = false;
+        UpdateStatusText.Text = "正在检查更新…";
+        try
+        {
+            var svc = new UpdateService(url);
+            if (!svc.IsInstalled)
+            {
+                UpdateStatusText.Text = "当前是未安装的运行副本（bin/publish），无法自动更新";
+                return;
+            }
+
+            var info = await svc.CheckAsync();
+            if (info == null)
+            {
+                UpdateStatusText.Text = $"已是最新版本（{svc.CurrentVersion}）";
+                return;
+            }
+
+            var dialog = new ContentDialog
+            {
+                Title = "发现新版本 " + info.TargetFullRelease.Version,
+                Content = $"当前 {svc.CurrentVersion} → 最新 {info.TargetFullRelease.Version}，下载并安装？\n安装完成后应用会自动重启。",
+                PrimaryButtonText = "下载并安装",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = XamlRoot,
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                UpdateStatusText.Text = "已取消更新";
+                return;
+            }
+
+            // 进度回调在线程池线程，回 UI 线程刷新
+            var dispatcher = DispatcherQueue;
+            UpdateStatusText.Text = "下载中…";
+            await svc.DownloadAsync(info, pct =>
+                dispatcher.TryEnqueue(() => UpdateStatusText.Text = $"下载中 {pct}%"));
+
+            UpdateStatusText.Text = "下载完成，正在应用更新并重启…";
+            svc.ApplyAndRestart(info);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("检查更新失败: " + ex.Message);
+            UpdateStatusText.Text = "检查更新失败：" + ex.Message;
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
     }
 }
