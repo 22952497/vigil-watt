@@ -7,7 +7,7 @@
 应用运行中（`src\publish\`，2026-10-06 傍晚发布）。本机三台 2.4G 设备**已全部打通且首次发现均在 6 秒内**：
 北通 T9 手柄 73%（T9 被动状态流）、迈从 G87 键盘 65%（0x13 会话协议）、雷柏 VT3 二代鼠标 98%（status-report7 被动）；
 经典蓝牙耳机 EDIFIER W820NB 走 HFP 网关节点 `DEVPKEY_Device_BatteryLevel`（与 Windows 设置页一致）；
-插件架构完成二演化。**本轮（第五轮）修掉了"键盘出来了、鼠标不出来"——根因是雷柏 3 分钟探测冷却锁死，见下。**
+插件架构完成二演化。**本轮（第八轮）修掉两个"看着像功能缺失"的 Bug：程序没图标（工程里压根没有 .ico）+ 托盘提示永远停在"暂无在线设备"（`UpdateIcon` 只在启动时跑过一次），见下。**
 
 ## 2. 用户设备清单（勿对号入座错）
 
@@ -332,6 +332,39 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 
 **验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误（唯一新增警告是 `BluetoothClassicWatcher.cs:134` 的既有 CS8604，与本次无关）；`dotnet test` **65/65**。
 
+### 2026-10-06（傍晚）第八轮：两个"看起来像功能缺失"的 Bug —— 程序图标 + 托盘提示不刷新
+
+用户报两条：① 没有程序图标；② 最小化后哪怕有设备在线，托盘也显示"无设备在线"。**两条都不是逻辑写错，是"从来没人做/只做了一次"**。
+
+**① 程序图标：工程里压根没有图标。** `VigilWatt.App.csproj` 没有 `<ApplicationIcon>`，仓库里也没有任何 `.ico`、没有 `Assets/` 目录——PE 里就没有 `RT_GROUP_ICON`，所以是默认空白图标。
+- 新增 `scripts/make-app-icon.py`（**纯标准库，不依赖 Pillow**）：解析式绘制绿色圆角方块 + 白色闪电（watt），
+  每像素 4×4（大尺寸 3×3）超采样抗锯齿，直接编码 ICO（16/20/24/32/40/48/64/128/256 九档；≥64 用 PNG 条目，其余 32 位 DIB）。
+  `--preview x.png` 出放大预览图——**判断 16px 档还认不认得出，就靠这张图**。
+  > 弯路：第一版画的是"电池外框 + 电量条"，但外框和填充同色、中间那道背景色窗口让它看着像便签纸，
+  > 小尺寸更糊。换成闪电后 16px 依然清晰。
+- 接入两处：csproj 的 `<ApplicationIcon>`（写进 exe 资源，给资源管理器/任务栏/Alt-Tab 用）
+  + `MainWindow` 构造里的 `AppWindow.SetIcon(...)`（**非打包 WinUI 有时不继承 exe 图标资源**，只做前者任务栏还是空白方块）。
+- **验证不靠肉眼**：把 ico 每个尺寸的载荷拿去 `bytes.count()` 在 exe 里数——9 档全部命中即证明资源已嵌入。
+
+**② 托盘提示不刷新：`UpdateIcon()` 只在启动那一刻跑过一次。**
+启动时 `DeviceManager.Start()` 已经调了但首轮扫描还没开始（`_pollTimer` 首次是 300ms 后），
+`Manager.Devices` 是空的 → 渲染出「暂无在线设备」→ 之后**再没有任何地方调用 `UpdateIcon`**，提示被永久定格。
+（所以严格说不是"最小化后才错"，是"从启动起就一直是这个值，最小化后才被看见"。）
+- 修法：`App.AttachTray` 里挂 `Manager.DeviceUpdated` + `Manager.DevicesChanged` → 新增的 `TrayService.RequestUpdate()`。
+  两个事件都要订：`DeviceUpdated` 管电量/在线**变化**，`DevicesChanged` 管设备**增删**，缺一个就漏一半。
+- `RequestUpdate()` 内做 **合并**（`Interlocked.Exchange` 标志位——一轮轮询会连打十几次 `Upsert`）
+  + **回 UI 线程**（`MainWindow.DispatcherQueue.TryEnqueue`，与其它 UI 更新同线程，也避免和 `Dispose` 抢 `_currentHIcon`）；
+  `DispatcherQueue` 还没就绪时就地渲染兜底。
+- 顺带在 `UpdateIcon` 里加"**提示变了才记日志**"（`_lastTip` 比对）：轮询期全打会冲爆日志，
+  但"提示到底变没变"正是这类问题唯一想知道的信息。**实测**：`17:07:49 暂无在线设备` → `17:07:56 北通 T9 67%`，
+  随后迈从 88%、雷柏 98% 认领，提示仍停在 67%（= 三者最低），行为正确。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误、**仅 2 个既有警告**（CS8604 + System.Drawing.Common 的 MSB3277，无新增）；
+`dotnet test` **65/65**；发布 `src/publish` 17:07，运行实测托盘随设备认领实时刷新、日志无新增 ERR。
+
+> 操作提醒：`src/publish` 被运行中的实例锁着会导致 publish 失败（MSB3027/3021）——
+> 必须先关掉应用（**`taskkill /F` 会粘连迈从 dongle 会话约 2 分钟，属已知现象**，见 safety.md §2.2）。
+
 ## 4. 待办（按优先级，详见 experience.md §5）
 
 
@@ -371,6 +404,8 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 | 经典蓝牙发现 + 电量 | `src/VigilWatt.Core/Ble/BluetoothClassicWatcher.cs` + `Ble/ClassicAudioBattery.cs`（code-flow.md §3、runtime-pitfalls §3） |
 | 经典蓝牙电量排查 | `scripts/probe-devnode-battery.py`（`--all` dump 节点全属性） |
 | 托盘/小组件/设置页 | `src/VigilWatt.App/Services|Views`（code-flow.md §7/§8/§9） |
+| 程序图标 | 生成器 `scripts/make-app-icon.py`（改配色/字形改它后重跑，**别手改 .ico**）→ `src/VigilWatt.App/Assets/VigilWatt.ico`；接入 = csproj `<ApplicationIcon>` + `MainWindow.ApplyWindowIcon()`（两处都要，见 runtime-pitfalls §5.2） |
+| 托盘提示/图标刷新 | `TrayService.RequestUpdate()` + `App.AttachTray` 里挂的 `DeviceUpdated`/`DevicesChanged`（见 runtime-pitfalls §5.1） |
 | 历史统计页（指标卡/曲线/hover） | `src/VigilWatt.App/Views/StatsPage.xaml(.cs)` + `Views/BatteryChartControl.xaml.cs` |
 | 历史删除/统计能力 | `src/VigilWatt.Core/Storage/HistoryStore.cs`（`GetStats`/`GetDeviceStats`/`DeleteDevices`/`Compact`）；页面 `Views/HistoryPage.xaml(.cs)` |
 | 历史管理页单测 | `src/tests/VigilWatt.Core.Tests/HistoryStoreTests.cs`（临时库真跑 SQLite） |

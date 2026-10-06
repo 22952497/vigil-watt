@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using VigilWatt.App.Views;
+using VigilWatt.Core.Utils;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -18,6 +19,7 @@ public sealed partial class MainWindow : Window
 
         Title = "VigilWatt";
         AppWindow.Title = "VigilWatt";
+        ApplyWindowIcon();
         // AppWindow.Resize 用物理像素，按 DPI 换算成 800x600 DIP（runtime-pitfalls §6）
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var dpiScale = GetDpiForWindow(hwnd) / 96.0;
@@ -41,6 +43,31 @@ public sealed partial class MainWindow : Window
 
         // 初次进入设备页
         ContentFrame.Navigate(typeof(DevicesPage));
+    }
+
+    /// <summary>
+    /// 运行时再设一次窗口图标。非打包 WinUI 3 有时不自动继承 exe 的 Win32 图标资源，
+    /// 任务栏 / Alt-Tab 会显示成空白方块；显式从输出目录读 ico 设进去最稳。
+    /// 注意：本方法在窗口构造期调用，异常必须自己吞掉（构造期抛出会让应用起不来）。
+    /// </summary>
+    private void ApplyWindowIcon()
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "VigilWatt.ico");
+            if (File.Exists(path))
+            {
+                AppWindow.SetIcon(path);
+            }
+            else
+            {
+                Log.Warn($"窗口图标文件不存在，跳过 SetIcon: {path}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"设置窗口图标失败: {ex.Message}");
+        }
     }
 
     private void Nav_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)

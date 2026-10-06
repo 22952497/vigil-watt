@@ -25,6 +25,10 @@ public sealed class TrayService : IDisposable
     private bool _iconAdded;
     private IntPtr _currentHIcon;
     private uint _taskbarCreatedMessage;
+    /// <summary>刷新请求是否已排队（1 = 已排）。设备事件每轮会连打好几次，靠它合并成一次。</summary>
+    private int _updateQueued;
+    /// <summary>上一次写进托盘的提示文字，用于"变了才记日志"。</summary>
+    private string? _lastTip;
 
     private readonly AppServices _services;
 
@@ -39,6 +43,38 @@ public sealed class TrayService : IDisposable
         CreateMessageWindow();
         UpdateIcon();
         Log.Info("托盘图标已创建");
+    }
+
+    /// <summary>
+    /// 请求刷新托盘图标与提示文字。
+    ///
+    /// 设备事件来自后台线程（每轮轮询结束、每次电量/在线状态变化都会触发，一轮里可能连打十几次），
+    /// 所以这里做两件事：① 合并——同一时刻只排一次队，多余请求直接丢掉（下一次渲染本来就包含最新状态）；
+    /// ② 回 UI 线程——与其它 UI 更新保持同一线程，避免和 Dispose 抢 _currentHIcon。
+    ///
+    /// 存在的理由：UpdateIcon 以前只在 Initialize 和 explorer 重启时各调一次，
+    /// 启动那一刻设备还没扫出来，于是托盘提示永远停在"暂无在线设备"。
+    /// </summary>
+    public void RequestUpdate()
+    {
+        if (Interlocked.Exchange(ref _updateQueued, 1) == 1) return;   // 已排队，合并掉
+
+        var queue = _services.MainWindow?.DispatcherQueue;
+        if (queue == null)
+        {
+            Interlocked.Exchange(ref _updateQueued, 0);
+            UpdateIcon();                       // 窗口还没建好（极早期），就地渲染
+            return;
+        }
+
+        if (!queue.TryEnqueue(() =>
+            {
+                Interlocked.Exchange(ref _updateQueued, 0);
+                UpdateIcon();
+            }))
+        {
+            Interlocked.Exchange(ref _updateQueued, 0);   // 队列已关闭（退出中），忽略本次
+        }
     }
 
     // ---------- 消息窗口 ----------
@@ -181,6 +217,13 @@ public sealed class TrayService : IDisposable
             {
                 _currentHIcon = hIcon;
                 if (oldIcon != IntPtr.Zero) Native.DestroyIcon(oldIcon);
+                // 只在提示真正变化时打日志：轮询期间会频繁刷新，全打会把日志冲爆，
+                // 但"提示变了没有"正是排查托盘状态问题最想知道的一条信息。
+                if (_lastTip != tip)
+                {
+                    _lastTip = tip;
+                    Log.Info($"托盘提示已更新: {tip}");
+                }
             }
             else
             {
