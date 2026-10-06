@@ -137,7 +137,8 @@ SafeSample（每 SampleIntervalMinutes 分钟）:
 
 - **DevicesPage**：订阅 DevicesChanged（全量重建行）/ DeviceUpdated（单行刷新），事件都在后台线程来 → `DispatcherQueue.TryEnqueue` 切 UI 线程。行模型 DeviceRowModel 一次性 x:Bind。
 - **SettingsPage**：插件开关按 `Manager.Plugins`（反射发现结果）动态生成，保存时遍历开关写回 `PluginEnabled`——新增插件无需改设置页。
-- **StatsPage**：设备下拉 + 范围下拉（24h/7d/30d）→ 查 `History.Query(deviceId, from, to)` → BatteryChartControl.SetData 画折线。事件处理器开头判空（XAML 解析期会触发 SelectionChanged）。
+- **StatsPage**：设备下拉 + 时间范围按钮组（24h/7d/30d ToggleButton 互斥）→ 查 `History.Query(deviceId, from, to)` → 顶部 4 张指标卡（当前/最高/最低/平均，当前值优先取实时在线读数）+ BatteryChartControl 画曲线。事件处理器开头判空（XAML 解析期会触发 SelectionChanged）。
+- **HistoryPage**（历史管理，2026-10-06 加）：`History.GetStats()` + `GetDeviceStats()` 填概览卡与设备列表 → 勾选/单行删除 → ContentDialog 二次确认 → `DeleteDevices(ids)` → **`Compact()`（VACUUM）** → 重新 Reload。**不订阅设备事件**：后台每分钟采样会重建列表、打断用户勾选（StatsPage 踩过同款坑），数据陈旧靠手动刷新。
 - **MainWindow**：关窗被拦截 → `AppWindow.Hide()`（隐藏到托盘而不是退出）；真正退出走托盘菜单 Exit（`Environment.Exit(0)`）。
 - **WidgetWindow**：订阅同样的设备事件 → 重建芯片（颜色按电量分档/充电蓝色）→ 按芯片数重算窗口宽度（DIP×RasterizationScale 物理像素）→ ClampToWorkArea 收边。可拖动（GetCursorPos 偏移）。
 

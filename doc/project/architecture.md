@@ -28,15 +28,16 @@ VigilWatt.sln
 │   │   └── Elan/ElanHeadsetPlugin     # 纯观察模式（不认领设备）
 │   ├── Models/DeviceStatus            # 统一设备状态快照（Id/电量/充电/在线）
 │   ├── Settings/AppSettings           # settings.json 读写
-│   ├── Storage/HistoryStore           # SQLite（Microsoft.Data.Sqlite）
+│   ├── Storage/HistoryStore           # SQLite（Microsoft.Data.Sqlite）：写入/查询/按设备删除/VACUUM
 │   └── Utils/Log                      # 文本日志 %LOCALAPPDATA%\VigilWatt\logs\app.log
 └── src/VigilWatt.App/             # WinUI 3 前端（net8.0-windows10.0.19041.0，非打包）
     ├── App.xaml.cs                    # AppServices 容器 + 启动序列 + 全局异常兜底
     ├── MainWindow(.xaml)              # NavigationView 三页导航；关窗=隐藏到托盘
     ├── Views/
     │   ├── DevicesPage                # 设备列表（一次性 x:Bind 行模型）
-    │   ├── StatsPage                  # 历史曲线（设备/时间范围选择）
-    │   ├── BatteryChartControl        # 自绘 Canvas/Polyline 折线图（无第三方图表库）
+    │   ├── StatsPage                  # 历史统计：筛选卡 + 指标摘要卡 + 曲线（设备/时间范围选择）
+    │   ├── HistoryPage                # 历史管理：概览卡 + 按设备删除（二次确认 + VACUUM 收缩）
+    │   ├── BatteryChartControl        # 自绘 Canvas 折线图（面积填充 + hover 提示，无第三方图表库）
     │   └── SettingsPage               # 设置项 + 应用按钮
     ├── WidgetWindow(.xaml)            # 桌面小组件（无边框悬浮条，普通层级不置顶，纯代码构建芯片）
     ├── ViewModels/DeviceRowModel      # 设备行的绑定模型
@@ -73,6 +74,8 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 | **自绘折线图（BatteryChartControl）** | 最初计划用 LiveCharts2，后放弃：只画一条电量曲线，自绘 100 行可控、无依赖、无 SkiaSharp 体积 |
 | **托盘纯 Win32** | H.NotifyIcon 在 WinUI 3 代码创建场景下事件失灵（runtime-pitfalls §5） |
 | **历史写入双通道** | 定时采样（SampleIntervalMinutes，无变化也写点）+ 电量变化立即写（Upsert 里），保证曲线既平滑又不漏跳变 |
+| **删除历史后立即 VACUUM** | SQLite 的 `DELETE` 只把页标成空闲、**不缩小文件**；不 VACUUM 的话用户删完看到文件大小没变，会以为删除没生效。删除是低频操作，VACUUM 的整库重写开销可接受 |
+| **HistoryStore 支持注入库路径** | `HistoryStore(dbPath)` 可选参数让单测指向临时库，使删除/统计逻辑能进纯 net8.0 测试项目跑真 SQLite（不碰真实 history.db） |
 | **统一 DeviceStatus.Id** | BLE=蓝牙地址、2.4G=设备路径哈希（`mchose:{StableHash}`）。改协议后设备 ID 会变（旧曲线对不上新 ID）——历史库里同时存在 `mchose:D78E…`（错误时代）和 `mchose:0F60…`（现在）即此原因 |
 | **非打包部署（WindowsPackageType=None + SelfContained）** | 免安装免签名，双击就跑；代价是要自己带 Windows App SDK 运行时（`src/publish` 已含） |
 

@@ -12,14 +12,28 @@ namespace VigilWatt.Core.Utils;
 public static class Log
 {
     private static readonly object Gate = new();
-    private static readonly string LogDir = Path.Combine(AppPaths.RootDir, "logs");
-    private static readonly string LogPath = Path.Combine(LogDir, "app.log");
+    private static string _logDir = Path.Combine(AppPaths.RootDir, "logs");
+    private static string _logPath = Path.Combine(_logDir, "app.log");
 
     /// <summary>单文件上限，超过就整文件重开（简单防膨胀）。</summary>
     private const long MaxChars = 2 * 1024 * 1024;
 
     private static StreamWriter? _writer;
     private static long _written;
+
+    /// <summary>把日志重定向到指定目录，并立即释放旧文件句柄。
+    /// 单测用：不重定向的话测试会往真实的 %LOCALAPPDATA% app.log 里写脏数据。</summary>
+    public static void RedirectTo(string logDir)
+    {
+        lock (Gate)
+        {
+            try { _writer?.Dispose(); } catch { /* 忽略 */ }
+            _writer = null;
+            _written = 0;
+            _logDir = logDir;
+            _logPath = Path.Combine(logDir, "app.log");
+        }
+    }
 
     public static void Info(string message) => Write("INFO", message);
     public static void Warn(string message) => Write("WARN", message);
@@ -59,13 +73,13 @@ public static class Log
     {
         if (_writer != null) return;
 
-        Directory.CreateDirectory(LogDir);
-        if (File.Exists(LogPath) && new FileInfo(LogPath).Length > MaxChars)
-            File.Delete(LogPath);
+        Directory.CreateDirectory(_logDir);
+        if (File.Exists(_logPath) && new FileInfo(_logPath).Length > MaxChars)
+            File.Delete(_logPath);
 
-        _written = File.Exists(LogPath) ? new FileInfo(LogPath).Length : 0;
+        _written = File.Exists(_logPath) ? new FileInfo(_logPath).Length : 0;
         _writer = new StreamWriter(
-            new FileStream(LogPath, FileMode.Append, FileAccess.Write, FileShare.Read))
+            new FileStream(_logPath, FileMode.Append, FileAccess.Write, FileShare.Read))
         {
             AutoFlush = true,
         };
@@ -75,7 +89,7 @@ public static class Log
     {
         try { _writer?.Dispose(); } catch { /* 忽略 */ }
         _writer = null;
-        try { if (File.Exists(LogPath)) File.Delete(LogPath); } catch { /* 忽略 */ }
+        try { if (File.Exists(_logPath)) File.Delete(_logPath); } catch { /* 忽略 */ }
         _written = 0;
         EnsureWriter();
     }

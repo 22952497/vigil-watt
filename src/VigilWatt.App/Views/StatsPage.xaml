@@ -3,18 +3,119 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Grid RowDefinitions="Auto,*" Padding="20,16" RowSpacing="12">
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
-            <ComboBox x:Name="DeviceCombo" MinWidth="200" DisplayMemberPath="Display"
-                      SelectionChanged="Device_SelectionChanged" />
-            <ComboBox x:Name="RangeCombo" MinWidth="120" SelectedIndex="0" SelectionChanged="Range_SelectionChanged">
-                <ComboBoxItem Content="最近 24 小时" Tag="24" />
-                <ComboBoxItem Content="最近 7 天" Tag="168" />
-                <ComboBoxItem Content="最近 30 天" Tag="720" />
-            </ComboBox>
-        </StackPanel>
+    <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="20,16" RowSpacing="12">
 
+        <!-- 标题栏：页面标题 + 当前上下文副标题 + 手动刷新 -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="历史统计" FontSize="18" FontWeight="SemiBold" />
+                <TextBlock x:Name="SubtitleText" Text="—" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <Button x:Name="RefreshButton" Grid.Column="1" Click="Refresh_Click" VerticalAlignment="Top">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ProgressRing x:Name="RefreshRing" Width="14" Height="14"
+                                  IsActive="False" Visibility="Collapsed" />
+                    <FontIcon x:Name="RefreshIcon" FontSize="14" Glyph="&#xE72C;" />
+                    <TextBlock x:Name="RefreshText" Text="刷新" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- 筛选卡片：设备下拉 + 时间范围按钮组 -->
         <Border Grid.Row="1" CornerRadius="8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" Padding="16,12">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
+                <StackPanel Grid.Column="0" Spacing="5">
+                    <TextBlock Text="设备" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ComboBox x:Name="DeviceCombo" MinWidth="240" HorizontalAlignment="Stretch"
+                              DisplayMemberPath="Name"
+                              SelectionChanged="Device_SelectionChanged" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="5">
+                    <TextBlock Text="时间范围" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <ToggleButton x:Name="Range24" Content="24 小时" Tag="24" IsChecked="True" Click="Range_Click" />
+                        <ToggleButton x:Name="Range168" Content="7 天" Tag="168" Click="Range_Click" />
+                        <ToggleButton x:Name="Range720" Content="30 天" Tag="720" Click="Range_Click" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 指标摘要卡片行：把"用眼睛从曲线上读数值"变成一眼可见 -->
+        <Grid Grid.Row="2" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" CornerRadius="8" Padding="14,10"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="当前电量" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="KpiCurrent" Text="—" FontSize="24" FontWeight="Bold" />
+                    <TextBlock x:Name="KpiCurrentSub" Text="—" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" CornerRadius="8" Padding="14,10"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="区间最高" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="KpiMax" Text="—" FontSize="24" FontWeight="Bold" />
+                    <TextBlock x:Name="KpiMaxSub" Text="—" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="2" CornerRadius="8" Padding="14,10"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="区间最低" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="KpiMin" Text="—" FontSize="24" FontWeight="Bold" />
+                    <TextBlock x:Name="KpiMinSub" Text="—" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="3" CornerRadius="8" Padding="14,10"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="平均电量" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="KpiAvg" Text="—" FontSize="24" FontWeight="Bold" />
+                    <TextBlock x:Name="KpiAvgSub" Text="—" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- 曲线卡片 -->
+        <Border Grid.Row="3" CornerRadius="8"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1">

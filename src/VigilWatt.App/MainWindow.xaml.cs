@@ -50,6 +50,7 @@ public sealed partial class MainWindow : Window
         {
             "devices" => typeof(DevicesPage),
             "stats" => typeof(StatsPage),
+            "history" => typeof(HistoryPage),
             "settings" => typeof(SettingsPage),
             _ => typeof(DevicesPage),
         });

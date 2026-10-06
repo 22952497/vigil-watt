@@ -1,7 +1,9 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using Windows.Foundation;
 using Windows.UI;
 
 namespace VigilWatt.App.Views;
@@ -11,6 +13,7 @@ namespace VigilWatt.App.Views;
 /// 数据：若干系列，每系列一组 (时间, 百分比) 点。
 /// 坐标轴：默认自适应数据起止；传入 domainStart/domainEnd 则强制使用指定时间窗
 /// （历史页切"最近 7 天/30 天"时轴必须跟着变，否则数据不足 24h 时三个档位渲染完全相同，像"切换没反应"）。
+/// 交互：鼠标悬停显示最近采样点（竖参考线 + 高亮点 + 时间/电量气泡）。
 /// </summary>
 public sealed class BatteryChartControl : UserControl
 {
@@ -21,23 +24,42 @@ public sealed class BatteryChartControl : UserControl
         public required IReadOnlyList<(DateTimeOffset Time, int Percent)> Points;
     }
 
+    // 绘图区留白：padT 给顶部图例留空间，padB 给 X 轴标签，padL 给 Y 轴标签
+    private const double PadL = 48, PadR = 16, PadT = 40, PadB = 28;
+
     private readonly Grid _root = new();
-    private readonly Canvas _canvas = new();
+    private readonly Canvas _canvas = new() { IsHitTestVisible = false };
+    private readonly Canvas _hover = new() { IsHitTestVisible = false };
     private readonly StackPanel _legend = new()
     {
         Orientation = Orientation.Horizontal,
         Spacing = 16,
-        Margin = new Thickness(44, 8, 16, 0),
+        Margin = new Thickness(PadL, 8, 16, 0),
+        IsHitTestVisible = false,
     };
+
     private IReadOnlyList<Series> _series = Array.Empty<Series>();
     private DateTimeOffset? _domainStart, _domainEnd;
+    private UIElement? _emptyState;
+
+    // 最近一次渲染的几何信息，供 hover 反查（pointer x → 时间 → 最近采样点）
+    private double _w, _h, _plotW, _plotH;
+    private DateTimeOffset _tStart, _tEnd;
+    private double _totalSec;
 
     public BatteryChartControl()
     {
+        // 透明背景让整块控件可命中，否则空白处收不到 PointerMoved，hover 只在曲线附近才触发
+        Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
         _root.Children.Add(_canvas);
+        _root.Children.Add(_hover);
         _root.Children.Add(_legend);
         Content = _root;
         SizeChanged += (_, _) => Render();
+        // 明暗主题切换时网格/轴文字颜色来自 ThemeResource，必须重绘才能跟着变
+        ActualThemeChanged += (_, _) => Render();
+        PointerMoved += OnPointerMoved;
+        PointerExited += (_, _) => _hover.Children.Clear();
     }
 
     public void SetData(IReadOnlyList<Series> series,
@@ -52,14 +74,21 @@ public sealed class BatteryChartControl : UserControl
     private void Render()
     {
         _canvas.Children.Clear();
-        double w = Math.Max(ActualWidth, 100);
-        double h = Math.Max(ActualHeight, 100);
-        _canvas.Width = w;
-        _canvas.Height = h;
-        // padT 给顶部图例留出空间
-        const double padL = 44, padR = 16, padT = 36, padB = 28;
-        double plotW = w - padL - padR;
-        double plotH = h - padT - padB;
+        _hover.Children.Clear();
+        if (_emptyState is not null)
+        {
+            _root.Children.Remove(_emptyState);
+            _emptyState = null;
+        }
+
+        _w = Math.Max(ActualWidth, 100);
+        _h = Math.Max(ActualHeight, 100);
+        _canvas.Width = _w;
+        _canvas.Height = _h;
+        _hover.Width = _w;
+        _hover.Height = _h;
+        _plotW = Math.Max(_w - PadL - PadR, 10);
+        _plotH = Math.Max(_h - PadT - PadB, 10);
 
         DateTimeOffset tStart, tEnd;
         if (_domainStart.HasValue && _domainEnd.HasValue)
@@ -77,24 +106,66 @@ public sealed class BatteryChartControl : UserControl
                     if (p.Time < tStart) tStart = p.Time;
                     if (p.Time > tEnd) tEnd = p.Time;
                 }
-            if (tStart > tEnd) return;
+            if (tStart > tEnd)
+            {
+                tStart = DateTimeOffset.Now.AddHours(-24);
+                tEnd = DateTimeOffset.Now;
+            }
             if ((tEnd - tStart).TotalSeconds < 60) tEnd = tStart.AddSeconds(60);
         }
         if (tEnd <= tStart) return;
-        double totalSec = (tEnd - tStart).TotalSeconds;
+        _tStart = tStart;
+        _tEnd = tEnd;
+        _totalSec = (tEnd - tStart).TotalSeconds;
 
-        var gridBrush = Application.Current.Resources["DividerStrokeColorDefaultBrush"] as SolidColorBrush
+        var gridBrush = Application.Current.Resources["DividerStrokeColorDefaultBrush"] as Brush
                         ?? new SolidColorBrush(Color.FromArgb(60, 128, 128, 128));
         var axisBrush = Application.Current.Resources["TextFillColorTertiaryBrush"] as Brush
                         ?? new SolidColorBrush(Color.FromArgb(160, 128, 128, 128));
         var textBrush = Application.Current.Resources["TextFillColorSecondaryBrush"] as Brush
                         ?? new SolidColorBrush(Color.FromArgb(200, 128, 128, 128));
 
-        // 图例（色点 + 设备名，只列有数据的系列）
-        _legend.Children.Clear();
+        RenderLegend(textBrush);
+
+        // 横向网格线 + Y 标签（0/20/40/60/80/100，比 25 档更细）
+        foreach (int yPct in new[] { 0, 20, 40, 60, 80, 100 })
+        {
+            double y = PctToY(yPct);
+            _canvas.Children.Add(new Line
+            {
+                X1 = PadL, Y1 = y, X2 = PadL + _plotW, Y2 = y,
+                Stroke = gridBrush, StrokeThickness = 1,
+            });
+            var yLabel = MakeLabel($"{yPct}%", axisBrush, 10);
+            Canvas.SetLeft(yLabel, 6);
+            Canvas.SetTop(yLabel, y - 8);
+            _canvas.Children.Add(yLabel);
+        }
+
+        RenderTimeAxis(axisBrush);
+
+        if (!_series.Any(s => s.Points.Count > 0))
+        {
+            RenderEmptyState(axisBrush, textBrush);
+            return;
+        }
+
         foreach (var s in _series)
         {
             if (s.Points.Count == 0) continue;
+            RenderSeries(s);
+        }
+    }
+
+    private void RenderLegend(Brush textBrush)
+    {
+        _legend.Children.Clear();
+        // 只有一个系列时图例与设备下拉框完全重复，纯占地方，直接不画
+        var shown = _series.Where(s => s.Points.Count > 0).ToList();
+        if (shown.Count < 2) return;
+
+        foreach (var s in shown)
+        {
             var item = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
             item.Children.Add(new Ellipse
             {
@@ -108,73 +179,221 @@ public sealed class BatteryChartControl : UserControl
             item.Children.Add(name);
             _legend.Children.Add(item);
         }
+    }
 
-        // 横向网格线 + Y 标签（0/25/50/75/100）
-        foreach (int yPct in new[] { 0, 25, 50, 75, 100 })
-        {
-            double y = padT + plotH * (1 - yPct / 100.0);
-            _canvas.Children.Add(new Line
-            {
-                X1 = padL, Y1 = y, X2 = padL + plotW, Y2 = y,
-                Stroke = gridBrush, StrokeThickness = 1,
-            });
-            var yLabel = MakeLabel($"{yPct}%", axisBrush, 10);
-            Canvas.SetLeft(yLabel, 4);
-            Canvas.SetTop(yLabel, y - 8);
-            _canvas.Children.Add(yLabel);
-        }
+    /// <summary>X 轴时间标签：档数按可用宽度动态取 3~6，标签太长时退化成 "HH:mm"。</summary>
+    private void RenderTimeAxis(Brush axisBrush)
+    {
+        int ticks = _plotW < 300 ? 3 : _plotW < 520 ? 4 : _plotW < 800 ? 5 : 6;
+        bool shortFormat = _plotW / ticks < 95;
 
-        // X 时间标签（起点到终点 5 档）
-        for (int i = 0; i <= 4; i++)
+        for (int i = 0; i <= ticks; i++)
         {
-            var t = tStart.AddSeconds(totalSec * i / 4.0);
-            double x = padL + plotW * i / 4.0;
-            var label = MakeLabel(t.LocalDateTime.ToString("MM-dd HH:mm"), axisBrush, 10);
-            double lx = Math.Min(Math.Max(x - 45, padL - 24), w - 92);
-            Canvas.SetLeft(label, lx);
-            Canvas.SetTop(label, h - 20);
+            var t = _tStart.AddSeconds(_totalSec * i / ticks);
+            double x = PadL + _plotW * i / ticks;
+            string text = t.LocalDateTime.ToString(shortFormat ? "HH:mm" : "MM-dd HH:mm");
+            var label = MakeLabel(text, axisBrush, 10);
+            double estWidth = text.Length * 6.2;
+            Canvas.SetLeft(label, Math.Clamp(x - estWidth / 2, 4, Math.Max(_w - estWidth - 4, 4)));
+            Canvas.SetTop(label, _h - 20);
             _canvas.Children.Add(label);
         }
+    }
 
-        if (!_series.Any(s => s.Points.Count > 0))
+    private void RenderSeries(Series s)
+    {
+        var pts = new PointCollection();
+        foreach (var p in s.Points)
+            pts.Add(new Point(TimeToX(p.Time), PctToY(p.Percent)));
+
+        // 面积填充：折线到基线的闭合多边形，低透明度让层次出来但不抢眼
+        var area = new PointCollection();
+        foreach (var pt in pts) area.Add(pt);
+        area.Add(new Point(pts[^1].X, PadT + _plotH));
+        area.Add(new Point(pts[0].X, PadT + _plotH));
+        _canvas.Children.Add(new Polygon
         {
-            var hint = MakeLabel("该时间范围内暂无采样数据", textBrush, 12);
-            Canvas.SetLeft(hint, padL + plotW / 2 - 78);
-            Canvas.SetTop(hint, padT + plotH / 2 - 8);
-            _canvas.Children.Add(hint);
-            return;
+            Points = area,
+            Fill = new SolidColorBrush(Color.FromArgb(38, s.Color.R, s.Color.G, s.Color.B)),
+        });
+
+        _canvas.Children.Add(new Polyline
+        {
+            Points = pts,
+            Stroke = new SolidColorBrush(s.Color),
+            StrokeThickness = 2,
+            StrokeLineJoin = PenLineJoin.Round,
+        });
+
+        // 采样点稀疏时补圆点，密集时不画（否则糊成一条粗线）
+        if (pts.Count <= 40)
+        {
+            var fill = new SolidColorBrush(s.Color);
+            foreach (var pt in pts)
+            {
+                var dot = new Ellipse { Width = 5, Height = 5, Fill = fill };
+                Canvas.SetLeft(dot, pt.X - 2.5);
+                Canvas.SetTop(dot, pt.Y - 2.5);
+                _canvas.Children.Add(dot);
+            }
         }
 
-        // 各系列曲线 + 末端数值
+        // 末端数值标签：用实测宽度决定靠左还是靠右，替代原来"每字符约 7px"的估算
+        var last = s.Points[^1];
+        var tip = MakeLabel($"{last.Percent}%", new SolidColorBrush(s.Color), 11);
+        tip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double tipWidth = tip.DesiredSize.Width;
+        double tipX = TimeToX(last.Time) + 6;
+        if (tipX + tipWidth > _w - PadR) tipX = _w - PadR - tipWidth;
+        Canvas.SetLeft(tip, tipX);
+        Canvas.SetTop(tip, PctToY(last.Percent) - 8);
+        _canvas.Children.Add(tip);
+    }
+
+    private void RenderEmptyState(Brush axisBrush, Brush textBrush)
+    {
+        var panel = new StackPanel
+        {
+            Spacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        panel.Children.Add(new FontIcon
+        {
+            Glyph = "\uE9D2",
+            FontSize = 26,
+            Width = 32,
+            Height = 32,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Foreground = axisBrush,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "暂无采样数据",
+            FontSize = 14,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Foreground = textBrush,
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "所选时间范围内没有记录，等待采集…",
+            FontSize = 12,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Foreground = axisBrush,
+        });
+
+        _emptyState = panel;
+        _root.Children.Add(panel);
+    }
+
+    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        _hover.Children.Clear();
+        if (_series.Count == 0 || _totalSec <= 0) return;
+
+        var p = e.GetCurrentPoint(_canvas).Position;
+        // 只在绘图区内响应，边缘留 6px 容差
+        if (p.X < PadL - 6 || p.X > PadL + _plotW + 6 || p.Y < PadT - 6 || p.Y > PadT + _plotH + 6)
+            return;
+
+        // pointer x → 目标时间 → 全局最近的采样点
+        double offset = Math.Clamp((p.X - PadL) / _plotW, 0, 1) * _totalSec;
+        var target = _tStart.AddSeconds(offset);
+
+        Series? bestSeries = null;
+        (DateTimeOffset Time, int Percent) best = default;
+        double bestDelta = double.MaxValue;
         foreach (var s in _series)
         {
-            if (s.Points.Count == 0) continue;
-            var pts = new PointCollection();
-            foreach (var p in s.Points)
+            foreach (var pt in s.Points)
             {
-                double x = padL + plotW * (p.Time - tStart).TotalSeconds / totalSec;
-                double y = padT + plotH * (1 - Math.Clamp(p.Percent, 0, 100) / 100.0);
-                pts.Add(new Windows.Foundation.Point(x, y));
+                double delta = Math.Abs((pt.Time - target).TotalSeconds);
+                if (delta < bestDelta)
+                {
+                    bestDelta = delta;
+                    best = pt;
+                    bestSeries = s;
+                }
             }
-            _canvas.Children.Add(new Polyline
-            {
-                Points = pts,
-                Stroke = new SolidColorBrush(s.Color),
-                StrokeThickness = 2,
-                StrokeLineJoin = PenLineJoin.Round,
-            });
-
-            var last = s.Points[^1];
-            var tip = MakeLabel($"{last.Percent}%", new SolidColorBrush(s.Color), 11);
-            // 末端标签靠右缘时左移，避免被卡片裁掉（估宽：11px 字号每字符约 7px）
-            double tipX = padL + plotW * (last.Time - tStart).TotalSeconds / totalSec + 4;
-            double tipEstWidth = $"{last.Percent}%".Length * 7;
-            if (tipX + tipEstWidth > w - padR) tipX = w - padR - tipEstWidth;
-            Canvas.SetLeft(tip, tipX);
-            Canvas.SetTop(tip, padT + plotH * (1 - last.Percent / 100.0) - 8);
-            _canvas.Children.Add(tip);
         }
+        if (bestSeries is null) return;
+
+        double hx = TimeToX(best.Time);
+        double hy = PctToY(best.Percent);
+        var color = new SolidColorBrush(bestSeries.Color);
+
+        _hover.Children.Add(new Line
+        {
+            X1 = hx, Y1 = PadT, X2 = hx, Y2 = PadT + _plotH,
+            Stroke = color,
+            StrokeThickness = 1,
+            StrokeDashArray = new DoubleCollection { 3, 3 },
+            Opacity = 0.55,
+        });
+
+        var dot = new Ellipse
+        {
+            Width = 10, Height = 10,
+            Fill = color,
+            Stroke = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+            StrokeThickness = 2,
+        };
+        Canvas.SetLeft(dot, hx - 5);
+        Canvas.SetTop(dot, hy - 5);
+        _hover.Children.Add(dot);
+
+        _hover.Children.Add(MakeTooltip(bestSeries, best, hx, hy));
     }
+
+    /// <summary>深色气泡：多系列时带上系列名，单系列时只显示时间 + 电量。</summary>
+    private UIElement MakeTooltip(Series series, (DateTimeOffset Time, int Percent) point, double hx, double hy)
+    {
+        var content = new StackPanel { Spacing = 1 };
+        if (_series.Count > 1)
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = series.Name,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)),
+            });
+        }
+        content.Children.Add(new TextBlock
+        {
+            Text = point.Time.LocalDateTime.ToString("MM-dd HH:mm"),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255)),
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = $"{point.Percent}%",
+            FontSize = 14,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+        });
+
+        var tip = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(242, 32, 32, 32)),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 6, 10, 6),
+            Child = content,
+        };
+        tip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double tw = tip.DesiredSize.Width;
+        double th = tip.DesiredSize.Height;
+
+        Canvas.SetLeft(tip, Math.Clamp(hx - tw / 2, 4, Math.Max(_w - tw - 4, 4)));
+        double ty = hy - th - 14;
+        Canvas.SetTop(tip, ty < 2 ? hy + 14 : ty);
+        return tip;
+    }
+
+    private double TimeToX(DateTimeOffset t) =>
+        PadL + _plotW * Math.Clamp((t - _tStart).TotalSeconds / _totalSec, 0, 1);
+
+    private double PctToY(int percent) =>
+        PadT + _plotH * (1 - Math.Clamp(percent, 0, 100) / 100.0);
 
     private static TextBlock MakeLabel(string text, Brush brush, double size)
     {

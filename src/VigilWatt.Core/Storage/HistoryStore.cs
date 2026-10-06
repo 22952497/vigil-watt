@@ -6,21 +6,30 @@ namespace VigilWatt.Core.Storage;
 
 public record HistorySample(long Id, string DeviceId, string Name, int Percent, bool Charging, DateTimeOffset Timestamp);
 
-/// <summary>电量历史 SQLite 存储。库文件在 %LOCALAPPDATA%\VigilWatt\history.db。</summary>
+/// <summary>单台设备的历史聚合（历史管理页列表用）。</summary>
+public record DeviceHistoryStat(string DeviceId, string Name, int Count, DateTimeOffset First, DateTimeOffset Last);
+
+/// <summary>整库概览（历史管理页顶部卡片用）。空库时 First/Last 为 null。</summary>
+public record HistoryStats(int TotalCount, int DeviceCount, DateTimeOffset? First, DateTimeOffset? Last, long FileBytes);
+
+/// <summary>电量历史 SQLite 存储。库文件默认在 %LOCALAPPDATA%\VigilWatt\history.db。</summary>
 public class HistoryStore : IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly object _writeGate = new();
+    private readonly string _dbPath;
 
-    public HistoryStore()
+    /// <param name="dbPath">库文件路径；null = 默认 %LOCALAPPDATA%\VigilWatt\history.db。
+    /// 显式传入供单测用临时库，避免碰真实数据。</param>
+    public HistoryStore(string? dbPath = null)
     {
-        var dir = AppPaths.RootDir;
-        Directory.CreateDirectory(dir);
-        var dbPath = Path.Combine(dir, "history.db");
-        _connection = new SqliteConnection($"Data Source={dbPath}");
+        _dbPath = dbPath ?? Path.Combine(AppPaths.RootDir, "history.db");
+        var dir = Path.GetDirectoryName(_dbPath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        _connection = new SqliteConnection($"Data Source={_dbPath}");
         _connection.Open();
         EnsureSchema();
-        Log.Info($"history.db 就绪: {dbPath}");
+        Log.Info($"history.db 就绪: {_dbPath}");
     }
 
     private void EnsureSchema()
@@ -104,6 +113,69 @@ public class HistoryStore : IDisposable
         return list;
     }
 
+    /// <summary>整库概览：总条数 / 设备数 / 最早 / 最新 / 库文件字节数。</summary>
+    public HistoryStats GetStats()
+    {
+        lock (_writeGate)
+        {
+            int total = 0, devices = 0;
+            long? first = null, last = null;
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*), COUNT(DISTINCT device_id), MIN(ts), MAX(ts) FROM samples";
+                using var reader = cmd.ExecuteReader();
+                if (reader.Read())
+                {
+                    total = reader.GetInt32(0);
+                    devices = reader.GetInt32(1);
+                    if (!reader.IsDBNull(2)) first = reader.GetInt64(2);
+                    if (!reader.IsDBNull(3)) last = reader.GetInt64(3);
+                }
+            }
+            return new HistoryStats(
+                total, devices,
+                first is { } f ? DateTimeOffset.FromUnixTimeMilliseconds(f) : null,
+                last is { } l ? DateTimeOffset.FromUnixTimeMilliseconds(l) : null,
+                FileBytes());
+        }
+    }
+
+    /// <summary>每台设备的聚合（条数 / 名称 / 最早 / 最新），最近有数据的在前。</summary>
+    public List<DeviceHistoryStat> GetDeviceStats()
+    {
+        var list = new List<DeviceHistoryStat>();
+        lock (_writeGate)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText =
+                "SELECT device_id, MAX(name), COUNT(*), MIN(ts), MAX(ts) FROM samples " +
+                "GROUP BY device_id ORDER BY MAX(ts) DESC";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                list.Add(new DeviceHistoryStat(
+                    reader.GetString(0), reader.GetString(1), reader.GetInt32(2),
+                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)),
+                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4))));
+        }
+        return list;
+    }
+
+    /// <summary>删除指定设备的全部历史，返回删除条数。空集合直接返回 0（不拼 SQL）。</summary>
+    public int DeleteDevices(IReadOnlyCollection<string> deviceIds)
+    {
+        if (deviceIds.Count == 0) return 0;
+        lock (_writeGate)
+        {
+            // IN 列表按数量生成占位符、值逐个绑定参数——绝不把设备 Id 拼进 SQL 文本
+            var placeholders = deviceIds.Select((_, i) => $"$id{i}").ToArray();
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = $"DELETE FROM samples WHERE device_id IN ({string.Join(",", placeholders)})";
+            int i = 0;
+            foreach (var id in deviceIds) cmd.Parameters.AddWithValue($"$id{i++}", id);
+            return cmd.ExecuteNonQuery();
+        }
+    }
+
     public int CleanupOlderThan(DateTimeOffset cutoff)
     {
         lock (_writeGate)
@@ -112,6 +184,35 @@ public class HistoryStore : IDisposable
             cmd.CommandText = "DELETE FROM samples WHERE ts < $cutoff";
             cmd.Parameters.AddWithValue("$cutoff", cutoff.ToUnixTimeMilliseconds());
             return cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>库文件当前字节数；文件不存在或读不到时返回 0。</summary>
+    public long FileBytes()
+    {
+        try
+        {
+            var info = new FileInfo(_dbPath);
+            return info.Exists ? info.Length : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// VACUUM 收缩库文件。**DELETE 只把页标成空闲、不缩小文件**——
+    /// 删完不 VACUUM 的话用户看到文件大小没变，会以为删除没生效。
+    /// VACUUM 不能在事务里跑，这里也没有活动事务，直接执行。
+    /// </summary>
+    public void Compact()
+    {
+        lock (_writeGate)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "VACUUM";
+            cmd.ExecuteNonQuery();
         }
     }
 

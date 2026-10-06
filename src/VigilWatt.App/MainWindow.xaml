@@ -34,6 +34,11 @@
                         <FontIcon Glyph="&#xE9D2;" />
                     </muxc:NavigationViewItem.Icon>
                 </muxc:NavigationViewItem>
+                <muxc:NavigationViewItem Content="历史管理" Tag="history">
+                    <muxc:NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE74D;" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
                 <muxc:NavigationViewItem Content="设置" Tag="settings">
                     <muxc:NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE713;" />

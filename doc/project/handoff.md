@@ -211,6 +211,40 @@ Windows 的 USB product string 是 `"BEITONG T9 For Keyboard & Mouse"`（厂商�
 **另记**：`TrayService.Exit()` 的实现就是 `Dispose()`（只删托盘图标）+ `Environment.Exit(0)`，
 不做任何 HID 解绑 —— 所以**强杀与托盘"退出"对 dongle 会话的影响完全等价**，那 ~2 分钟的粘连绕不开。
 
+### 2026-10-06（晚）第五轮：历史统计页改版（纯 UI，不碰 Core）
+
+用户反馈"历史统计页面显示不好看"，先出方案确认后动代码。**根因不是配色，是信息结构太薄**——
+整页只有两个裸下拉框 + 一张曲线，没有任何摘要数字，想读最高/最低/平均只能用眼睛从曲线上量。
+
+**改动（三个文件，全在 App 层）**：
+
+1. `Views/StatsPage.xaml` 重排为 4 行：标题栏（标题 + 副标题 + 刷新按钮）→ 筛选卡片
+   （`设备` 下拉 + **时间范围按钮组**）→ **4 张指标摘要卡** → 曲线卡片。对齐设置页/设备页的卡片语言。
+   - 时间范围从 `ComboBox` 换成三个 `ToggleButton`（24 小时 / 7 天 / 30 天），
+     `Range_Click` 里 `IsChecked = ReferenceEquals(tb, clicked)` 做互斥（点击本身会取反，强制点回选中态）。
+   - **指标卡**：当前电量（带状态色）、区间最高、区间最低、平均电量，各带一行小字（时间 / 掉电点数）。
+     "当前电量"优先取 `Manager.Devices` 里**实时在线**读数，取不到才回退最后一条历史采样，小字标"实时/最后记录"。
+   - `KpiMax`/`KpiAvg` 用 `ClearValue(TextBlock.ForegroundProperty)` 恢复主题默认色，
+     避免"有数据时染过色、没数据时洗不掉"。
+2. `Views/BatteryChartControl.xaml.cs` 增强：
+   - **面积填充**（折线到基线的闭合 `Polygon`，alpha 38）+ 采样点 ≤40 时补圆点。
+   - **hover 提示**：`PointerMoved` 找全局最近采样点 → 竖虚线 + 高亮圆点 + 深色气泡（时间 + 电量%）。
+     关键：控件 `Background` 必须设成**非 null 的透明刷**，否则空白处收不到指针事件，hover 只在曲线附近才触发。
+     气泡宽度用 `Border.Measure(...)` 实测 `DesiredSize` 决定位置（替代原"每字符约 7px"估算）。
+   - Y 网格改 0/20/40/60/80/100（比 25 档细）；X 轴档数按 `_plotW` 动态取 3~6，
+     太窄时标签退化成 `HH:mm`；**单系列隐藏图例**（与设备下拉框完全重复）。
+   - 空状态改成图标 + 主副文案（对齐设备页 EmptyState 风格）。
+   - **修一个潜在 bug**：网格/轴文字色来自 `ThemeResource`，原来只在 `SizeChanged` 重绘 →
+     切换明暗主题后图表颜色不刷新。现在订阅 `ActualThemeChanged` 重绘。
+3. 刷新按钮复用 `Manager.RequestPollAsync()` + 450ms 最小可见时长（与设备页同一套反馈约定）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误（2 个警告是原有的 System.Drawing.Common 版本冲突）；
+`dotnet test` **50/50**（Core 未动）；`dotnet publish -c Release` 已出 `src/publish`。
+XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range24`/`KpiCurrent`/`SubtitleText`，
+`ToggleButton` 解析到 `Controls.Primitives`）——XamlCompiler 对写错的属性名会静默失败，构建通过即属性名无误。
+
+**未做**（本轮方案里列为"可选"、用户未选）：多设备对比曲线、导出 CSV、充电时段背景标注。
+
 ### 2026-10-06（傍晚）第五轮：设备发现提速 —— "键盘出来了、鼠标不出来"的根因是 3 分钟冷却
 
 用户复报：**"设备检测还是有点慢，我识别到了键盘，但鼠标并没有识别到"**。
@@ -260,6 +294,44 @@ Windows 的 USB product string 是 `"BEITONG T9 For Keyboard & Mouse"`（厂商�
 > 几秒被进程树清理带走（**没有崩溃转储、没有 WER 报告、日志里也没有异常**）——
 > 想让它长驻就用后台任务方式启动，或直接双击 `src/publish/VigilWatt.App.exe`。
 
+### 2026-10-06（晚）第七轮：新增「历史管理」页（按设备删除历史）
+
+用户要求"一个可以进行删除历史的管理页面"。方案确认后按 **独立导航项 + 只做按设备删除（含批量勾选）+ 加单测** 实现。
+
+**Core（原来 `HistoryStore` 只有读，没有任何删除入口）**：
+- `Storage/HistoryStore.cs` 新增：`HistoryStats GetStats()`（总条数/设备数/最早/最新/文件字节）、
+  `List<DeviceHistoryStat> GetDeviceStats()`（每设备条数/名称/最早/最新）、
+  `int DeleteDevices(IReadOnlyCollection<string>)`（IN 列表**按数量生成占位符 + 逐个绑定参数**，绝不拼 SQL）、
+  `long FileBytes()`、`void Compact()`（VACUUM）。全部走已有的 `_writeGate` 锁——
+  后台每分钟 `SafeSample` 在并发写库，`VACUUM` 尤其不能与别的语句并发。
+- `HistoryStore` 构造加可选 `dbPath` 参数（null = 默认 `%LOCALAPPDATA%\VigilWatt\history.db`），供单测指向临时库。
+- `Utils/Log.cs` 新增 `RedirectTo(string logDir)`：**没有它单测会往真实 `app.log` 写脏数据**。
+  `LogDir`/`LogPath` 从 `static readonly` 改成可变静态字段。
+- `Utils/ByteSize.cs`（新）：字节 → `"1.24 MB"`，纯函数。
+
+**UI**：
+- 新增 `Views/HistoryPage.xaml(.cs)` + `ViewModels/HistoryDeviceRow.cs`。
+  布局：标题栏 → InfoBar（操作结果）→ 4 张概览卡（库大小/总条数/设备数/最早记录）→ 按设备清理卡片
+  （CheckBox + 名称 + 条数 + 时间范围 + 单行删除；底部"已选 N 台 · 将删除 M 条" + 批量删除按钮）。
+- `MainWindow` 加第 4 项导航「历史管理」（Tag=history，图标 E74D）+ 路由。
+- 删除流程：ContentDialog 二次确认（写明设备/时间范围/条数/不可恢复）→ `DeleteDevices` → **`Compact()`** → InfoBar 报"删除 N 条，释放 X"。
+- **HistoryPage 刻意不订阅 `DevicesChanged`**：后台每分钟采样会重建列表、打断用户勾选（StatsPage 踩过同款坑），数据陈旧靠手动刷新。
+
+**踩到的三个坑（可复用）**：
+1. **WinUI `CheckBox` 默认 `MinWidth=120`**，放进列表行会在名字前留一大段空白，必须显式 `MinWidth="0"`。
+2. **不要用双向绑定读勾选状态**：`Checked`/`Unchecked` 事件回调与 x:Bind 写回的先后顺序没有保证，
+   所以行模型不用 `IsChecked="{x:Bind IsSelected, Mode=TwoWay}"`，而是**在事件里直接读 `CheckBox.IsChecked`** 写回模型。
+3. **测试造数据别逐条 `Insert`**：`HistoryStore.Insert` 每条一次隐式事务（一次 fsync），
+   H9/H10 原本各插 200/500 行，测试套件从 20ms 涨到 **53s**；行数压到 30/60 后回到 **9s**。
+
+**测试**：测试项目引入 `Microsoft.Data.Sqlite`，用 `<Compile Include>` 链接
+`Storage/HistoryStore.cs` + `Utils/AppPaths.cs` + `Utils/ByteSize.cs` + `Utils/Log.cs` + `Models/DeviceStatus.cs`
+（这几个文件虽碰 SQLite 但**都不碰 WinRT**，所以纯 net8.0 测试项目仍能编译，且真跑 SQLite）。
+新增 `HistoryStoreTests`（H1–H10：空库统计、计数与时间范围、无读数不写库、按设备聚合、只删指定设备、批量删、空集合幂等、删不存在、VACUUM 后数据完好、全清后文件不膨胀）+ `ByteSizeTests`（B1–B5）。
+**测试总数 50 → 65**。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误（唯一新增警告是 `BluetoothClassicWatcher.cs:134` 的既有 CS8604，与本次无关）；`dotnet test` **65/65**。
+
 ## 4. 待办（按优先级，详见 experience.md §5）
 
 
@@ -299,4 +371,7 @@ Windows 的 USB product string 是 `"BEITONG T9 For Keyboard & Mouse"`（厂商�
 | 经典蓝牙发现 + 电量 | `src/VigilWatt.Core/Ble/BluetoothClassicWatcher.cs` + `Ble/ClassicAudioBattery.cs`（code-flow.md §3、runtime-pitfalls §3） |
 | 经典蓝牙电量排查 | `scripts/probe-devnode-battery.py`（`--all` dump 节点全属性） |
 | 托盘/小组件/设置页 | `src/VigilWatt.App/Services|Views`（code-flow.md §7/§8/§9） |
+| 历史统计页（指标卡/曲线/hover） | `src/VigilWatt.App/Views/StatsPage.xaml(.cs)` + `Views/BatteryChartControl.xaml.cs` |
+| 历史删除/统计能力 | `src/VigilWatt.Core/Storage/HistoryStore.cs`（`GetStats`/`GetDeviceStats`/`DeleteDevices`/`Compact`）；页面 `Views/HistoryPage.xaml(.cs)` |
+| 历史管理页单测 | `src/tests/VigilWatt.Core.Tests/HistoryStoreTests.cs`（临时库真跑 SQLite） |
 | 语言包白名单 | `VigilWatt.App.csproj` 的 `MuiLanguagesToKeep` + `_MuiKeep` 两处（build.md §6） |

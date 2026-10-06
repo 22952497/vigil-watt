@@ -1,15 +1,21 @@
 using VigilWatt.App.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media;
 using VigilWatt.Core.Models;
+using VigilWatt.Core.Storage;
+using VigilWatt.Core.Utils;
 
 namespace VigilWatt.App.Views;
 
 public sealed partial class StatsPage : Page
 {
-    /// <summary>历史页设备条目：Id 用于查库，Name 画曲线标注，Display 是下拉框文案。
-    /// 设备列表以历史库为准（所选时间范围内有过采样就在列），不在当前在线列表的标"历史 + 最后记录时间"。</summary>
-    private sealed record DeviceEntry(string Id, string Name, string Display);
+    /// <summary>历史页设备条目：Id 用于查库，Name 既画曲线标注也做下拉框文案（只显示名称，不附历史时间等附加信息）。</summary>
+    private sealed record DeviceEntry(string Id, string Name);
+
+    /// <summary>手动刷新进行中：挡住重复点击，也让"刷新中"状态不被后台事件提前清掉。</summary>
+    private bool _refreshing;
 
     public StatsPage()
     {
@@ -22,29 +28,42 @@ public sealed partial class StatsPage : Page
     // 命名方法 + Unloaded 解绑：页面每次导航都会新建实例，构造里匿名订阅会让旧页泄漏且叠加回调
     private void OnDevicesChanged() => DispatcherQueue.TryEnqueue(ReloadDeviceList);
 
+    /// <summary>当前选中的时间范围（小时）。按钮组互斥，默认 24 小时。</summary>
     private int GetSelectedHours()
     {
-        if (RangeCombo?.SelectedItem is ComboBoxItem item && item.Tag is string tag)
-            return int.Parse(tag);
+        if (Range168?.IsChecked == true) return 168;
+        if (Range720?.IsChecked == true) return 720;
         return 24;
+    }
+
+    private string GetRangeText() => GetSelectedHours() switch
+    {
+        168 => "最近 7 天",
+        720 => "最近 30 天",
+        _ => "最近 24 小时",
+    };
+
+    /// <summary>按钮组切换：点谁谁亮，其余熄灭。ToggleButton 点击本身会取反，这里强制点回选中态。</summary>
+    private void Range_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton clicked) return;
+        foreach (var tb in new[] { Range24, Range168, Range720 })
+            tb.IsChecked = ReferenceEquals(tb, clicked);
+
+        // 时间范围变了，"有数据的设备"集合也会变，列表要跟着重算
+        ReloadDeviceList();
     }
 
     private void ReloadDeviceList()
     {
-        if (DeviceCombo == null || RangeCombo == null || ChartHost == null) return;
+        if (DeviceCombo == null || ChartHost == null) return;
 
         // 设备列表按历史库走：所选时间范围内有过采样的设备都在列（含已下线/换过 Id 的历史设备），
         // 不再跟随当前在线设备——否则昨天用旧协议采的曲线永远选不到。
-        var liveIds = App.Services.Manager.Devices.Select(d => d.Id).ToHashSet();
+        // 下拉框只显示设备名（历史设备不再附"最后记录时间"，下拉项保持干净）。
         var entries = App.Services.History
             .DistinctDevices(DateTimeOffset.Now.AddHours(-GetSelectedHours()))
-            .Select(d =>
-            {
-                string display = liveIds.Contains(d.DeviceId)
-                    ? d.Name
-                    : $"{d.Name}（历史 {d.LastSeen.LocalDateTime:MM-dd HH:mm}）";
-                return new DeviceEntry(d.DeviceId, d.Name, display);
-            })
+            .Select(d => new DeviceEntry(d.DeviceId, d.Name))
             .ToList();
 
         // 列表内容没变就不重建 ItemsSource——重建会强制关闭打开中的下拉框并把选择弹回，
@@ -52,7 +71,7 @@ public sealed partial class StatsPage : Page
         var selectedId = (DeviceCombo.SelectedItem as DeviceEntry)?.Id;
         bool sameList = DeviceCombo.ItemsSource is IReadOnlyList<DeviceEntry> cur &&
                         cur.Count == entries.Count &&
-                        cur.Zip(entries, (a, b) => a.Id == b.Id && a.Display == b.Display).All(x => x);
+                        cur.Zip(entries, (a, b) => a.Id == b.Id && a.Name == b.Name).All(x => x);
         if (!sameList)
         {
             DeviceCombo.ItemsSource = entries;
@@ -64,47 +83,141 @@ public sealed partial class StatsPage : Page
 
     private void Device_SelectionChanged(object sender, SelectionChangedEventArgs e) => RenderChart();
 
-    private void Range_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        // 时间范围变了，"有数据的设备"集合也会变，列表要跟着重算
-        if (DeviceCombo == null) return;
-        ReloadDeviceList();
-    }
-
     private void RenderChart()
     {
-        // RangeCombo 的 SelectedIndex="0" 会在 XAML 解析期间触发本方法，此时后续控件还没创建
-        if (DeviceCombo == null || RangeCombo == null || ChartHost == null) return;
-
-        if (DeviceCombo.SelectedItem is not DeviceEntry device)
-        {
-            ChartHost.Children.Clear();
-            ChartHost.Children.Add(new TextBlock
-            {
-                Text = "该时间范围内暂无采样数据，等待采集…",
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                Opacity = 0.6,
-            });
-            return;
-        }
+        // XAML 解析期事件可能先于字段赋值触发，统一判空
+        if (DeviceCombo == null || ChartHost == null) return;
 
         var from = DateTimeOffset.Now.AddHours(-GetSelectedHours());
         var to = DateTimeOffset.Now;
-        var samples = App.Services.History.Query(device.Id, from, to);
+        var device = DeviceCombo.SelectedItem as DeviceEntry;
+        var samples = device is null
+            ? new List<HistorySample>()
+            : App.Services.History.Query(device.Id, from, to);
 
-        // 把所选时间窗显式交给图表：数据不足一档时轴仍然拉开，切换档位才能看出变化
+        UpdateKpis(device, samples);
+
         var chart = new BatteryChartControl();
-        chart.SetData(new[]
+        if (device is null)
         {
-            new BatteryChartControl.Series
+            // 没有设备：仍画空坐标系，把所选时间窗显式交给图表（切档位能看出轴在变）
+            chart.SetData(Array.Empty<BatteryChartControl.Series>(), from, to);
+        }
+        else
+        {
+            chart.SetData(new[]
             {
-                Name = device.Name,
-                Color = UiPalette.SeriesColors[0],
-                Points = samples.Select(s => (s.Timestamp, s.Percent)).ToList(),
-            },
-        }, from, to);
+                new BatteryChartControl.Series
+                {
+                    Name = device.Name,
+                    Color = UiPalette.SeriesColors[0],
+                    Points = samples.Select(s => (s.Timestamp, s.Percent)).ToList(),
+                },
+            }, from, to);
+        }
+
         ChartHost.Children.Clear();
         ChartHost.Children.Add(chart);
+    }
+
+    /// <summary>刷新顶部副标题与 4 张指标卡。当前值优先取"实时在线"读数，取不到才回退到最后一条历史采样。</summary>
+    private void UpdateKpis(DeviceEntry? device, List<HistorySample> samples)
+    {
+        if (device is null)
+        {
+            SubtitleText.Text = "所选时间范围内暂无设备记录";
+            ResetKpis();
+            return;
+        }
+
+        if (samples.Count == 0)
+        {
+            SubtitleText.Text = $"{device.Name} · {GetRangeText()} · 暂无采样";
+            ResetKpis();
+            return;
+        }
+
+        var last = samples[^1];
+        var max = samples.MaxBy(s => s.Percent)!;
+        var min = samples.MinBy(s => s.Percent)!;
+        double avg = samples.Average(s => s.Percent);
+
+        // 历史库是每 N 分钟一条；设备此刻在线时用实时值更准
+        var live = App.Services.Manager.Devices.FirstOrDefault(d => d.Id == device.Id && d.IsOnline);
+        int current = live?.BatteryPercent ?? last.Percent;
+        bool charging = (live?.Charging ?? ChargingState.Unknown) is ChargingState.Charging or ChargingState.Full;
+
+        SubtitleText.Text = $"{device.Name} · {GetRangeText()} · {samples.Count} 个采样点";
+
+        KpiCurrent.Text = $"{current}%";
+        KpiCurrent.Foreground = new SolidColorBrush(UiPalette.BatteryLevel(current, charging));
+        KpiCurrentSub.Text = $"{(live is not null ? "实时" : "最后记录")} · {last.Timestamp.LocalDateTime:HH:mm}";
+
+        KpiMax.Text = $"{max.Percent}%";
+        KpiMax.ClearValue(TextBlock.ForegroundProperty);
+        KpiMaxSub.Text = $"{max.Timestamp.LocalDateTime:MM-dd HH:mm}";
+
+        KpiMin.Text = $"{min.Percent}%";
+        KpiMin.Foreground = new SolidColorBrush(UiPalette.BatteryLevel(min.Percent, false));
+        KpiMinSub.Text = $"{min.Timestamp.LocalDateTime:MM-dd HH:mm}";
+
+        KpiAvg.Text = $"{Math.Round(avg)}%";
+        KpiAvg.ClearValue(TextBlock.ForegroundProperty);
+        KpiAvgSub.Text = $"掉电 {max.Percent - min.Percent} 点";
+    }
+
+    private void ResetKpis()
+    {
+        foreach (var (value, sub) in new[]
+                 {
+                     (KpiCurrent, KpiCurrentSub),
+                     (KpiMax, KpiMaxSub),
+                     (KpiMin, KpiMinSub),
+                     (KpiAvg, KpiAvgSub),
+                 })
+        {
+            value.Text = "—";
+            value.ClearValue(TextBlock.ForegroundProperty);
+            sub.Text = "—";
+        }
+    }
+
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing) return;
+
+        _refreshing = true;
+        SetRefreshing(true);
+        var startedAt = DateTimeOffset.Now;
+        try
+        {
+            // 等整轮跑完（含 BLE 异步补读）。若自动轮询正在进行，这里会复用那一轮，不会白跑也不会被丢弃。
+            await App.Services.Manager.RequestPollAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("历史统计手动刷新失败", ex);
+        }
+        finally
+        {
+            // 保证"刷新中"至少可见一小会儿：否则本地扫描几十毫秒就结束，按钮闪一下反而像没反应
+            var elapsed = DateTimeOffset.Now - startedAt;
+            var minVisible = TimeSpan.FromMilliseconds(450);
+            if (elapsed < minVisible)
+                await Task.Delay(minVisible - elapsed);
+
+            ReloadDeviceList();
+            SetRefreshing(false);
+            _refreshing = false;
+        }
+    }
+
+    private void SetRefreshing(bool on)
+    {
+        RefreshButton.IsEnabled = !on;
+        RefreshRing.IsActive = on;
+        RefreshRing.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        RefreshIcon.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        RefreshText.Text = on ? "刷新中…" : "刷新";
     }
 }
