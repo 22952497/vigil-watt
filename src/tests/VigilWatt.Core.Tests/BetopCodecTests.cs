@@ -121,6 +121,17 @@ public class BetopCodecTests
     private static readonly byte[] T9StreamFull =
         Hex("04 02 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 78");
 
+    /// <summary>
+    /// 同一天下午的真机帧：**byte[1] 变成了 0x0C**（上午是 0x02），其余完全一致。
+    /// 旧实现把 byte[1] == 0x02 当帧头 → 这帧解析全落空 → 手柄从列表消失、每次轮询白等 6 秒。
+    /// </summary>
+    private static readonly byte[] T9StreamWakeTag0C =
+        Hex("04 0C 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 58");
+
+    /// <summary>同上，占位值 0x50（同一批 81 条真机帧里 byte[1] ∈ {0x02, 0x0C}、byte[23] ∈ {80, 88}）。</summary>
+    private static readonly byte[] T9StreamIdleTag0C =
+        Hex("04 0C 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50");
+
     [Fact]
     public void T1_解析T9状态流_唤醒_73()
     {
@@ -128,6 +139,23 @@ public class BetopCodecTests
         Assert.NotNull(parsed);
         Assert.Equal(73, parsed!.Value.Percent);
         Assert.False(parsed.Value.Charging);
+    }
+
+    [Fact]
+    public void T7_byte1是可变状态位_0x0C也要认()
+    {
+        // 回归：byte[1] 不是固定帧头，只有 report ID 0x04 才是稳定识别特征
+        Assert.Equal(73, BetopCodec.ParseT9Status(T9StreamWakeTag0C)!.Value.Percent);
+        Assert.Equal(67, BetopCodec.ParseT9Status(T9StreamIdleTag0C)!.Value.Percent);
+    }
+
+    [Fact]
+    public void T8_无reportId前缀布局下byte1为0x0C也能认()
+    {
+        // 整体右移一字节（[0] 是 0x00 占位）时，report ID 落在偏移 1
+        byte[] shifted = new byte[T9StreamWakeTag0C.Length + 1];
+        Array.Copy(T9StreamWakeTag0C, 0, shifted, 1, T9StreamWakeTag0C.Length);
+        Assert.Equal(73, BetopCodec.ParseT9Status(shifted)!.Value.Percent);
     }
 
     [Fact]
@@ -156,9 +184,15 @@ public class BetopCodecTests
     [Fact]
     public void T3_T9解析不误判其它帧()
     {
-        // Col05 的摇杆流：帧头是变化的 0x46~0x6F，不是 0x02
+        // Col05 的摇杆流：report ID 是 0x05，不是 0x04
         Assert.Null(BetopCodec.ParseT9Status(
             Hex("05 60 fd e7 fe 1b 0f 27 00 d9 ff f0 ff 01 06 00 80 80 80 80 00 00 00 00")));
+        // Col05 的 byte[1] 恰好是 0x04 也不行——24 字节长度下偏移 1 的窗口越界，不会被当成 report ID
+        Assert.Null(BetopCodec.ParseT9Status(
+            Hex("05 04 fd e7 fe 1b 0f 27 00 d9 ff f0 ff 01 06 00 80 80 80 80 00 00 00 58")));
+        // Col01 的配置流（01 0b …）
+        Assert.Null(BetopCodec.ParseT9Status(
+            Hex("01 0b d5 31 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00")));
         // 5075 接收器的全零 64 字节帧
         Assert.Null(BetopCodec.ParseT9Status(new byte[64]));
         // 长度不足

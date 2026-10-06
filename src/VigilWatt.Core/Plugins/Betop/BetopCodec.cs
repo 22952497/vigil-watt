@@ -45,14 +45,20 @@ internal static class BetopCodec
 
     // ---------------------------------------------------------------- T9 被动状态流
     // 鲲鹏20 走"查询 0x15 → 响应 0x15"；但 T9（USB\VID_20BC&PID_5073）**不响应查询**，
-    // 而是由 dongle 在厂商接口 Col04 上**持续推**一帧状态流。真机实测（2026-10-06）：
+    // 而是由 dongle 在厂商接口 Col04 上**持续推**一帧状态流。真机实测：
     //   04 02 80 80 80 80 00 00 … 00 78     ← byte23 = 0x78(120) 充满，北通助手满格绿色
     //   04 02 80 80 80 80 00 00 … 00 58     ← byte23 = 0x58(88)  唤醒
     //   04 02 80 80 80 80 00 00 … 00 50     ← byte23 = 0x50(80)  手柄休眠时 dongle 报的占位值
-    // 帧头(偏移1) 0x02、帧长 24 是识别特征（Col05 的摇杆流帧头是变化的 0x46~0x6F，不会命中）。
+    //
+    // ⚠ 2026-10-06 踩坑（务必别再犯）：**byte[1] 不是固定的帧头**。当天上午是 0x02、下午变成 0x0C
+    //   （`04 0C 80 80 80 80 … 58`），旧代码把 `byte[1] == 0x02` 当成识别特征 → 解析全数落空
+    //   → 手柄从设备列表消失，而且每次轮询仍要白等 6 秒探测窗口。翻日志 81 条 Col04 帧：
+    //   byte[1] ∈ {0x02, 0x0C}，byte[23] ∈ {80, 88}，其余字节完全一致 —— byte[1] 是**可变状态位**。
+    //   识别特征只能取真正稳定的部分：**report ID 0x04（Col04 这条 collection）** + 帧长 ≥24。
+    //   （Col05 的摇杆流 report ID 是 0x05、Col01 的配置流是 0x01，天然被 report ID 排除。）
 
-    /// <summary>T9 状态流帧头（整帧偏移 1 处）。</summary>
-    public const byte T9StreamTag = 0x02;
+    /// <summary>T9 状态流所在 collection 的 report ID（整帧偏移 0 处；无 ID 前缀的布局在偏移 1）。</summary>
+    public const byte T9StreamReportId = 0x04;
 
     /// <summary>T9 状态流帧最小长度（含 report ID）。</summary>
     public const int T9MinLength = 24;
@@ -72,6 +78,7 @@ internal static class BetopCodec
 
     /// <summary>
     /// 解析 T9 的被动状态流帧。返回 (电量%, 是否充电中)；非该帧型或电量无效返回 null。
+    /// 识别依据只有 report ID（见上方踩坑记录），**不要**再按 byte[1] 判帧头。
     /// T9 的流里未观察到充电标志字节，故充电状态一律按"用电池"返回。
     /// </summary>
     public static (int Percent, bool Charging)? ParseT9Status(byte[] input)
@@ -79,7 +86,7 @@ internal static class BetopCodec
         foreach (int off in new[] { 0, 1 })
         {
             if (input.Length < off + T9MinLength) continue;
-            if (input[off + 1] != T9StreamTag) continue;
+            if (input[off] != T9StreamReportId) continue;
 
             byte raw = input[off + T9BatteryOffset];
             if (raw <= InvalidPercentFloor || raw > T9BatteryFull) return null;

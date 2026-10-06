@@ -24,6 +24,9 @@ public sealed class LogitechPlugin : IBatteryPlugin
     /// <summary>罗技接收器同时管鼠标和键盘，按型号分不出来 → Unknown，UI 退回按名字猜。</summary>
     public DeviceKind Kind => DeviceKind.Unknown;
 
+    /// <summary>HID++ 探测要写帧（ping / GetFeature），不参与 15 秒快速发现节拍，避免写入频率上升。</summary>
+    public bool SupportsFastDiscovery => false;
+
     /// <summary>判断接口是否为 HID++ 兼容 vendor 通道。
     /// 注意：HIDP_CAPS 早前字段序写反过（已修），且各家把 vendor 页放在 usage_page 还是 usage 上不一，
     /// 所以这里对 0xFF00 / 0xFF43 两个候选值在**两个字段里都查**，避免因字段序差异漏掉设备。</summary>

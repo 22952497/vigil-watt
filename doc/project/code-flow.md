@@ -6,34 +6,60 @@
 
 1. **单实例检查**：命名 Mutex `VigilWatt_SingleInstance`，已存在则直接退出。
 2. `new AppServices()`：加载 AppSettings → 打开 HistoryStore（建库/建表）→ `new DeviceManager(settings, history)`（构造里挂 BLE + 经典蓝牙的 DeviceUpdated → Upsert）。
-3. `Manager.Start()` → `BleBatteryWatcher.Start()` + `BluetoothClassicWatcher.Start()`（见 §3）+ 启动两个定时器：
-   - 轮询：**300ms 后首跑**（探测已并行/短路，不再需要 2 秒缓冲），之后每 **1 分钟**（SafePoll）
-   - 采样：1 分钟后首跑，之后每 `SampleIntervalMinutes` 分钟（SafeSample）
+3. `Manager.Start()` → `BleBatteryWatcher.Start()` + `BluetoothClassicWatcher.Start()`（见 §3）+ 启动三个定时器：
+   - 轮询：**300ms 后首跑**（探测已并行/短路，不再需要 2 秒缓冲），之后每 **1 分钟**（`RequestPollAsync` → `PollOnceAsync`）
+   - 快速发现：**15 秒**（`RequestDiscoveryAsync` → `DiscoverOnlyAsync`，见 §2.1）
+   - 采样：1 分钟后首跑，之后每 `SampleIntervalMinutes` 分钟（`SafeSample`）
 4. `new MainWindow()`（NavigationView 三页），然后 TrayService.Initialize()（Win32 消息窗口 + Shell_NotifyIcon）。
 5. `MainWindow.Activate()` → 若 `StartMinimized` 立即 `AppWindow.Hide()`（关窗也是隐藏，见 §7）。
 6. 若 `WidgetEnabled` → `new WidgetWindow()` + Activate（DIP×缩放尺寸、普通层级不置顶、工具窗口样式）。
 7. 全程异常兜底：App.UnhandledException / AppDomain.UnhandledException / TaskScheduler.UnobservedTaskException → Log.Error。
 
-## 2. 轮询主循环（DeviceManager.SafePoll，每 1 分钟 + 手动刷新共用）
+## 2. 轮询主循环（DeviceManager.RequestPollAsync → PollOnceAsync，每 1 分钟 + 手动刷新共用）
 
 ```
-SafePoll（Interlocked 防重入）
+RequestPollAsync                       # 若已有整轮在跑 → 直接复用它的 Task 返回（不静默丢弃）
+└── RunExclusiveAsync(PollOnceAsync)   # Task.Run + _passGate(SemaphoreSlim) 串行：同一时刻只有一段 pass 在动插件
+PollOnceAsync
 ├── HidDeviceScanner.Scan()            # CfgMgr32 枚举全部在位 HID 接口，读 VID/PID/usage/报告长度
 ├── foreach 插件 (反射发现，按 Name 排序)
 │   ├── 未启用 → plugin.Detach() + 认领注册表 ReleaseAll
 │   ├── plugin.Attach(hidDevices, _claims)  # 幂等认领：先 TryClaim 注册表，再开句柄+探测协议
 │   │      → **返回值 = 本轮认领的设备（含探测时已读到的电量），立即逐个 Upsert**
 │   └── plugin.Poll()                  # 只查已认领设备，返回有更新的 DeviceStatus
-├── _ble.PollConnectedAsync()          # BLE 兜底轮询（异步，不阻塞）
+├── await _ble.PollConnectedAsync()    # BLE 兜底轮询（必须 await，见"刷新按钮"那轮）
 ├── _classic.RefreshBattery()          # 经典蓝牙电量重读（HFP 设备节点属性，见 §3）
 └── DevicesChanged?.Invoke()           # 收尾再全量刷新一次（增量更新已在上面发生）
 ```
+
+### 2.1 快速发现（DiscoverOnlyAsync，每 15 秒）
+
+`RequestDiscoveryAsync` 走**同一个闸门**，所以永远不会和主轮询并发；主轮询在跑时它直接返回那一轮。
+
+```
+DiscoverOnlyAsync
+├── HidDeviceScanner.Scan()
+└── foreach 插件 where SupportsFastDiscovery && 已启用
+    └── plugin.Attach(hidDevices, _claims)   # 只认领，**不 Poll、不碰 BLE/经典蓝牙、不写任何帧**
+```
+
+存在的理由（2026-10-06 实测）：雷柏鼠标**只在醒着时说话**（dongle 休眠即全静音，用户动一下才恢复心跳）。
+主轮询 60 秒一拍，撞上鼠标睡着的窗口就必然落空，而首扫时更是必然落空（用户刚启动应用、还没碰鼠标）。
+15 秒节拍把"发现时延"从最长一个主周期压到 ~15 秒。
+
+**只有纯被动零写入插件可以置 `SupportsFastDiscovery = true`**（目前只有 Rapoo）。会写帧的插件保持
+默认 false —— 加快节拍等于成倍提高写入频率，违反 hardware/safety.md 的约定。雷柏的 `ProbeCooldown`
+同步收到 5 秒，保证每个 15 秒节拍都允许重探（冷却必须小于节拍，否则又被相位吃掉）。
 
 **首扫提速（2026-10-06）**：`Attach` 的返回值曾被丢弃 → 探测刚读到的电量被丢、紧接着 `Poll` 又完整重读一遍（雷柏白多花 5s）。现在：
 - `Attach` 返回值立即 `Upsert` → **新设备探测出来就进 UI**，不等整轮扫描结束；
 - 基类给本轮新认领的设备打 `FreshlyClaimed` 标记，**本轮 `Poll` 跳过**（探测值即最新读数），下一轮起正常轮询；
 - 雷柏 `IsCandidate` 收敛到"输入长度 ==19"（协议文档里状态报表就是 19 字节那一条）——旧版放行 19/32/33，本机 0x0011/32B 与 0x000E/33B 两条 vendor 通道从不发 0x07，每次首扫各白等一整个窗口；收敛后一个 dongle 只剩唯一候选，探测窗口 7s→5s；
 - 迈从 `TryQhw` 改官方时序（**先握手**，非 QHW dongle 写入立即失败即快速退出，省掉旧版先空等 3s 被动监听），并按接口路径缓存已判定协议。
+
+**探测失败冷却（`ProbeCooldown`）必须明显小于轮询周期**：失败发生在轮询开始后几秒处，冷却若等于一整轮，
+下一拍只剩 5x 秒会被判"冷却未过"而整轮跳过，实际重试间隔翻倍（雷柏 3 分钟 → 4 分钟、北通 1 分钟 → 2 分钟，
+都是这么来的）。基类默认 **30 秒** = "每一轮都允许重探"。
 
 > 曾尝试用 `Parallel.For` 并行探测多个候选接口。实测那条路不必走：把候选收敛到唯一接口后，串行本就只花 1×窗口；而 `ReadInput` 是**阻塞式**实现（内部 `Task.WhenAny(...).GetAwaiter().GetResult()`），把阻塞 I/O 塞进 `Parallel.For` 会引入线程池饥饿风险。要用并行必须先把这层改成真异步，别直接上 `Parallel.For`。
 > （排查记录：曾把一次首扫后 41 秒无日志误判为"并行卡死"，实际是**轮询正常完成、只是那一轮雷柏鼠标睡着 + 经典蓝牙电量无变化，因而没有任何日志**——下一次 SafePoll 在 +60s 准点开跑即为证据。日志"安静"≠"卡死"。）

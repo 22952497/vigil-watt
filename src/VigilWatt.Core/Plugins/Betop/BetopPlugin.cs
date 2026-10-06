@@ -55,8 +55,13 @@ public sealed class BetopPlugin : BatteryPluginBase
     /// <summary>查询需要写帧；用户关掉开关即完全静默（不认领、不写入）。</summary>
     protected override bool WritesEnabled => ProbingEnabled;
 
-    /// <summary>接收器常在、手柄可能休眠：探测失败后 1 分钟再试，等用户按键唤醒。</summary>
-    protected override TimeSpan ProbeCooldown => TimeSpan.FromMinutes(1);
+    /// <summary>
+    /// 接收器常在、手柄可能休眠：探测失败后 30 秒再试，等用户按键唤醒。
+    /// 为什么不是 1 分钟：主轮询周期就是 60 秒，失败发生在轮询开始后 ~6 秒处，
+    /// 下一拍只剩 54 秒 → `54s &lt; 60s` 判冷却未过，白白再等一整轮（实测首次发现要 2 分钟）。
+    /// 30 秒小于任何可能的轮询间隔，保证"每一轮都允许重探"。
+    /// </summary>
+    protected override TimeSpan ProbeCooldown => TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// 候选接口：北通 VID + 厂商页 usage_page 0xFF00。

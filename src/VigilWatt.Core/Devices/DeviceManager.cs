@@ -26,8 +26,12 @@ public sealed class DeviceManager : IDisposable
     private readonly ConcurrentDictionary<string, int> _lastNotifiedPercent = new();
     private System.Threading.Timer? _pollTimer;
     private System.Threading.Timer? _sampleTimer;
+    private System.Threading.Timer? _discoveryTimer;
     private readonly object _pollSync = new();
+    /// <summary>所有 pass（整轮轮询 / 快速发现）串行执行——插件内部的字典不是线程安全的。</summary>
+    private readonly SemaphoreSlim _passGate = new(1, 1);
     private Task _currentPoll = Task.CompletedTask;
+    private Task _currentDiscovery = Task.CompletedTask;
 
     /// <summary>单台设备状态有更新（含低电量提醒触发）。</summary>
     public event Action<DeviceStatus>? DeviceUpdated;
@@ -94,12 +98,20 @@ public sealed class DeviceManager : IDisposable
     {
         _pollTimer?.Dispose();
         _sampleTimer?.Dispose();
+        _discoveryTimer?.Dispose();
         // 首扫尽快跑（探测已是并行/短路，不再需要 2 秒缓冲）
         _pollTimer = new Timer(_ => _ = RequestPollAsync(), null,
             TimeSpan.FromMilliseconds(300), TimeSpan.FromMinutes(1));
+        // 快速发现节拍：见 RequestDiscoveryAsync。只服务纯被动插件（雷柏鼠标），
+        // 目的 = 鼠标一动就能在十几秒内进列表，而不是苦等下一个 60 秒主轮询。
+        _discoveryTimer = new Timer(_ => _ = RequestDiscoveryAsync(), null,
+            FastDiscoveryInterval, FastDiscoveryInterval);
         _sampleTimer = new Timer(_ => SafeSample(), null,
             TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(Math.Max(1, _settings.SampleIntervalMinutes)));
     }
+
+    /// <summary>快速发现节拍。15 秒 = 雷柏心跳(3.04s)的约 5 倍，发现时延上界 ~15s。</summary>
+    private static readonly TimeSpan FastDiscoveryInterval = TimeSpan.FromSeconds(15);
 
     /// <summary>设置变化后调用（阈值/采样间隔/插件开关）。</summary>
     public void ApplySettings() => StartTimers();
@@ -115,9 +127,85 @@ public sealed class DeviceManager : IDisposable
         lock (_pollSync)
         {
             if (!_currentPoll.IsCompleted) return _currentPoll;
-            _currentPoll = Task.Run(PollOnceAsync);
+            _currentPoll = RunExclusiveAsync(PollOnceAsync);
             return _currentPoll;
         }
+    }
+
+    /// <summary>
+    /// 快速发现：只让"纯被动零写入"插件（<see cref="IBatteryPlugin.SupportsFastDiscovery"/>）跑一遍认领探测，
+    /// **不轮询电量、不碰 BLE / 经典蓝牙、不触发任何写入**。
+    ///
+    /// 存在的理由：雷柏鼠标休眠时 dongle 全静音，只有用户动它才恢复心跳。60 秒的主轮询
+    /// 常常正好落在它睡着的窗口里，探测落空后又要等整整一轮；首扫时更是必然落空
+    /// （用户刚启动应用、还没碰鼠标）。15 秒节拍把这个"发现"时延从 ~60s 压到 ~15s。
+    ///
+    /// 主轮询正在跑时直接返回它——那一轮本来就包含完整探测，不必重复。
+    /// </summary>
+    public Task RequestDiscoveryAsync()
+    {
+        lock (_pollSync)
+        {
+            if (!_currentPoll.IsCompleted) return _currentPoll;
+            if (!_currentDiscovery.IsCompleted) return _currentDiscovery;
+            _currentDiscovery = RunExclusiveAsync(DiscoverOnlyAsync);
+            return _currentDiscovery;
+        }
+    }
+
+    /// <summary>
+    /// 把一段 pass 放到线程池上并**串行**执行（闸门保证同一时刻只有一段 pass 在动插件）。
+    /// 用 Task.Run 而不是直接调用：调用方可能是 UI 线程（刷新按钮），HID 探测是阻塞 I/O。
+    /// </summary>
+    private Task RunExclusiveAsync(Func<Task> body) => Task.Run(async () =>
+    {
+        try
+        {
+            await _passGate.WaitAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;   // 正在退出，不再执行
+        }
+
+        try
+        {
+            await body().ConfigureAwait(false);
+        }
+        finally
+        {
+            try { _passGate.Release(); } catch (ObjectDisposedException) { /* 退出时竞态，忽略 */ }
+        }
+    });
+
+    private bool IsPluginEnabled(IBatteryPlugin plugin)
+        => _settings.PluginEnabled.TryGetValue(plugin.Name, out var on) && on;
+
+    /// <summary>只认领、不读电量（见 RequestDiscoveryAsync）。</summary>
+    private Task DiscoverOnlyAsync()
+    {
+        try
+        {
+            var hidDevices = HidDeviceScanner.Scan();
+            foreach (var plugin in _plugins)
+            {
+                if (!plugin.SupportsFastDiscovery || !IsPluginEnabled(plugin)) continue;
+                try
+                {
+                    foreach (var d in plugin.Attach(hidDevices, _claims))
+                        Upsert(d);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"插件 {plugin.Name} 快速发现失败", ex);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("快速发现周期异常", ex);
+        }
+        return Task.CompletedTask;
     }
 
     private async Task PollOnceAsync()
@@ -128,7 +216,7 @@ public sealed class DeviceManager : IDisposable
 
             foreach (var plugin in _plugins)
             {
-                bool enabled = _settings.PluginEnabled.TryGetValue(plugin.Name, out var on) && on;
+                bool enabled = IsPluginEnabled(plugin);
                 try
                 {
                     if (!enabled)
@@ -258,8 +346,10 @@ public sealed class DeviceManager : IDisposable
     {
         _pollTimer?.Dispose();
         _sampleTimer?.Dispose();
+        _discoveryTimer?.Dispose();
         foreach (var p in _plugins) p.Detach();
         _ble.Dispose();
         _classic.Dispose();
+        _passGate.Dispose();
     }
 }

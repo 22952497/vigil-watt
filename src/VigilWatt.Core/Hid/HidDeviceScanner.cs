@@ -6,9 +6,13 @@ namespace VigilWatt.Core.Hid;
 /// <summary>枚举当前在位的所有 HID 接口，收集元数据供插件匹配。</summary>
 public static class HidDeviceScanner
 {
+    /// <summary>上一次 dump 过的设备集合指纹：集合没变就不再重复 dump 明细。</summary>
+    private static string _lastSignature = "";
+
     public static List<HidDeviceInfo> Scan()
     {
         var list = new List<HidDeviceInfo>();
+        var meta = new List<string>();
         var guid = NativeHid.GuidDeviceInterfaceHid;
 
         if (NativeHid.CM_Get_Device_Interface_List_SizeW(out uint size, ref guid, null,
@@ -26,7 +30,7 @@ public static class HidDeviceScanner
         {
             try
             {
-                var info = Inspect(path);
+                var info = Inspect(path, meta);
                 if (info != null) list.Add(info);
             }
             catch
@@ -35,12 +39,24 @@ public static class HidDeviceScanner
             }
         }
 
-        Log.Info($"HID 扫描完成，共 {list.Count} 个接口");
-        foreach (var d in list) Log.Info("  " + d);
+        // 明细（每接口一行元数据 + 一行摘要）只在**设备集合变化时**打。
+        // 每次扫描 24 个接口 = 约 50 行日志，而扫描现在每分钟 1 次 + 快速发现每 15 秒 1 次，
+        // 无脑全打会把 app.log 冲爆（旧日志 725KB 里绝大部分就是这些重复行）。
+        // 插拔设备/首次枚举时集合变了，明细照样会完整落盘，排错信息不丢。
+        var signature = string.Join("|", list
+            .Select(d => $"{d.VendorId:X4}:{d.ProductId:X4}:{d.UsagePage:X4}:{d.Usage:X4}:{d.InputReportLength}:{d.OutputReportLength}:{d.FeatureReportLength}")
+            .OrderBy(s => s, StringComparer.Ordinal));
+        if (signature != _lastSignature)
+        {
+            _lastSignature = signature;
+            Log.Info($"HID 扫描完成，共 {list.Count} 个接口（设备集合有变化，输出明细）");
+            foreach (var m in meta) Log.Info(m);
+            foreach (var d in list) Log.Info("  " + d);
+        }
         return list;
     }
 
-    private static HidDeviceInfo? Inspect(string path)
+    private static HidDeviceInfo? Inspect(string path, List<string> meta)
     {
         // 只为了读元数据短暂打开；键盘/鼠标保护 collection 打不开就跳过
         var handle = NativeHid.CreateFileW(
@@ -81,7 +97,7 @@ public static class HidDeviceScanner
                 NativeHid.HidD_FreePreparsedData(preparsed);
             }
         }
-        Utils.Log.Info($"HID 元数据 {attrs.VendorID:X4}/{attrs.ProductID:X4}: preparsed={preparsedOk} capsStatus=0x{capsStatus:X8}");
+        meta.Add($"HID 元数据 {attrs.VendorID:X4}/{attrs.ProductID:X4}: preparsed={preparsedOk} capsStatus=0x{capsStatus:X8}");
 
         return new HidDeviceInfo
         {

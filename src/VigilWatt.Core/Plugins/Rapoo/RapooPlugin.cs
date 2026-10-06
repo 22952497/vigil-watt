@@ -32,8 +32,22 @@ public sealed class RapooPlugin : BatteryPluginBase
     public override string DisplayName => "雷柏";
     public override DeviceKind Kind => DeviceKind.Mouse;
 
-    /// <summary>纯被动只读；鼠标休眠期空转无意义，失败冷却放长。</summary>
-    protected override TimeSpan ProbeCooldown => TimeSpan.FromMinutes(3);
+    /// <summary>
+    /// 纯被动只读、零写入（WritesEnabled=false，本插件不存在任何写入路径），
+    /// 所以探测失败**不是错误**，只说明"鼠标睡着了"（休眠时 dongle 全静音，一动即恢复）。
+    ///
+    /// 2026-10-06 修正：旧值 3 分钟是"键盘出来了、鼠标不出来"的根因。
+    /// 用户刚启动应用时鼠标多半在睡 → 首扫探测必然落空 → 之后 3 分钟**不再看一眼**，
+    /// 而用户这时候一动鼠标就把它唤醒了，应用却仍在冷却里。日志实测鼠标要
+    /// **4 分 09 秒**才进列表（16:13:45 启动，16:17:54 才认领）。
+    ///
+    /// 现在 5 秒，配合 DeviceManager 的 15 秒快速发现节拍（SupportsFastDiscovery），
+    /// 保证每个节拍都允许重探 —— 动一下鼠标，几秒到十几秒内出现在列表里。
+    /// </summary>
+    protected override TimeSpan ProbeCooldown => TimeSpan.FromSeconds(5);
+
+    /// <summary>纯被动零写入 → 允许 DeviceManager 用 15 秒节拍做发现（不发任何帧，无风险）。</summary>
+    public override bool SupportsFastDiscovery => true;
 
     /// <summary>本插件不存在任何写入路径；置 false 作为纵深防御（CanWrite 恒 false）。</summary>
     protected override bool WritesEnabled => false;
@@ -54,7 +68,11 @@ public sealed class RapooPlugin : BatteryPluginBase
         return info.InputReportLength == StatusReportLength;
     }
 
-    /// <summary>探测 = 被动听 5 秒心跳（心跳约 3 秒一条，够收一条）。听不到 = 鼠标睡着，返回 null 进冷却，下一轮再试。</summary>
+    /// <summary>
+    /// 探测 = 被动听 5 秒心跳，听不到 = 鼠标睡着，返回 null 进冷却（5 秒），下一轮再试。
+    /// 窗口取 5 秒的依据：2026-10-06 用 hidapi 实测本机 dongle 心跳间隔 **3.04 秒**（很稳），
+    /// 5 秒 = 1.6× 余量，足够容忍丢一条心跳。探测本身不发任何字节。
+    /// </summary>
     protected override (string Protocol, int? Percent, ChargingState Charging)? Probe(HidDeviceHandle handle)
     {
         var read = ListenStatus(handle, TimeSpan.FromSeconds(5));
@@ -62,7 +80,7 @@ public sealed class RapooPlugin : BatteryPluginBase
         return ("status-report7", read.Value.Percent, read.Value.Charging);
     }
 
-    /// <summary>轮询 = 被动听 5 秒（心跳 3 秒，鼠标醒着必能听到一条）。 null 计入基类失败计数（标离线）。</summary>
+    /// <summary>轮询 = 被动听 5 秒（心跳 3.04 秒，鼠标醒着必能听到一条）。 null 计入基类失败计数（标离线）。</summary>
     protected override (int? Percent, ChargingState Charging)? PollDevice(TrackedDevice dev)
     {
         var read = ListenStatus(dev.Handle, TimeSpan.FromSeconds(5));

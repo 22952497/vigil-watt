@@ -14,7 +14,8 @@ namespace VigilWatt.Core.Plugins;
 /// - 读数异常过滤：短时间涨跌超过 MaxPlausibleStepPercent 的读数判异常、本轮不采用，
 ///   需持续 AnomalyPersistWindow 才采信（挡休眠/关机瞬间的 0/1 伪读数，防误报低电量），见 BatteryReadingFilter；
 /// - 稳定 Id：{name小写}:{路径 FNV-1a 哈希}；
-/// - 首扫提速：新认领设备本轮标记 FreshlyClaimed（探测值即最新读数，Poll 本轮跳过不重读）。
+/// - 首扫提速：新认领设备本轮标记 FreshlyClaimed（探测值即最新读数，Poll 本轮跳过不重读）；
+/// - 快速发现：纯被动零写入插件可把 SupportsFastDiscovery 置 true，参与 15 秒发现节拍（见该类属性）。
 /// 协议差异由子类实现 IsCandidate / Probe / PollDevice。
 /// 会话型插件（如罗技经接收器枚举多设备）可不继承本类，直接实现 IBatteryPlugin 并使用 PluginUtils/DeviceClaimRegistry。
 /// </summary>
@@ -26,8 +27,21 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// <summary>本插件处理的设备类型（UI 选图标用）。</summary>
     public abstract DeviceKind Kind { get; }
 
-    /// <summary>探测失败后的冷却时间（期间不再向该接口写探测帧）。</summary>
-    protected virtual TimeSpan ProbeCooldown => TimeSpan.FromMinutes(1);
+    /// <summary>
+    /// 见 <see cref="IBatteryPlugin.SupportsFastDiscovery"/>：是否参与 DeviceManager 的 15 秒快速发现节拍。
+    /// 默认 false（会写帧的插件保持默认值）；**只有纯被动零写入插件**才该覆盖成 true。
+    /// </summary>
+    public virtual bool SupportsFastDiscovery => false;
+
+    /// <summary>
+    /// 探测失败后的冷却时间（期间不再探测该接口）。
+    ///
+    /// 取值必须**明显小于轮询周期（60 秒）**：失败发生在轮询开始后几秒处，若冷却等于一整轮，
+    /// 下一拍只剩 5x 秒会被判"冷却未过"而白白跳过，实际重试间隔翻倍（实测雷柏/北通都踩过这个相位坑）。
+    /// 所以默认 30 秒 = "每一轮都允许重探"，它挡的是同一轮内的重复探测，不是整轮跳过。
+    /// 只有代价真的高、且不指望短期恢复的插件才该调大（如 Elan 的 feature 全扫 = 5 分钟）。
+    /// </summary>
+    protected virtual TimeSpan ProbeCooldown => TimeSpan.FromSeconds(30);
 
     /// <summary>是否允许向设备写探测/查询帧。有干扰风险的插件覆盖为用户开关（如迈从的 MchoseProbingEnabled）。</summary>
     protected virtual bool WritesEnabled => true;
