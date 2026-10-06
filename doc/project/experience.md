@@ -63,7 +63,7 @@
 ## 5. 当前项目的待办与下一步
 
 1. **充电标志校准**：插充电线看 `状态字节` 日志，补全 ChargingState 映射（hardware/protocols.md §1.3）
-2. ~~**休眠推送帧采样**~~ **已完成（2026-10-06）**：休眠帧已实测抓到——`13 0A 01 00 04 **02** 01 …`，下标 5 是**类型位**（0x05=电量 / 0x02=设备状态通知），旧代码误把 payload 的 0x01 当电量 1%，这是误报低电量的根因。现已按类型位识别，并把 0x02 当"设备已休眠"信号**立即标离线**（省掉约 3 分钟延迟）。解析单元 `MchoseV1Codec` + 真机帧回归用例见 `src/tests/EasyBluetooth.Core.Tests/`（runtime-pitfalls §12、protocols.md §1.3）
+2. ~~**休眠推送帧采样**~~ **已完成（2026-10-06）**：休眠帧已实测抓到——`13 0A 01 00 04 **02** 01 …`，下标 5 是**类型位**（0x05=电量 / 0x02=设备状态通知），旧代码误把 payload 的 0x01 当电量 1%，这是误报低电量的根因。现已按类型位识别，并把 0x02 当"设备已休眠"信号**立即标离线**（省掉约 3 分钟延迟）。解析单元 `MchoseV1Codec` + 真机帧回归用例见 `src/tests/VigilWatt.Core.Tests/`（runtime-pitfalls §12、protocols.md §1.3）
 3. **雷柏充满态采样**：协议已按 rapoo-software-linux 落地（RapooPlugin 纯被动 status-report7）；充电标志已实测（0x01=放电/0x02=充电），充满时 [7] 的值待采样后补全映射
 4. ~~**时砂耳机**~~ **已结案（2026-10-06）**：2.4G dongle（38FF:0001）主机侧实测无通道（USB 仅 MI_00 音频 + MI_03 consumer HID，OUT/FEATURE=0，输入报文无电量字段），RoseLink 逆向亦无电量命令 → 主机侧与官方 App 侧均无解，不再投入（protocols.md §3）
 5. **新世代迈从 dongle**（0x3837:0x3033）：QHW 协议已备好，接入即用（hardware/protocols.md §2）

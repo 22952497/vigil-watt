@@ -13,18 +13,18 @@
 ## 2. 双输出路径，容易跑旧二进制
 
 - 直接 `dotnet build src/.../xx.csproj` → 产物在 `bin\Debug\...`
-- `dotnet build EasyBluetooth.sln`（Platform=x64）→ 产物在 `bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\`
+- `dotnet build VigilWatt.sln`（Platform=x64）→ 产物在 `bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\`
 
 **规则：始终用 sln 构建、从 `bin\x64\...\win-x64\` 启动**。跑错目录会拿着旧 exe 验证半天新代码，浪费一小时还得出错误结论。
 
 ## 3. 应用运行时锁 DLL
 
-构建前先 `taskkill //IM EasyBluetooth.App.exe //F`，否则 MSB3021/3027 文件被占用。
+构建前先 `taskkill //IM VigilWatt.App.exe //F`，否则 MSB3021/3027 文件被占用。
 
 ## 4. 发布
 
 ```
-dotnet publish src/EasyBluetooth.App -c Release -p:Platform=x64 -o src/publish
+dotnet publish src/VigilWatt.App -c Release -p:Platform=x64 -o src/publish
 ```
 
 self-contained（含 Windows App SDK 运行时），约 102MB，无需安装任何依赖。产物落在 `src/publish/`（已 gitignore）。sln 的 GUID 是手写的，VS 能正常打开。
@@ -32,10 +32,10 @@ self-contained（含 Windows App SDK 运行时），约 102MB，无需安装任�
 ## 4.1 测试
 
 ```
-dotnet test src/tests/EasyBluetooth.Core.Tests
+dotnet test src/tests/VigilWatt.Core.Tests
 ```
 
-xUnit 项目（`net8.0`、AnyCPU），用 `<Compile Include>` 直接链接 `src/EasyBluetooth.Core` 里的真源文件（`BatteryReadingFilter` / `MchoseV1Codec`），不引 WinRT。18 个用例，改这两个文件后必跑。
+xUnit 项目（`net8.0`、AnyCPU），用 `<Compile Include>` 直接链接 `src/VigilWatt.Core` 里的真源文件（`BatteryReadingFilter` / `MchoseV1Codec`），不引 WinRT。18 个用例，改这两个文件后必跑。
 
 ## 5. NuGet 版本降级链
 
@@ -47,7 +47,7 @@ xUnit 项目（`net8.0`、AnyCPU），用 `<Compile Include>` 直接链接 `src/
 
 **来源**：`WindowsAppSDKSelfContained=true` 时，`Microsoft.WindowsAppSDK.SelfContained.targets` 的 `AddMicrosoftWindowsAppSDKPayloadFiles` 把 WindowsAppRuntime MSIX 解包并**全量**拷贝，`.mui` 在其中。注意它们不走 .NET 卫星程序集管道，`SatelliteResourceLanguages` 属性管不到。
 
-**解法**（已加在 EasyBluetooth.App.csproj）：官方排除口 `MicrosoftWindowsAppSDKFilesExcluded`，自定义 Target `TrimWinUiMuiLanguages`（BeforeTargets=AddMicrosoftWindowsAppSDKPayloadFiles）把白名单（en-us/zh-CN/zh-TW）以外的 .mui 塞进去。改白名单时同步改 `MuiLanguagesToKeep` 属性和 `_MuiKeep` 的显式路径。
+**解法**（已加在 VigilWatt.App.csproj）：官方排除口 `MicrosoftWindowsAppSDKFilesExcluded`，自定义 Target `TrimWinUiMuiLanguages`（BeforeTargets=AddMicrosoftWindowsAppSDKPayloadFiles）把白名单（en-us/zh-CN/zh-TW）以外的 .mui 塞进去。改白名单时同步改 `MuiLanguagesToKeep` 属性和 `_MuiKeep` 的显式路径。
 
 **两个坑**：
 1. `$(MicrosoftWindowsAppSDKMsixContent)` 属性**不带尾反斜杠**，glob 拼接要自己补 `\`（`...MsixContent)\**\*.mui`），漏了会匹配到 0 个文件、排除静默失效——诊断用 `@(_MuiAll->Count())` 消息打印计数；

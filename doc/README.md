@@ -50,8 +50,8 @@
 | 键盘/鼠标/耳机图标全是通用蓝牙图标 | 真机显示名（`Rapoo Gaming Device`/`MCHOSE 2.4G Wireless`/`EDIFIER W820NB 双金标版`）里没有任何关键字，按名字猜必然失败；已改为插件显式声明 `DeviceKind` | project/handoff.md「第三轮：改显式声明设备类型」 |
 | 主界面"刷新"按钮点了像没反应 | 三个原因叠加：① `Refresh()` 自己把按钮 `IsEnabled` 设回 true，禁用状态同帧被抹掉、零视觉反馈；② `PollConnectedAsync` 是 fire-and-forget，`RequestPoll` 同步返回时 BLE 侧还没跑；③ `SafePoll` 用 `Interlocked` 标志重入即静默 `return`，撞上自动轮询就什么都不做。已改为可 await 的 `RequestPollAsync` + 转圈/文案反馈 + 复用进行中那一轮 | project/handoff.md「第四轮：刷新按钮」 |
 
-数据与日志位置：`%LOCALAPPDATA%\EasyBluetooth\`（settings.json / history.db / logs\app.log）。
+数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log）。
 
 ## 🔧 scripts/ — 临时调试脚本
 
-临时调试脚本（PowerShell / Python / 一次性 P/Invoke 探针）统一放仓库根的 `scripts/` 目录，索引与用途见 [scripts/README.md](../scripts/README.md)，**用完即删**。**长期存在的 C# 项目不放这里**：单测在 [`src/tests/EasyBluetooth.Core.Tests/`](../src/tests/EasyBluetooth.Core.Tests/)（xUnit），诊断小工具在 [`src/tests/EasyBluetooth.BleScan/`](../src/tests/EasyBluetooth.BleScan/)，工程源码在 `src/`；根目录只放工程文件。
+临时调试脚本（PowerShell / Python / 一次性 P/Invoke 探针）统一放仓库根的 `scripts/` 目录，索引与用途见 [scripts/README.md](../scripts/README.md)，**用完即删**。**长期存在的 C# 项目不放这里**：单测在 [`src/tests/VigilWatt.Core.Tests/`](../src/tests/VigilWatt.Core.Tests/)（xUnit），诊断小工具在 [`src/tests/VigilWatt.BleScan/`](../src/tests/VigilWatt.BleScan/)，工程源码在 `src/`；根目录只放工程文件。

@@ -4,7 +4,7 @@
 
 ## 1. 启动序列（App.OnLaunched）
 
-1. **单实例检查**：命名 Mutex `EasyBluetooth_SingleInstance`，已存在则直接退出。
+1. **单实例检查**：命名 Mutex `VigilWatt_SingleInstance`，已存在则直接退出。
 2. `new AppServices()`：加载 AppSettings → 打开 HistoryStore（建库/建表）→ `new DeviceManager(settings, history)`（构造里挂 BLE + 经典蓝牙的 DeviceUpdated → Upsert）。
 3. `Manager.Start()` → `BleBatteryWatcher.Start()` + `BluetoothClassicWatcher.Start()`（见 §3）+ 启动两个定时器：
    - 轮询：**300ms 后首跑**（探测已并行/短路，不再需要 2 秒缓冲），之后每 **1 分钟**（SafePoll）
@@ -77,9 +77,9 @@ BatteryPluginBase.Attach(hidDevices, claims)
 
 ### 4.2 轮询（Poll，基类骨架 + 子类 PollDevice）
 
-`PollDevice` 按 `dev.Protocol` 分派：`keyboard-v1` → `PollKeyboardV1`（发一条 `13 4A 01`，1.2 秒内解析 4A 响应或 `13 0A` 自发推送）。**所有帧解析走纯函数单元 `MchoseV1Codec`**（`BuildFrame`/`ParsePush`/`ParseBatteryResponse`，零依赖，单测在 `src/tests/EasyBluetooth.Core.Tests/`）。关键：0A 推送帧的**类型位（下标 5）必须先认**——0x05=电量（[6]=%、[7]=标志），0x02=设备状态通知（实测键盘休眠，[6] **不是电量**）。失败记账在基类：**连续 3 次 → `WritesDisabled=true` 熔断停写，之后各协议分支只走被动监听；停写 10 分钟退避期满 `CanWrite` 自动放行一轮**（对付键盘休眠唤醒，safety.md §3 规则 3）。`ProbingEnabled=false` 时轮询/探测直接短路，不写任何字节。子类判定"设备已休眠"时调基类 `RequestOffline(dev)` → 立即标离线，不等 3 次失败（省约 3 分钟）。
+`PollDevice` 按 `dev.Protocol` 分派：`keyboard-v1` → `PollKeyboardV1`（发一条 `13 4A 01`，1.2 秒内解析 4A 响应或 `13 0A` 自发推送）。**所有帧解析走纯函数单元 `MchoseV1Codec`**（`BuildFrame`/`ParsePush`/`ParseBatteryResponse`，零依赖，单测在 `src/tests/VigilWatt.Core.Tests/`）。关键：0A 推送帧的**类型位（下标 5）必须先认**——0x05=电量（[6]=%、[7]=标志），0x02=设备状态通知（实测键盘休眠，[6] **不是电量**）。失败记账在基类：**连续 3 次 → `WritesDisabled=true` 熔断停写，之后各协议分支只走被动监听；停写 10 分钟退避期满 `CanWrite` 自动放行一轮**（对付键盘休眠唤醒，safety.md §3 规则 3）。`ProbingEnabled=false` 时轮询/探测直接短路，不写任何字节。子类判定"设备已休眠"时调基类 `RequestOffline(dev)` → 立即标离线，不等 3 次失败（省约 3 分钟）。
 
-**读数异常过滤（`BatteryReadingFilter`，每设备一个实例，基类 `BatteryPluginBase.Poll` 调用，2026-10-06 加）**：判定只做两件事——① **数值有效性**：低于 `MinValidPercent`（默认 2，即 0/1 是休眠占位帧）或 >100 → `InvalidValue`，永不采信；② **变化幅度**：与 `LastAcceptedPercent` 相比涨跌超过 `MaxPlausibleStepPercent`（默认 20 点）→ `RejectAnomaly`，本轮**不写入 status**（UI 和低电量判定都看不到），需持续 `AnomalyPersistWindow`（默认 5 分钟）才升级为 `AcceptConfirmed` 采信；读数回到基准附近则持续计时清零。基准**不随离线清空**（伪读数常出现在"刚掉线/刚回来"的窗口）。越界/异常都打 `读数异常已过滤` 日志。阈值均为 `protected virtual`，子类可覆盖。单测见 `src/tests/EasyBluetooth.Core.Tests/`。
+**读数异常过滤（`BatteryReadingFilter`，每设备一个实例，基类 `BatteryPluginBase.Poll` 调用，2026-10-06 加）**：判定只做两件事——① **数值有效性**：低于 `MinValidPercent`（默认 2，即 0/1 是休眠占位帧）或 >100 → `InvalidValue`，永不采信；② **变化幅度**：与 `LastAcceptedPercent` 相比涨跌超过 `MaxPlausibleStepPercent`（默认 20 点）→ `RejectAnomaly`，本轮**不写入 status**（UI 和低电量判定都看不到），需持续 `AnomalyPersistWindow`（默认 5 分钟）才升级为 `AcceptConfirmed` 采信；读数回到基准附近则持续计时清零。基准**不随离线清空**（伪读数常出现在"刚掉线/刚回来"的窗口）。越界/异常都打 `读数异常已过滤` 日志。阈值均为 `protected virtual`，子类可覆盖。单测见 `src/tests/VigilWatt.Core.Tests/`。
 
 ### 4.3 读取通道（HidDeviceHandle）
 

@@ -134,4 +134,4 @@ AppWindow.Resize(new SizeInt32((int)(widthDip * Scale), (int)(WindowHeight * Sca
 
 **注意**：`0` 和 `1` 都不会是真实电量——低电量阈值是 20%，正常放电到 1% 之前早就提醒过了，所以拒绝它们不会漏掉任何真实告警。
 
-**单测**：`src/tests/EasyBluetooth.Core.Tests/`（xUnit，18 个用例），帧解析用例全用真机原始帧，含休眠帧回归用例。改解析或过滤器后跑 `dotnet test src/tests/EasyBluetooth.Core.Tests`，全绿即通过。
+**单测**：`src/tests/VigilWatt.Core.Tests/`（xUnit，18 个用例），帧解析用例全用真机原始帧，含休眠帧回归用例。改解析或过滤器后跑 `dotnet test src/tests/VigilWatt.Core.Tests`，全绿即通过。

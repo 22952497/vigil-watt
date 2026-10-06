@@ -4,7 +4,7 @@
 
 ## 0. 日志考古（永远第一步）
 
-先翻 `%LOCALAPPDATA%\EasyBluetooth\logs\app.log`：接口扫描清单（VID/PID/usage/长度）、历次探测的原始报文、错误都在里面。过去的探测结论可能已经回答了当前问题（2026-10-05 的"邮箱扫描无响应"结论就是这样从旧日志里直接复用的）。
+先翻 `%LOCALAPPDATA%\VigilWatt\logs\app.log`：接口扫描清单（VID/PID/usage/长度）、历次探测的原始报文、错误都在里面。过去的探测结论可能已经回答了当前问题（2026-10-05 的"邮箱扫描无响应"结论就是这样从旧日志里直接复用的）。
 
 常用 grep：
 
@@ -14,7 +14,7 @@ grep -a "HID 元数据\|usage=" app.log       # 接口清单
 grep -a "ERR \|WARN " app.log | tail       # 最近错误
 ```
 
-设备/设置：`%LOCALAPPDATA%\EasyBluetooth\settings.json`（PluginEnabled / MchoseProbingEnabled）、history.db（SQLite，samples 表）。
+设备/设置：`%LOCALAPPDATA%\VigilWatt\settings.json`（PluginEnabled / MchoseProbingEnabled）、history.db（SQLite，samples 表）。
 
 ## 1. 抓官方软件的包（浏览器 WebHID monkey-patch）★主力手法
 

@@ -1,0 +1,68 @@
+<Page
+    x:Class="VigilWatt.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Padding="24,16">
+        <StackPanel Spacing="16" MaxWidth="640" HorizontalAlignment="Left">
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="提醒" FontSize="16" FontWeight="SemiBold" Margin="4,0,0,0" />
+                <Border CornerRadius="8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" Padding="16,12">
+                    <StackPanel Spacing="10">
+                        <NumberBox x:Name="ThresholdBox" Header="低电量提醒阈值（%，0 关闭）" Value="20" Minimum="0" Maximum="80" SpinButtonPlacementMode="Inline" />
+                        <ToggleSwitch x:Name="StartMinimizedToggle" Header="启动时最小化到托盘" OnContent="开" OffContent="关" />
+                        <ToggleSwitch x:Name="AutostartToggle" Header="开机自动启动" OnContent="开" OffContent="关" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="数据采集" FontSize="16" FontWeight="SemiBold" Margin="4,0,0,0" />
+                <Border CornerRadius="8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" Padding="16,12">
+                    <StackPanel Spacing="10">
+                        <NumberBox x:Name="SampleBox" Header="采样间隔（分钟）" Value="5" Minimum="1" Maximum="60" SpinButtonPlacementMode="Inline" />
+                        <NumberBox x:Name="RetentionBox" Header="历史保留天数" Value="90" Minimum="7" Maximum="365" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="2.4G 设备插件" FontSize="16" FontWeight="SemiBold" Margin="4,0,0,0" />
+                <Border CornerRadius="8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" Padding="16,12">
+                    <StackPanel Spacing="10">
+                        <!-- 开关由代码按已发现插件动态生成（DeviceManager.Plugins），新增品牌自动出现在这里 -->
+                        <StackPanel x:Name="PluginPanel" Spacing="10" />
+                        <TextBlock Text="提示：2.4G 协议按品牌适配，识别不到设备时查看日志 %LOCALAPPDATA%\VigilWatt\logs\app.log"
+                                   FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="6">
+                <TextBlock Text="小组件" FontSize="16" FontWeight="SemiBold" Margin="4,0,0,0" />
+                <Border CornerRadius="8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" Padding="16,12">
+                    <ToggleSwitch x:Name="WidgetToggle" Header="桌面小组件（悬浮电量条）" OnContent="开" OffContent="关" />
+                </Border>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,8,0,20">
+                <Button x:Name="SaveButton" Style="{ThemeResource AccentButtonStyle}" Click="Save_Click" Content="保存设置" />
+                <TextBlock x:Name="SavedText" VerticalAlignment="Center"
+                           Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

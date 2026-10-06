@@ -4,7 +4,7 @@
     DEVPKEY_Device_BatteryLevel = {104EA319-6EE2-4701-BD47-8DDBF425BBE5}, 2
 这个属性挂在**设备节点(devnode)**上，只能用 SetupAPI 读，
 用 Windows.Devices.Enumeration 的 AEP 属性(System.Devices.AepBattery_Level)是读不到的
-——这正是 EasyBluetooth 当前拿不到经典蓝牙耳机电量的原因。
+——这正是 VigilWatt 当前拿不到经典蓝牙耳机电量的原因。
 
 用法：
     python probe-devnode-battery.py              # 只列有电量的设备

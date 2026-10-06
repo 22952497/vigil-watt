@@ -35,8 +35,8 @@
 1. **经典蓝牙耳机电量打通**：确认 Windows 设置页的耳机电量来自 **PnP 设备属性 `DEVPKEY_Device_BatteryLevel`**（挂在 HFP 免手操作网关节点），与 AEP 属性是两套体系。新增 `Ble/ClassicAudioBattery.cs`（SetupAPI P/Invoke 枚举 `BTHENUM\*` 节点 + MAC 匹配，5 秒缓存），`BluetoothClassicWatcher` 接入并在 SafePoll 里每分钟 `RefreshBattery()`。实测 EDIFIER W820NB 读到 60%，与设置页一致。
 2. **新增排查脚本** `scripts/probe-devnode-battery.py`（纯 ctypes，`--all` 可 dump 任意设备节点全属性）——这是发现该属性的关键工具。
 3. **休眠伪读数根治**（用户复报的老问题，本会话挖到真凶）：不是"电量位变 1"，而是**另一种类型位**的推送帧——休眠时 dongle 推 `13 0A 01 00 04 **02** 01 …`，下标 5 是**类型位**（`0x05`=电量 / `0x02`=设备状态通知），旧代码不认类型位、把 payload 的 `0x01` 当电量 1%，这就是误报低电量的根因。三层加固：解析层按类型位识别 + `InvalidPercentFloor=1` 兜底、基类 `BatteryReadingFilter`（数值有效性 + 双向变化幅度，>20 点需持续 5 分钟才采信）、告警层骤降暂缓一轮；并把 `0x02` 帧当"设备已休眠"信号**立即标离线**（`RequestOffline`，省掉 3 分钟延迟）。详见 runtime-pitfalls §12、protocols.md §1。
-4. **代码可测化重构**（用户要求"异常过滤抽成独立函数"）：把内联的异常判断抽成 `Plugins/BatteryReadingFilter.cs`（`ReadingVerdict` 枚举 + 每设备一实例，零依赖可单测），把迈从 V1 帧编解码抽成 `Plugins/Mchose/MchoseV1Codec.cs`（`V1PushKind`/`V1ResponseKind`，**先认类型位再解析**）。新增 **`src/tests/EasyBluetooth.Core.Tests/`**（xUnit 标准测试项目，**18 个用例**覆盖原 51 项断言，帧解析全用真机原始帧、含休眠帧回归）——改过滤器或 V1 解析后必须重跑，`dotnet test src/tests/EasyBluetooth.Core.Tests` 全绿即通过。
-5. **仓库目录重整（2026-10-06）**：`scripts/`（原名 `tools/`，后改名）收敛为**只放临时调试脚本**；C# 项目迁出——单测升为 xUnit 项目 `src/tests/EasyBluetooth.Core.Tests/`，诊断工具 `src/tests/EasyBluetooth.BleScan/`；发布产物从仓库根 `publish/` 移到 `src/publish/`。两者均已加入 sln。
+4. **代码可测化重构**（用户要求"异常过滤抽成独立函数"）：把内联的异常判断抽成 `Plugins/BatteryReadingFilter.cs`（`ReadingVerdict` 枚举 + 每设备一实例，零依赖可单测），把迈从 V1 帧编解码抽成 `Plugins/Mchose/MchoseV1Codec.cs`（`V1PushKind`/`V1ResponseKind`，**先认类型位再解析**）。新增 **`src/tests/VigilWatt.Core.Tests/`**（xUnit 标准测试项目，**18 个用例**覆盖原 51 项断言，帧解析全用真机原始帧、含休眠帧回归）——改过滤器或 V1 解析后必须重跑，`dotnet test src/tests/VigilWatt.Core.Tests` 全绿即通过。
+5. **仓库目录重整（2026-10-06）**：`scripts/`（原名 `tools/`，后改名）收敛为**只放临时调试脚本**；C# 项目迁出——单测升为 xUnit 项目 `src/tests/VigilWatt.Core.Tests/`，诊断工具 `src/tests/VigilWatt.BleScan/`；发布产物从仓库根 `publish/` 移到 `src/publish/`。两者均已加入 sln。
 6. **首扫提速（2026-10-06，用户报"启动扫描有点慢"）**：用 app.log 毫秒时间戳定位到**首个 SafePoll 要 ~27.6s 才走完**（此前误以为 HID 扫描慢，其实扫描只要 11ms）。四个根因与修法：
    - **`DeviceManager.SafePoll` 把 `plugin.Attach()` 的返回值丢了**（探测刚读到的电量被丢，紧接着 `Poll` 又完整重读一遍 → 雷柏白多花 5s）。现在 Attach 返回值立即 `Upsert`（新设备探测出来就进 UI，不等整轮结束）。
    - 基类新增 `TrackedDevice.FreshlyClaimed`：本轮新认领的设备 **`Poll` 跳过一轮**（探测值即最新读数）。
@@ -56,7 +56,7 @@
      响应 `02 15 <电量%> <保留> <充电标志低4位> …`（实测 `02 15 64 00 51`=100% 充电、`02 15 5D 00 50`=93% 放电）。
    - **为什么标准 API 读不到**：接收器把自己报成"有线设备"（XInput BatteryType=WIRED/FULL），必须直连厂商接口。
 2. **纯逻辑抽出 `BetopCodec.cs`**（沿用 MchoseV1Codec 的可测化约定），单测 **10 个用例**（`BetopCodecTests.cs`，真机帧回归），
-   测试总数 **18 → 28**；`dotnet test` 全绿、`dotnet build EasyBluetooth.sln -c Debug` 0 错误。
+   测试总数 **18 → 28**；`dotnet test` 全绿、`dotnet build VigilWatt.sln -c Debug` 0 错误。
 3. **接入点**：`AppSettings` 增 `PluginEnabled["Betop"]`（默认开）+ `BetopProbingEnabled`（默认开，只读查询、风险低）；
    `MchosePlugin.IsCandidate` 按 VID 排除北通接口（防 QHW/0x13 帧误发）；设置页开关自动生成（反射发现，零改动）。
 4. **安全**：只发读类命令 `cmd=0x5`，不碰写配置（`cmd=0x2`）/固件/灯效；连续 3 次失败由基类熔断退避（最坏 1 帧/10 分钟）。
@@ -129,7 +129,7 @@ Windows 的 USB product string 是 `"BEITONG T9 For Keyboard & Mouse"`（厂商�
 修：新增设备一律先过 `VerifyConnectionAndAddAsync()` —— 枚举
 `BluetoothDevice.GetDeviceSelectorFromConnectionStatus(Connected)` 的 AEP 集合，
 **只有真在里面才进列表**（只读枚举，不建立连接）。`RefreshBattery` 仍负责电量刷新。
-> 取证手法：扩展 `src/tests/EasyBluetooth.BleScan` 打印每个 AEP 的 `IsConnected` /
+> 取证手法：扩展 `src/tests/VigilWatt.BleScan` 打印每个 AEP 的 `IsConnected` /
 > `DeviceAddress` 与"已连接"集合——实测该耳机 `IsConnected=False`、"已连接"集合 0 个，
 > 一句话定案，比读代码猜快得多。
 
@@ -235,14 +235,14 @@ Windows 的 USB product string 是 `"BEITONG T9 For Keyboard & Mouse"`（厂商�
 
 | 要动什么 | 去哪 |
 |---|---|
-| 迈从协议/解析 | `src/EasyBluetooth.Core/Plugins/Mchose/MchosePlugin.cs`（规格 protocols.md §1） |
-| 雷柏协议/解析 | `src/EasyBluetooth.Core/Plugins/Rapoo/RapooPlugin.cs`（规格 protocols.md §3） |
-| 北通协议/解析 | `src/EasyBluetooth.Core/Plugins/Betop/BetopPlugin.cs` + `BetopCodec.cs`（规格 protocols.md §4）；report ID 解析见 `Hid/NativeHid.cs` 的 `ReadReportId` |
-| 经典蓝牙显示名 | `src/EasyBluetooth.Core/Ble/ClassicDeviceName.cs`（纯逻辑：占位名识别）+ `ClassicPairedNames.cs`（注册表配对名兜底） |
-| 蓝牙诊断 | `src/tests/EasyBluetooth.BleScan/`（`dotnet run --project`）：适配器能力、已配对经典/LE 设备、**每个 AEP 的 `IsConnected`/`DeviceAddress` 与"已连接"集合** |
+| 迈从协议/解析 | `src/VigilWatt.Core/Plugins/Mchose/MchosePlugin.cs`（规格 protocols.md §1） |
+| 雷柏协议/解析 | `src/VigilWatt.Core/Plugins/Rapoo/RapooPlugin.cs`（规格 protocols.md §3） |
+| 北通协议/解析 | `src/VigilWatt.Core/Plugins/Betop/BetopPlugin.cs` + `BetopCodec.cs`（规格 protocols.md §4）；report ID 解析见 `Hid/NativeHid.cs` 的 `ReadReportId` |
+| 经典蓝牙显示名 | `src/VigilWatt.Core/Ble/ClassicDeviceName.cs`（纯逻辑：占位名识别）+ `ClassicPairedNames.cs`（注册表配对名兜底） |
+| 蓝牙诊断 | `src/tests/VigilWatt.BleScan/`（`dotnet run --project`）：适配器能力、已配对经典/LE 设备、**每个 AEP 的 `IsConnected`/`DeviceAddress` 与"已连接"集合** |
 | 新增品牌插件 | 新建 `Plugins/xx/XxPlugin.cs` 继承 `BatteryPluginBase`，三个方法（architecture.md §3） |
-| 轮询/采样/低电量节奏 | `src/EasyBluetooth.Core/Devices/DeviceManager.cs`（code-flow.md §2/§5/§6） |
-| 经典蓝牙发现 + 电量 | `src/EasyBluetooth.Core/Ble/BluetoothClassicWatcher.cs` + `Ble/ClassicAudioBattery.cs`（code-flow.md §3、runtime-pitfalls §3） |
+| 轮询/采样/低电量节奏 | `src/VigilWatt.Core/Devices/DeviceManager.cs`（code-flow.md §2/§5/§6） |
+| 经典蓝牙发现 + 电量 | `src/VigilWatt.Core/Ble/BluetoothClassicWatcher.cs` + `Ble/ClassicAudioBattery.cs`（code-flow.md §3、runtime-pitfalls §3） |
 | 经典蓝牙电量排查 | `scripts/probe-devnode-battery.py`（`--all` dump 节点全属性） |
-| 托盘/小组件/设置页 | `src/EasyBluetooth.App/Services|Views`（code-flow.md §7/§8/§9） |
-| 语言包白名单 | `EasyBluetooth.App.csproj` 的 `MuiLanguagesToKeep` + `_MuiKeep` 两处（build.md §6） |
+| 托盘/小组件/设置页 | `src/VigilWatt.App/Services|Views`（code-flow.md §7/§8/§9） |
+| 语言包白名单 | `VigilWatt.App.csproj` 的 `MuiLanguagesToKeep` + `_MuiKeep` 两处（build.md §6） |

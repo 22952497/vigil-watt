@@ -1,4 +1,4 @@
-# EasyBluetooth 自用版
+# VigilWatt 自用版
 
 仿 [softnav.top/bluetooth](https://softnav.top/bluetooth/) 的 Windows 无线设备电量监控工具，仅保留个人需要的基础功能。
 
@@ -17,11 +17,11 @@
 
 ## 运行
 
-- 开发调试：`dotnet build EasyBluetooth.sln -c Debug`，运行 `src\EasyBluetooth.App\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\EasyBluetooth.App.exe`
-- 发布版：`src\publish\EasyBluetooth.App.exe`（self-contained，无需安装运行时），建议固定到任务栏或加入自启
-- 测试：`dotnet test src/tests/EasyBluetooth.Core.Tests`（48 个用例，改读数过滤器 / V1 帧解析 / 北通帧解析 / 经典蓝牙名称识别 / 设备类型判定后必跑）
+- 开发调试：`dotnet build VigilWatt.sln -c Debug`，运行 `src\VigilWatt.App\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\VigilWatt.App.exe`
+- 发布版：`src\publish\VigilWatt.App.exe`（self-contained，无需安装运行时），建议固定到任务栏或加入自启
+- 测试：`dotnet test src/tests/VigilWatt.Core.Tests`（48 个用例，改读数过滤器 / V1 帧解析 / 北通帧解析 / 经典蓝牙名称识别 / 设备类型判定后必跑）
 
-数据与日志位置：`%LOCALAPPDATA%\EasyBluetooth\`（settings.json / history.db / logs\app.log / tray.ico）
+数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log / tray.ico）
 
 ## 2.4G 协议适配状态
 
@@ -47,7 +47,7 @@
 
 ```
 src/
-  EasyBluetooth.Core/          # 无 UI 核心库
+  VigilWatt.Core/          # 无 UI 核心库
     Ble/BleBatteryWatcher      # DeviceWatcher + GATT 直读
     Ble/BluetoothClassicWatcher# 经典蓝牙 A2DP/HFP：连接状态 + 设备显示名（占位名识别 + 注册表配对名兜底）
     Ble/ClassicAudioBattery    # 经典蓝牙电量：HFP 网关节点 DEVPKEY_Device_BatteryLevel（SetupAPI）
@@ -63,11 +63,11 @@ src/
       Elan/                    # Elan 接收器观察模式
     Devices/DeviceManager      # 聚合、采样、低电量判定
     Storage/HistoryStore       # SQLite
-  EasyBluetooth.App/           # WinUI 3 主程序
+  VigilWatt.App/           # WinUI 3 主程序
     MainWindow（导航）+ Views（设备/统计/设置）+ WidgetWindow + Services（托盘/ICO/自启）
   tests/
-    EasyBluetooth.Core.Tests/  # Core 纯逻辑单测（xUnit，48 个用例，链接 Core 真源文件）
-    EasyBluetooth.BleScan/     # 诊断小工具：蓝牙适配器能力 + 已配对经典/LE 设备探查
+    VigilWatt.Core.Tests/  # Core 纯逻辑单测（xUnit，48 个用例，链接 Core 真源文件）
+    VigilWatt.BleScan/     # 诊断小工具：蓝牙适配器能力 + 已配对经典/LE 设备探查
   publish/                     # 发布产物（self-contained，已 gitignore）
 scripts/                       # 临时调试脚本（.py/.ps1，用完即删，索引见 scripts/README.md）
 doc/                           # 项目文档与经验沉淀（见 doc/README.md）

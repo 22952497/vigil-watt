@@ -5,11 +5,11 @@
 
 ## 1. 总览
 
-两个项目、一条依赖方向：`EasyBluetooth.App → EasyBluetooth.Core`。Core 不依赖任何 UI（WinRT 例外：BLE 用 WinRT API，属平台能力不算 UI），App 不写协议、只消费 Core 的事件。
+两个项目、一条依赖方向：`VigilWatt.App → VigilWatt.Core`。Core 不依赖任何 UI（WinRT 例外：BLE 用 WinRT API，属平台能力不算 UI），App 不写协议、只消费 Core 的事件。
 
 ```
-EasyBluetooth.sln
-├── src/EasyBluetooth.Core/            # 无 UI 核心库（net8.0-windows10.0.19041.0）
+VigilWatt.sln
+├── src/VigilWatt.Core/            # 无 UI 核心库（net8.0-windows10.0.19041.0）
 │   ├── Ble/BleBatteryWatcher          # BLE 设备发现 + GATT 电量直读
 │   ├── Devices/DeviceManager          # 中枢：合并 BLE+插件状态、定时器、历史、低电量
 │   ├── Hid/
@@ -29,8 +29,8 @@ EasyBluetooth.sln
 │   ├── Models/DeviceStatus            # 统一设备状态快照（Id/电量/充电/在线）
 │   ├── Settings/AppSettings           # settings.json 读写
 │   ├── Storage/HistoryStore           # SQLite（Microsoft.Data.Sqlite）
-│   └── Utils/Log                      # 文本日志 %LOCALAPPDATA%\EasyBluetooth\logs\app.log
-└── src/EasyBluetooth.App/             # WinUI 3 前端（net8.0-windows10.0.19041.0，非打包）
+│   └── Utils/Log                      # 文本日志 %LOCALAPPDATA%\VigilWatt\logs\app.log
+└── src/VigilWatt.App/             # WinUI 3 前端（net8.0-windows10.0.19041.0，非打包）
     ├── App.xaml.cs                    # AppServices 容器 + 启动序列 + 全局异常兜底
     ├── MainWindow(.xaml)              # NavigationView 三页导航；关窗=隐藏到托盘
     ├── Views/
@@ -46,9 +46,9 @@ EasyBluetooth.sln
         └── AutostartService           # HKCU\...\Run 注册表自启
 ```
 
-产物：`src\publish\EasyBluetooth.App.exe`（self-contained 单目录发布，102MB，已 gitignore）。
+产物：`src\publish\VigilWatt.App.exe`（self-contained 单目录发布，102MB，已 gitignore）。
 
-配套目录：`src/tests/EasyBluetooth.Core.Tests/`（xUnit 单测，`<Compile Include>` 链接 Core 的纯逻辑真源文件）、`src/tests/EasyBluetooth.BleScan/`（诊断小工具）、`scripts/`（临时调试脚本，用完即删）。
+配套目录：`src/tests/VigilWatt.Core.Tests/`（xUnit 单测，`<Compile Include>` 链接 Core 的纯逻辑真源文件）、`src/tests/VigilWatt.BleScan/`（诊断小工具）、`scripts/`（临时调试脚本，用完即删）。
 
 ## 2. 关键类型与关系
 
@@ -87,9 +87,9 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 
 | 位置 | 内容 |
 |---|---|
-| `%LOCALAPPDATA%\EasyBluetooth\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件/插件开关/MchoseProbingEnabled） |
-| `%LOCALAPPDATA%\EasyBluetooth\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts) |
-| `%LOCALAPPDATA%\EasyBluetooth\logs\app.log` | 全部运行日志（协议原始报文也在） |
+| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件/插件开关/MchoseProbingEnabled） |
+| `%LOCALAPPDATA%\VigilWatt\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts) |
+| `%LOCALAPPDATA%\VigilWatt\logs\app.log` | 全部运行日志（协议原始报文也在） |
 
 ## 6. 约定（改代码前先看）
 

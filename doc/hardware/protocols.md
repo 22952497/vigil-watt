@@ -44,7 +44,7 @@
    > `13 0A 01 00 04 **02** 01 …` 的 payload `0x01` 显示成 1%，触发误报低电量。识别到 `0x02`
    > 后把它当"设备已休眠"信号**立即标离线**（`BatteryPluginBase.RequestOffline`），比等 3 次
    > 通信失败（约 3 分钟）快得多。原始帧两边校验和都自洽，可自证。
-   > 解析代码：`MchoseV1Codec.ParsePush`（`V1PushKind`），真机帧回归用例在 `src/tests/EasyBluetooth.Core.Tests/`。
+   > 解析代码：`MchoseV1Codec.ParsePush`（`V1PushKind`），真机帧回归用例在 `src/tests/VigilWatt.Core.Tests/`。
 
 轮询实现：`MchosePlugin.PollKeyboardV1`（每分钟 1 条 4A 查询 + 顺带解析 0A 推送）；探测实现：`TryKeyboardV1`（05 01 开会话 → 4A 01）。
 
