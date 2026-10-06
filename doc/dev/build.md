@@ -90,3 +90,21 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 ### 已验证（2026-10-06）
 
 安装（静默）→ 目录/快捷方式/卸载条目正确、数据目录不冲突；自动更新（把 1.0.1 nupkg 丢进 `packages\` 后启动 1.0.0 → 自动升级重启到 1.0.1）；卸载 → 安装目录/快捷方式/卸载条目/HKCU Run 残留全部清掉，用户数据保留。
+
+### 发布到 GitHub（Release 即更新源）
+
+仓库公开：github.com/ACoolOctober/VigilWatt。GitHub Release 里的资产本身就是更新源，发一次 Release = 发布一个版本。
+
+1. push 代码。
+2. 发 Release，二选一：
+   - **自动（推荐）**：先建一个 PAT（GitHub → Settings → Developer settings → Fine-grained tokens，只勾本仓库 + Contents: Read and write；classic token 则勾 repo），然后：
+
+     ```
+     vpk upload github --repoUrl https://github.com/ACoolOctober/VigilWatt --token <PAT> --outputDir dist --releaseName "VigilWatt 1.0.1" --tag v1.0.1 --publish
+     ```
+
+     不加 `--publish` 只建草稿不发布；以后发新版**加 `--merge`**（允许与现有 Release 的资产合并，新旧 nupkg 共存才能算出增量包）。PAT 别写进脚本和仓库，用环境变量或命令行临时传。
+   - **手动**：GitHub 网页 → Releases → Draft a new release → tag `v1.0.1` → 把 `dist/` 下全部文件拖进去 → Publish。
+3. 用户在设置页"更新源"填 `https://github.com/ACoolOctober/VigilWatt` 即可收到后续更新（公开仓库免 token；GithubSource 未登录有每小时 60 次 API 限速，个人使用足够）。
+
+**坑**：`UpdateManager` 的字符串构造**不识别** GitHub 地址——它按普通 web 源去抓 `{url}/RELEASES`，GitHub 上没有这个路径，必 404。所以 `UpdateService` 里 GitHub 地址必须走 `GithubSource`（走 API 列 Release 资产）。若仓库转私有，Release 资产也随之私有，GithubSource 需要传 accessToken（当前实现不传，仅支持公开仓库）。
