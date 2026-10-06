@@ -26,6 +26,13 @@
 | [protocols.md](hardware/protocols.md) | 2.4G 协议手册（迈从 G87 已打通、QHW 新协议、北通手柄、雷柏/Elan 现状） | 动 Mchose/Logitech/Betop/Elan 插件、接入新设备 |
 | [debugging.md](hardware/debugging.md) | 调试手法（抓官方软件的包、HID 直测、日志考古、验证清单） | 协议不通、要校准新设备时 |
 
+## 📁 reviews/ — 审查报告
+
+| 文档 | 内容 | 什么时候看 |
+|---|---|---|
+| [code-review-2026-10-06.md](reviews/code-review-2026-10-06.md) | 全仓代码/架构静态审查（基线 `ddd3b39`）：硬件写入边界、状态同步、BLE 判定、体验与测试缺口，含文件行号与修复顺序 | 规划重构/排优先级、改写入或状态链路前 |
+| [code-review-followup-2026-10-06.md](reviews/code-review-followup-2026-10-06.md) | 对上条的独立复核：哪些属实、哪 3 处需修正、报告遗漏了什么（罗技无写入闸门等），以及四阶段优化路线图 | 看完上条要动手改时、排长期重构顺序 |
+
 ## 症状速查
 
 | 症状 | 大概率是 | 先看 |

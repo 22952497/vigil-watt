@@ -67,11 +67,12 @@ src/
   VigilWatt.App/           # WinUI 3 主程序
     MainWindow（导航）+ Views（设备/统计/历史管理/设置）+ WidgetWindow + Services（托盘/ICO/自启）
   tests/
-    VigilWatt.Core.Tests/  # Core 纯逻辑 + 存储单测（xUnit，65 个用例，链接 Core 真源文件）
+    VigilWatt.Core.Tests/  # Core 纯逻辑 + 存储单测（xUnit，67 个用例，链接 Core 真源文件）
     VigilWatt.BleScan/     # 诊断小工具：蓝牙适配器能力 + 已配对经典/LE 设备探查
   publish/                     # 发布产物（self-contained，已 gitignore）
 scripts/                       # 临时调试脚本（.py/.ps1，用完即删，索引见 scripts/README.md）
 doc/                           # 项目文档与经验沉淀（见 doc/README.md）
+  reviews/                     # 审查报告（全仓代码/架构审查）
 ```
 
 ## 已知坑与经验沉淀（doc/）
@@ -87,6 +88,8 @@ doc/                           # 项目文档与经验沉淀（见 doc/README.md
 - [doc/hardware/safety.md](doc/hardware/safety.md) — **硬件安全规则 + 事故复盘（写入类改动必读）**
 - [doc/hardware/protocols.md](doc/hardware/protocols.md) — 2.4G 协议手册（迈从 G87 会话协议、QHW 新协议、雷柏/Elan 现状）
 - [doc/hardware/debugging.md](doc/hardware/debugging.md) — 调试手法（抓官方软件的包、HID 直测、验证清单）
+- [doc/reviews/code-review-2026-10-06.md](doc/reviews/code-review-2026-10-06.md) — 全仓代码与架构审查（基线 `ddd3b39`）：硬件写入边界、状态同步、测试缺口与修复顺序
+- [doc/reviews/code-review-followup-2026-10-06.md](doc/reviews/code-review-followup-2026-10-06.md) — 上条的独立复核（哪些属实/需修正/遗漏）与四阶段优化路线图
 
 最常踩的几条速记：
 
