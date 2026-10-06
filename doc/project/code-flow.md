@@ -11,7 +11,7 @@
    - 采样：1 分钟后首跑，之后每 `SampleIntervalMinutes` 分钟（SafeSample）
 4. `new MainWindow()`（NavigationView 三页），然后 TrayService.Initialize()（Win32 消息窗口 + Shell_NotifyIcon）。
 5. `MainWindow.Activate()` → 若 `StartMinimized` 立即 `AppWindow.Hide()`（关窗也是隐藏，见 §7）。
-6. 若 `WidgetEnabled` → `new WidgetWindow()` + Activate（DIP×缩放尺寸、置顶、工具窗口样式）。
+6. 若 `WidgetEnabled` → `new WidgetWindow()` + Activate（DIP×缩放尺寸、普通层级不置顶、工具窗口样式）。
 7. 全程异常兜底：App.UnhandledException / AppDomain.UnhandledException / TaskScheduler.UnobservedTaskException → Log.Error。
 
 ## 2. 轮询主循环（DeviceManager.SafePoll，每 1 分钟 + 手动刷新共用）

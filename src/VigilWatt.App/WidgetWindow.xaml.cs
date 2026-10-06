@@ -12,7 +12,8 @@ using Windows.Graphics;
 namespace VigilWatt.App;
 
 /// <summary>
-/// 桌面小组件：无边框置顶悬浮条，横向显示各设备电量芯片，可拖动，不进 Alt-Tab/任务栏。
+/// 桌面小组件：无边框悬浮条，横向显示各设备电量芯片，可拖动，不进 Alt-Tab/任务栏。
+/// 普通窗口层级（不置顶），会被其他窗口正常遮挡。
 /// 尺寸按 DPI 缩放（AppWindow.Resize 用物理像素），位置始终夹在工作区内。
 /// </summary>
 public sealed partial class WidgetWindow : Window
@@ -38,7 +39,8 @@ public sealed partial class WidgetWindow : Window
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
-            presenter.IsAlwaysOnTop = true;
+            // 普通桌面展示：不置顶，允许被其他窗口遮挡（需要时再切回 true）
+            presenter.IsAlwaysOnTop = false;
             presenter.IsResizable = false;
             presenter.IsMinimizable = false;
             presenter.IsMaximizable = false;

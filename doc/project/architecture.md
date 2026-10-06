@@ -38,7 +38,7 @@ VigilWatt.sln
     │   ├── StatsPage                  # 历史曲线（设备/时间范围选择）
     │   ├── BatteryChartControl        # 自绘 Canvas/Polyline 折线图（无第三方图表库）
     │   └── SettingsPage               # 设置项 + 应用按钮
-    ├── WidgetWindow(.xaml)            # 桌面小组件（无边框置顶悬浮条，纯代码构建芯片）
+    ├── WidgetWindow(.xaml)            # 桌面小组件（无边框悬浮条，普通层级不置顶，纯代码构建芯片）
     ├── ViewModels/DeviceRowModel      # 设备行的绑定模型
     └── Services/
         ├── TrayService                # 托盘（纯 Win32 Shell_NotifyIcon）
