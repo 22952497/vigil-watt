@@ -13,7 +13,7 @@ $root = Split-Path -Parent $PSScriptRoot   # scripts\ 的上一级 = 仓库根
 cmd /c "taskkill /IM VigilWatt.App.exe /F >nul 2>&1"
 
 # 2) 发布 self-contained（含 Windows App SDK 运行时，目标机器无需装任何依赖）
-$publishDir = Join-Path $root "src\publish"
+$publishDir = Join-Path $root "publish"
 $csproj = Join-Path $root "src\VigilWatt.App\VigilWatt.App.csproj"
 dotnet publish $csproj -c Release -p:Platform=x64 -o $publishDir
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish 失败" }

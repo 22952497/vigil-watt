@@ -24,10 +24,10 @@
 ## 4. 发布
 
 ```
-dotnet publish src/VigilWatt.App -c Release -p:Platform=x64 -o src/publish
+dotnet publish src/VigilWatt.App -c Release -p:Platform=x64 -o publish
 ```
 
-self-contained（含 Windows App SDK 运行时），约 102MB，无需安装任何依赖。产物落在 `src/publish/`（已 gitignore）。sln 的 GUID 是手写的，VS 能正常打开。
+self-contained（含 Windows App SDK 运行时），约 102MB，无需安装任何依赖。产物落在仓库根 `publish/`（已 gitignore）。sln 的 GUID 是手写的，VS 能正常打开。
 
 ## 4.1 测试
 
@@ -43,7 +43,7 @@ xUnit 项目（`net8.0`、AnyCPU），用 `<Compile Include>` 直接链接 `src/
 
 ## 6. 输出目录里的 88 个语言文件夹（.mui 语言包）
 
-**症状**：`bin`/`src/publish` 下出现 `af-ZA`、`de-DE`、`fr-FR`… 共 88 个语言目录，各含 2 个 `.mui` 文件（WinUI XAML 框架的多语言 UI 字符串）。
+**症状**：`bin`/`publish` 下出现 `af-ZA`、`de-DE`、`fr-FR`… 共 88 个语言目录，各含 2 个 `.mui` 文件（WinUI XAML 框架的多语言 UI 字符串）。
 
 **来源**：`WindowsAppSDKSelfContained=true` 时，`Microsoft.WindowsAppSDK.SelfContained.targets` 的 `AddMicrosoftWindowsAppSDKPayloadFiles` 把 WindowsAppRuntime MSIX 解包并**全量**拷贝，`.mui` 在其中。注意它们不走 .NET 卫星程序集管道，`SatelliteResourceLanguages` 属性管不到。
 

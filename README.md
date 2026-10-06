@@ -19,7 +19,7 @@
 ## 运行
 
 - 开发调试：`dotnet build VigilWatt.sln -c Debug`，运行 `src\VigilWatt.App\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\VigilWatt.App.exe`
-- 发布版：`src\publish\VigilWatt.App.exe`（self-contained，无需安装运行时），建议固定到任务栏或加入自启
+- 发布版：`publish\VigilWatt.App.exe`（self-contained，无需安装运行时），建议固定到任务栏或加入自启
 - 测试：`dotnet test src/tests/VigilWatt.Core.Tests`（67 个用例，改读数过滤器 / V1 帧解析 / 北通帧解析 / 经典蓝牙名称识别 / 设备类型判定 / 历史库删除统计后必跑）
 
 数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log / tray.ico）
@@ -69,7 +69,7 @@ src/
   tests/
     VigilWatt.Core.Tests/  # Core 纯逻辑 + 存储单测（xUnit，67 个用例，链接 Core 真源文件）
     VigilWatt.BleScan/     # 诊断小工具：蓝牙适配器能力 + 已配对经典/LE 设备探查
-  publish/                     # 发布产物（self-contained，已 gitignore）
+publish/                       # 发布产物（self-contained，已 gitignore）
 scripts/                       # 临时调试脚本（.py/.ps1，用完即删，索引见 scripts/README.md）
 doc/                           # 项目文档与经验沉淀（见 doc/README.md）
   reviews/                     # 审查报告（全仓代码/架构审查）

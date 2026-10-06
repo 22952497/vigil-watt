@@ -47,7 +47,7 @@ VigilWatt.sln
         └── AutostartService           # HKCU\...\Run 注册表自启
 ```
 
-产物：`src\publish\VigilWatt.App.exe`（self-contained 单目录发布，102MB，已 gitignore）。
+产物：`publish\VigilWatt.App.exe`（self-contained 单目录发布，102MB，已 gitignore）。
 
 配套目录：`src/tests/VigilWatt.Core.Tests/`（xUnit 单测，`<Compile Include>` 链接 Core 的纯逻辑真源文件）、`src/tests/VigilWatt.BleScan/`（诊断小工具）、`scripts/`（临时调试脚本，用完即删）。
 
@@ -77,7 +77,7 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 | **删除历史后立即 VACUUM** | SQLite 的 `DELETE` 只把页标成空闲、**不缩小文件**；不 VACUUM 的话用户删完看到文件大小没变，会以为删除没生效。删除是低频操作，VACUUM 的整库重写开销可接受 |
 | **HistoryStore 支持注入库路径** | `HistoryStore(dbPath)` 可选参数让单测指向临时库，使删除/统计逻辑能进纯 net8.0 测试项目跑真 SQLite（不碰真实 history.db） |
 | **统一 DeviceStatus.Id** | BLE=蓝牙地址、2.4G=设备路径哈希（`mchose:{StableHash}`）。改协议后设备 ID 会变（旧曲线对不上新 ID）——历史库里同时存在 `mchose:D78E…`（错误时代）和 `mchose:0F60…`（现在）即此原因 |
-| **非打包部署（WindowsPackageType=None + SelfContained）** | 免安装免签名，双击就跑；代价是要自己带 Windows App SDK 运行时（`src/publish` 已含） |
+| **非打包部署（WindowsPackageType=None + SelfContained）** | 免安装免签名，双击就跑；代价是要自己带 Windows App SDK 运行时（`publish/` 已含） |
 
 ## 4. 线程模型
 

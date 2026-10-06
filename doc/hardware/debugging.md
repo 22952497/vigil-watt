@@ -132,4 +132,4 @@ tasklist //FI "IMAGENAME eq VigilWatt.App.exe"     # 先确认没有旧实例
 grep -a "启动 VigilWatt" app.log | tail -3         # 每次启动都有一行；没有 = 新实例根本没跑起来
 ```
 另外：**从本仓库的 agent shell 拉起 GUI 应用会被进程树清理在 ~7 秒内带走**（日志只写到首轮扫描就断）。
-要长驻请让用户双击 `src\publish\VigilWatt.App.exe`；验证只求"看到首轮日志"时可以用 `cmd //c start`。
+要长驻请让用户双击 `publish\VigilWatt.App.exe`；验证只求"看到首轮日志"时可以用 `cmd //c start`。
