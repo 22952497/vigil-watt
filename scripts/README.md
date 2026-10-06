@@ -1,0 +1,25 @@
+# scripts/ — 临时调试脚本
+
+> **本目录只放一次性 / 临时调试脚本**（PowerShell / Python / 一次性 P/Invoke 探针），用完即删或归档。
+> **长期存在的 C# 项目不放这里**：测试项目在 [`src/tests/`](../src/tests/)，工程源码在 [`src/`](../src/)。
+> 临时产物用 `%TEMP%`，仓库根目录只放工程文件。新增脚本后在下面补一行索引。
+
+## 脚本索引
+
+| 脚本 | 用途 |
+|---|---|
+| `probe-devnode-battery.py` | **PnP 设备节点电量探针**（纯 ctypes + SetupAPI）：枚举全机节点读 `DEVPKEY_Device_BatteryLevel`。经典蓝牙耳机电量就是这么找到的（EDIFIER W820NB 挂在 HFP 网关节点上）；`--all --match X` 可 dump 匹配节点的全部属性，查任何"Windows 能看到但代码读不到"的设备属性都用它 |
+| `test-rapou7.ps1` | 雷柏 dongle（VID_24AE）HID P/Invoke 直测。也是 build.md §7"PowerShell 5.1" 的范例：本机 Add-Type 不支持字符串插值/内联 out/可空注解，要用老式语法 |
+| `test-elan-dongle-passive.py` | Elan dongle（04F3:026F）被动监听 90 秒，零写入——看 2.4G 模式下 dongle 是否推状态/电量帧 |
+| `test-elan-dongle-wait.py` | 同上，但轮询等待 dongle 插入后再监听 |
+| `test-rose-dongle-interactive.py` | ROSE dongle（38FF:0001）交互式被动监听 5 分钟，零写入——耳机按键操作会经 dongle 出现在这里，可当"耳机已连接"探针 |
+| `test-rose-dongle-passive.py` | ROSE dongle MI_03（consumer）被动监听 60 秒，零写入 |
+| `test-rose-headset-getinfo.py` | FIRST ANGEL USB 直连官方 GET_INFO 查询（report 0xAB，帧格式来自官方升级工具反编译），纯只读 |
+| `test-rose-headset-passive.py` | FIRST ANGEL USB 直连 MI_03 被动监听 60 秒，零写入——看耳机是否自发推 0xAB 帧 |
+
+## 约定
+
+- **零写入原则**：协议未摸清前只做被动监听；主动写帧前先读 `doc/hardware/safety.md`（硬件安全红线）。
+- Python 脚本依赖 `pip install hidapi`（HID 直测手法见 doc/hardware/debugging.md §2）。
+- 脚本里的设备路径/接口号是本机实测值，换设备后以 app.log 的"HID 元数据"行为准。
+- 排查完的脚本：能沉淀成知识的写进 `doc/`，脚本本身可删；值得留的再进索引。
