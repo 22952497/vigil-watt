@@ -436,13 +436,13 @@ public sealed class DeviceManager : IDisposable
         // 覆盖前记下上一次已知电量，供低电量提醒做骤降保护（同一对象的情况也成立）
         int? previousPercent = isNew ? null : status.BatteryPercent;
 
-        bool changed = status.BatteryPercent != incoming.BatteryPercent || status.IsOnline != incoming.IsOnline;
-        // 原地同步（同一对象的情况也统一字段）
-        status.Name = incoming.Name;
-        status.BatteryPercent = incoming.BatteryPercent;
-        status.Charging = incoming.Charging;
-        status.LastUpdated = incoming.LastUpdated;
-        status.IsOnline = incoming.IsOnline;
+        // 充电标志必须参与变化判定：设备改口 充电中↔放电 时电量往往不变（如拔线瞬间停在 99%），
+        // 漏判会让 UI/托盘/小组件一直显示"充电中"，直到下一次电量跳动才自愈（2026-10-06 用户复报）。
+        bool changed = status.BatteryPercent != incoming.BatteryPercent
+                    || status.Charging != incoming.Charging
+                    || status.IsOnline != incoming.IsOnline;
+        // 原地同步（同一对象的情况也统一字段）；Kind/Protocol 的"声明覆盖猜测"规则见 DeviceStatusMerger
+        DeviceStatusMerger.Apply(status, incoming);
 
         // 占位条目一旦被真实来源接管（重新上线），就不再按占位规则过期剔除
         if (status.IsOnline) _tombstoneIds.Remove(status.Id);
