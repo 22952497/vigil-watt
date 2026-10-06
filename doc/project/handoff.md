@@ -7,7 +7,7 @@
 应用运行中（`src\publish\`，2026-10-06 傍晚发布）。本机三台 2.4G 设备**已全部打通且首次发现均在 6 秒内**：
 北通 T9 手柄 73%（T9 被动状态流）、迈从 G87 键盘 65%（0x13 会话协议）、雷柏 VT3 二代鼠标 98%（status-report7 被动）；
 经典蓝牙耳机 EDIFIER W820NB 走 HFP 网关节点 `DEVPKEY_Device_BatteryLevel`（与 Windows 设置页一致）；
-插件架构完成二演化。**本轮（第八轮）修掉两个"看着像功能缺失"的 Bug：程序没图标（工程里压根没有 .ico）+ 托盘提示永远停在"暂无在线设备"（`UpdateIcon` 只在启动时跑过一次），见下。**
+插件架构完成二演化。**本轮（第九轮）修掉"北通手柄关了还显示在线"——T9 的 `byte23==0x50` 是 dongle 的"手柄未连接"占位帧，旧实现当成 67% 采信了，见下。**
 
 ## 2. 用户设备清单（勿对号入座错）
 
@@ -365,6 +365,60 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 > 操作提醒：`src/publish` 被运行中的实例锁着会导致 publish 失败（MSB3027/3021）——
 > 必须先关掉应用（**`taskkill /F` 会粘连迈从 dongle 会话约 2 分钟，属已知现象**，见 safety.md §2.2）。
 
+### 2026-10-06（晚）第九轮：北通手柄关了还显示在线 —— T9 的 `0x50` 是"未连接"占位帧
+
+用户报：**「检查下 北通真的还在线吗？我设备已经关闭了 只有连接器还在电脑上」** ——
+手柄关机、只剩 dongle 插着，列表里「北通 T9」仍显示 **67% 在线**。
+
+**根因**：**手柄关机后 dongle 不会停止推流**，而是继续每轮推同一帧、只把电量字节换成固定的 `0x50`。
+旧 `ParseT9Status` 照单全收（`0x50` 按 `raw/120` 换算 = 67%）→ 手柄明明关了还报在线。
+
+**取证**：翻 app.log 全部 Col04 帧，四段状态一次例外都没有 ——
+
+| 时刻 | byte[1] | byte[23] | 现场 |
+|---|---|---|---|
+| 15:13~15:18 | `0x02` | `0x58` | 手柄开机 |
+| 15:19~15:30 | `0x02` | `0x50` | 手柄休眠 |
+| 15:31~17:02 | `0x0C` | `0x58` | 手柄开机（73%） |
+| 17:03~17:12+ | `0x04` | `0x50` | **手柄关机，只剩 dongle** |
+
+→ **`byte23 == 0x50` ⟺ 手柄没连上**；`byte[1]` 在 `{0x02,0x04,0x0C}` 之间乱变，不能当判据。
+
+**为什么只认 `0x50`、不按"低位=标志位"猜**：`0x50`/`0x58` 只差最低位，两种自洽读法（等级×8 / 高 4 位等级+低位标志）
+下 `0x50` 都只可能是"没连上"，认它是零风险；而按"低位=标志"判，若实际是等级×8，则所有偶数等级都会被误判离线。
+**宁可漏判、不可误判。** 留待验证：充满（`0x78`）后关机若报 `0x70`，则标志位读法成立、可一般化。
+
+**修法**（`BetopCodec` + `BetopPlugin` + 基类 1 行）：
+- `ParseT9Status` 返回 `T9Status(Percent, Charging, Linked)`；占位帧 `Linked=false`。
+- **探测阶段"算成功但电量留空"**（不是判失败）：基类据此认领设备，并按新增规则
+  `IsOnline = percent.HasValue`（`BatteryPluginBase.CommitProbes`）标**离线** → 列表显示「北通 T9 · 离线 · --%」。
+- **轮询阶段** `RequestOffline(dev)` 立即标离线（不等 3 次失败 = 3 分钟）；手柄再开机下一轮自动回在线。
+- ⚠ **"探测算成功"是为了如实列出「离线」**（而不是让设备从列表消失），**不是为了省时间**：
+  基类的 toProbe 列表在任何探测之前就收集完了，同一轮里其它候选接口照旧会被探测。
+  实测三个设备仍在 +7s 内全部到齐。
+- **顺手澄清一个此前记错的结论**：北通"每次轮询白等 4~6 秒"的根因**不是**"T9 流没被识别"，
+  而是 `IsCandidate` 放行了该 dongle 的 3 个非电量接口（`0x0001` 配置流 / `0x0003` 摇杆流 / `5075` 全零帧），
+  每个白等一个 2 秒窗口 —— 旧版日志（17:19:30）与新版日志（17:29:40）**同样是 `05 → 00 → 04` 三段**，
+  说明它是**既有开销、与本轮改动无关**，上一轮的"已修复"只是让第 4 个接口的探测能立刻命中。
+  要真正消除需收敛 `IsCandidate`（电量通道只在 `usage 0x0002/0x0003`）或给失败路径加负缓存 —— **本轮为控风险未动**。
+- 单测：T2/T7 改为断言 `Linked=false`，新增 T9（`byte1=0x04` 真机帧）、T10（**只认 `0x50`，其余偶数等级不得误判离线**）。
+  **测试总数 65 → 67**，`dotnet test` 全绿；`dotnet build VigilWatt.sln -c Debug` 0 错误、无新增警告。
+
+**实测（17:25 发布版）**：
+```
+17:25:40 北通 T9 手柄未连接（dongle 占位帧 byte23=0x50，手柄已关机/休眠；dongle 仍在）: 04 04 80 … 50
+17:25:44 认领北通手柄设备: … proto=betop-status15 电量= 充电=Unknown      ← 电量空 = 离线认领
+17:25:44 认领迈从设备: … 电量=91    17:25:44 认领雷柏设备: … 电量=98
+17:25:44 托盘提示已更新: VigilWatt · MCHOSE 2.4G Wireless 91%            ← 托盘只统计在线设备，北通不再计入
+```
+
+> **环境教训（重要，上次的记录不准）**：本会话用 shell / 后台任务 / `cmd /c start` 拉起
+> `VigilWatt.App.exe` **都会被进程树清理在 ~7 秒内带走**（日志只写到首轮扫描就断），
+> 所以**"后台任务方式启动"这条并不总能长驻**。更要命的是：应用被强杀后**单实例互斥量仍由旧实例持有**，
+> 新实例会静默退出，而它的日志也写不进去（旧实例以 `FileShare.Read` 占着 app.log）——
+> 表现为"日志里根本没有新启动记录"，很容易误判成"新代码没生效"。
+> **验证前先 `tasklist` 确认没有旧实例在跑**；要长驻请让用户双击 `src/publish/VigilWatt.App.exe`。
+
 ## 4. 待办（按优先级，详见 experience.md §5）
 
 
@@ -376,7 +430,11 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 5. ~~**经典蓝牙耳机电量**~~ **已解决（2026-10-06）**：连接状态走 BluetoothClassicWatcher（纯被动零写入）；电量改读 **HFP 免手操作网关设备节点的 PnP 属性 `DEVPKEY_Device_BatteryLevel`**（`{104EA319-6EE2-4701-BD47-8DDBF425BBE5},2`），用 SetupAPI 枚举 `BTHENUM\*` 节点 + 按 MAC 对上 AEP 设备。实测 EDIFIER W820NB 60% 与设置页一致。**结论：`System.Devices.AepBattery_Level` / `Aep.Battery_Level` / `System.Devices.BatteryLevel` 都别再试了，PnP 属性是另一套体系**（runtime-pitfalls §3、code-flow §3）。剩余可做：接耳机时观察 HFP 节点电量是否实时刷新（现在是每分钟轮询 + 5 秒缓存）。
 6. 新世代迈从 dongle（3837:3033）QHW 协议已实现未验证，遇到即用
 7. ~~**北通手柄真机验证**~~ **已真机验证（2026-10-06 晚，北通 T9）**：修掉 report ID 硬编码根因 + 新增 T9 被动流解析（见上节）。
-   剩余：**发布后由用户确认**设备列表出现「北通 BEITONG T9」及电量 ~100%；另**鲲鹏20（`PID_5191`）主动查询路径仍未真机验证**（本机只有 T9）。
+   剩余：**鲲鹏20（`PID_5191`）主动查询路径仍未真机验证**（本机只有 T9）。
+8. **T9 `byte23` 低位语义未定论**（第九轮留的口子）：现在是"只认 `0x50` = 未连接"。
+   **验证方法**：把手柄充满（`byte23=0x78`）后再关机，看 dongle 报 `0x50` 还是 `0x70` ——
+   报 `0x70` 说明低位 `0x08` 是"链路有效"标志，可把判据一般化成 `(byte23 & 0x08) == 0`，
+   同时电量换算要改成"高 4 位 / 7"；报 `0x50` 则维持现状（等级×8）。见 protocols.md §4.4.1。
 
 ## 5. 给下一个 AI 的注意事项
 
@@ -396,7 +454,8 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 |---|---|
 | 迈从协议/解析 | `src/VigilWatt.Core/Plugins/Mchose/MchosePlugin.cs`（规格 protocols.md §1） |
 | 雷柏协议/解析 | `src/VigilWatt.Core/Plugins/Rapoo/RapooPlugin.cs`（规格 protocols.md §3） |
-| 北通协议/解析 | `src/VigilWatt.Core/Plugins/Betop/BetopPlugin.cs` + `BetopCodec.cs`（规格 protocols.md §4）；report ID 解析见 `Hid/NativeHid.cs` 的 `ReadReportId` |
+| 北通协议/解析 | `src/VigilWatt.Core/Plugins/Betop/BetopPlugin.cs` + `BetopCodec.cs`（规格 protocols.md §4；**"手柄未连接"占位帧 §4.4.1**）；report ID 解析见 `Hid/NativeHid.cs` 的 `ReadReportId` |
+| 插件"认领但离线"规则 | `BatteryPluginBase.CommitProbes` 的 `IsOnline = percent.HasValue`（探测成功但无读数 = 设备在位不可读，标离线） |
 | 经典蓝牙显示名 | `src/VigilWatt.Core/Ble/ClassicDeviceName.cs`（纯逻辑：占位名识别）+ `ClassicPairedNames.cs`（注册表配对名兜底） |
 | 蓝牙诊断 | `src/tests/VigilWatt.BleScan/`（`dotnet run --project`）：适配器能力、已配对经典/LE 设备、**每个 AEP 的 `IsConnected`/`DeviceAddress` 与"已连接"集合** |
 | 新增品牌插件 | 新建 `Plugins/xx/XxPlugin.cs` 继承 `BatteryPluginBase`，三个方法（architecture.md §3） |

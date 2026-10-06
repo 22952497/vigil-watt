@@ -73,15 +73,57 @@ internal static class BetopCodec
     /// </summary>
     public const byte T9BatteryFull = 120;
 
+    // ---------------------------------------------------------------- "手柄未连接"占位帧
+    //
+    // ⚠ 2026-10-06 晚（用户复报："我设备已经关闭了 只有连接器还在电脑上"）：
+    //   **dongle 在手柄关机/休眠后不会停止推流**，而是继续每轮推同一帧，只是电量字节换成
+    //   一个**固定的占位值** —— 旧实现照单全收，于是手柄明明关了，列表里还显示"北通 T9 67% 在线"。
+    //
+    // 真机对照（同一天、同一台 T9，翻 app.log 全部 Col04 帧）：
+    //
+    //   | 时刻              | 帧                                              | 现场          |
+    //   |-------------------|-------------------------------------------------|---------------|
+    //   | 16:38 ~ 17:02     | `04 0C 80 80 80 80 … 58`（byte23=0x58）          | 手柄开着 73%  |
+    //   | 17:03 ~ 现在      | `04 04 80 80 80 80 … 50`（byte23=0x50）          | **手柄已关**  |
+    //   | 15:13 ~ 15:18     | `04 02 … 58`                                     | 手柄开着      |
+    //   | 15:19 ~ 15:30     | `04 02 … 50`                                     | 手柄休眠      |
+    //
+    //   结论：**byte23 == 0x50（raw 80）就是"手柄没连上"** —— 开机的两段都是 0x58，
+    //   关机/休眠的两段都是 0x50，一次例外都没有；而 byte[1] 在 {0x02, 0x04, 0x0C} 之间乱变，
+    //   不能当判据（关机时是 0x04、休眠时是 0x02、开机时是 0x02/0x0C，无规律）。
+    //
+    // 为什么只认 0x50 这一个值、而不是按"低位/标志位"去猜：
+    //   0x50 与 0x58 只差最低位，因此有两种自洽读法——① 等级×8（0x50=等级10=67%）；
+    //   ② 高 4 位是等级、低位 0x08 是"链路有效"标志（0x50=等级5+标志清零）。
+    //   两种读法下 **0x50 都只可能是"没连上"**（开机态永远是 0x58），所以认 0x50 是零风险的选择；
+    //   而按"低位=标志"去判，若实际是读法①，则所有偶数等级（0x40/0x60/0x70…）都会被误判离线——
+    //   那是把一半正常读数打掉。**宁可漏判、不可误判**，故只认 0x50。
+    //   留待验证：充满（0x78）后关机，若 dongle 报 0x70 则读法②成立，可据此把判据一般化。
+
+    /// <summary>
+    /// T9 状态流里 dongle 在"手柄未连接（关机/休眠/未配对）"时上报的**占位值**（raw 80）。
+    /// 见上方对照表：开机态永远是 0x58，0x50 只在手柄没连上时出现。
+    /// </summary>
+    public const byte T9NotLinkedRaw = 0x50;
+
     /// <summary>把 T9 原始电量字节（0~120）换算成百分比（0~100，四舍五入）。</summary>
     public static int T9ToPercent(byte raw) => (raw * 100 + T9BatteryFull / 2) / T9BatteryFull;
 
+    /// <summary>T9 被动状态流的解析结果。</summary>
+    /// <param name="Percent">电量百分比（0~100）。<paramref name="Linked"/> 为 false 时该值无意义（是 dongle 的占位值）。</param>
+    /// <param name="Charging">是否充电中（T9 流里没有充电标志字节，恒为 false）。</param>
+    /// <param name="Linked">
+    /// 手柄是否真的连着。false = dongle 上报"未连接"占位帧 —— **手柄并不在线**，
+    /// 调用方应把设备标离线（不要把这个占位值当成电量）。
+    /// </param>
+    public readonly record struct T9Status(int Percent, bool Charging, bool Linked);
+
     /// <summary>
-    /// 解析 T9 的被动状态流帧。返回 (电量%, 是否充电中)；非该帧型或电量无效返回 null。
+    /// 解析 T9 的被动状态流帧。返回 <see cref="T9Status"/>；非该帧型或电量越界返回 null。
     /// 识别依据只有 report ID（见上方踩坑记录），**不要**再按 byte[1] 判帧头。
-    /// T9 的流里未观察到充电标志字节，故充电状态一律按"用电池"返回。
+    /// <see cref="T9Status.Linked"/> = false 表示 dongle 明确告知"手柄没连上"（见 <see cref="T9NotLinkedRaw"/>）。
     /// </summary>
-    public static (int Percent, bool Charging)? ParseT9Status(byte[] input)
+    public static T9Status? ParseT9Status(byte[] input)
     {
         foreach (int off in new[] { 0, 1 })
         {
@@ -90,7 +132,11 @@ internal static class BetopCodec
 
             byte raw = input[off + T9BatteryOffset];
             if (raw <= InvalidPercentFloor || raw > T9BatteryFull) return null;
-            return (T9ToPercent(raw), false);
+
+            // 占位帧：dongle 还插着、手柄没连上 —— 值不是电量，必须交给调用方判离线。
+            if (raw == T9NotLinkedRaw) return new T9Status(0, false, Linked: false);
+
+            return new T9Status(T9ToPercent(raw), false, Linked: true);
         }
         return null;
     }

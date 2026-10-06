@@ -30,6 +30,12 @@ namespace VigilWatt.Core.Plugins.Betop;
 /// 安全：只发官方客户端自己发的这一条读命令（cmd=0x5），不碰写配置命令（cmd=0x2）、不刷固件、不改灯效；
 /// 写入受 <see cref="ProbingEnabled"/>（AppSettings.BetopProbingEnabled）控制；连续 3 次失败由基类自动熔断。
 /// 手柄休眠时无响应（按一下任意按键即恢复），此时本插件表现为离线，属预期。
+///
+/// **手柄关机 / 只插着 dongle 时**：dongle 不会停止推流，而是改推"未连接占位帧"
+/// （byte23 = <see cref="BetopCodec.T9NotLinkedRaw"/>）。此时必须判**离线**而不是把占位值当电量——
+/// 否则手柄关了列表里还显示"北通 T9 67% 在线"（2026-10-06 晚用户复报的 bug）。
+/// 表现为设备列表里「北通 T9 · 离线 · --%」；手柄再开机后下一轮自动回到在线。
+/// 详见 <see cref="BetopCodec.ParseT9Status"/> 上方的真机对照表。
 /// </summary>
 public sealed class BetopPlugin : BatteryPluginBase
 {
@@ -74,25 +80,57 @@ public sealed class BetopPlugin : BatteryPluginBase
         return info.UsagePage == VendorUsagePage || info.Usage == VendorUsagePage;
     }
 
-    /// <summary>探测 = 发一条状态查询，2 秒窗口内等响应。收不到 = 手柄休眠，返回 null 进冷却。</summary>
+    /// <summary>
+    /// 探测 = 发一条状态查询，2 秒窗口内等响应。收不到 = 手柄休眠，返回 null 进冷却。
+    ///
+    /// dongle 报"未连接占位帧"时**也算探测成功**（协议名 + 电量 null）——基类据此认领设备、
+    /// 但按"无读数 = 离线"把设备标离线，列表显示「北通 T9 · 离线 · --%」，
+    /// 而不是手柄关了还显示"67% 在线"（2026-10-06 晚用户复报的 bug）。
+    /// 认领后该接口进入 `_devices`，后续轮询不再重复探测它。
+    ///
+    /// 注意**不要**指望"探测成功"能省掉同族接口的探测：基类的 toProbe 列表在任何探测之前
+    /// 就已收集完毕，同一轮里其它候选接口照旧会被探测（那 ~4 秒是既有开销，与本改动无关）。
+    /// </summary>
     protected override (string Protocol, int? Percent, ChargingState Charging)? Probe(HidDeviceHandle handle)
     {
-        var read = Query(handle, TimeSpan.FromSeconds(2));
+        var read = Query(handle, TimeSpan.FromSeconds(2), dev: null);
         if (read == null) return null;
-        return ("betop-status15", read.Value.Percent, MapCharging(read.Value.Percent, read.Value.Charging));
+        if (!read.Value.Linked) return (ProtocolName, null, ChargingState.Unknown);
+        return (ProtocolName, read.Value.Percent, MapCharging(read.Value.Percent, read.Value.Charging));
     }
 
     /// <summary>轮询 = 发一条状态查询读电量。写入被开关/熔断挡住时返回 null（计入失败，但不再写）。</summary>
     protected override (int? Percent, ChargingState Charging)? PollDevice(TrackedDevice dev)
     {
         if (!CanWrite(dev)) return null;
-        var read = Query(dev.Handle, TimeSpan.FromSeconds(1.5));
+        var read = Query(dev.Handle, TimeSpan.FromSeconds(1.5), dev);
         if (read == null) return null;
+
+        // dongle 明确告知"手柄没连上"：立即标离线（省掉 3 次失败 = 3 分钟），本轮不产生读数。
+        // 手柄再开机时下一轮就能读到真实读数，基类会自动把它标回在线。
+        if (!read.Value.Linked)
+        {
+            RequestOffline(dev);
+            return null;
+        }
+
         return (read.Value.Percent, MapCharging(read.Value.Percent, read.Value.Charging));
     }
 
-    /// <summary>发一条状态查询并读取响应。写一次（长度/report ID 取自接口的报告描述符），窗口内持续收帧直到解析成功。</summary>
-    private static (int Percent, bool Charging)? Query(HidDeviceHandle handle, TimeSpan window)
+    /// <summary>协议名（电量通道本身；在线/离线由 IsOnline + 电量是否为空表达）。</summary>
+    private const string ProtocolName = "betop-status15";
+
+    /// <summary>一条查询窗口的结果：读数 / dongle 说"手柄未连接" / 什么都没读到。</summary>
+    /// <param name="Percent">电量百分比；<paramref name="Linked"/> 为 false 时为 0（无意义）。</param>
+    /// <param name="Charging">是否充电中。</param>
+    /// <param name="Linked">手柄是否真的连着（false = dongle 推的是"未连接占位帧"）。</param>
+    private readonly record struct QueryResult(int Percent, bool Charging, bool Linked);
+
+    /// <summary>
+    /// 发一条状态查询并读取响应。写一次（长度/report ID 取自接口的报告描述符），窗口内持续收帧直到解析成功。
+    /// 返回 null = 窗口内没读到任何可识别帧。<paramref name="dev"/> 只用于决定"未连接"日志要不要打（避免每分钟刷屏）。
+    /// </summary>
+    private static QueryResult? Query(HidDeviceHandle handle, TimeSpan window, TrackedDevice? dev)
     {
         var plan = ResolvePlan(handle);
         if (plan == null) return null;
@@ -131,15 +169,25 @@ public sealed class BetopPlugin : BatteryPluginBase
             if (parsed.HasValue)
             {
                 Log.Info($"北通 状态报告: 电量={parsed.Value.Percent}% 充电={parsed.Value.Charging} 原始={Log.Hex(input)}");
-                return parsed;
+                return new QueryResult(parsed.Value.Percent, parsed.Value.Charging, Linked: true);
             }
 
             // T9 不响应 0x15 查询，改解析 dongle 在 Col04 上持续推的状态流（byte23 = 电量）。
             var t9 = BetopCodec.ParseT9Status(input);
             if (t9.HasValue)
             {
+                if (!t9.Value.Linked)
+                {
+                    // dongle 还插着、手柄已关机/休眠：推的是占位帧，**手柄并不在线**。
+                    // 只在"第一次发现"或"从在线掉到离线"时记一行，避免每分钟刷屏。
+                    if (dev == null || dev.Status.IsOnline)
+                        Log.Info($"北通 T9 手柄未连接（dongle 占位帧 byte23=0x{BetopCodec.T9NotLinkedRaw:X2}，" +
+                                 $"手柄已关机/休眠；dongle 仍在）: {Log.Hex(input)}");
+                    return new QueryResult(0, Charging: false, Linked: false);
+                }
+
                 Log.Info($"北通 T9 状态流: 电量={t9.Value.Percent}% 原始={Log.Hex(input)}");
-                return t9;
+                return new QueryResult(t9.Value.Percent, t9.Value.Charging, Linked: true);
             }
         }
         return null;

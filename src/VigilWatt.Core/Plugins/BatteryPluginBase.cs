@@ -197,6 +197,10 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                 Protocol = protocol,
                 BatteryPercent = percent,
                 Charging = charging,
+                // 认领了却拿不到读数 = 设备在位但不可读（如北通手柄已关机、只剩 dongle 插着），
+                // 这时**必须标离线**：假装在线会让设备列表说谎（2026-10-06 用户复报的 bug）。
+                // 现有插件探测成功时都带读数，所以这条规则对它们是无操作。
+                IsOnline = percent.HasValue,
             };
             _devices[o.Info.DevicePath] = new TrackedDevice
             {

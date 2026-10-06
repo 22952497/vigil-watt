@@ -113,8 +113,11 @@ public class BetopCodecTests
     private static readonly byte[] T9StreamWake =
         Hex("04 02 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 58");
 
-    /// <summary>手柄休眠时 dongle 报的占位帧：byte23 = 0x50 = 80 → 67%。</summary>
-    private static readonly byte[] T9StreamIdle =
+    /// <summary>
+    /// 手柄**没连上**时 dongle 推的占位帧：byte23 = 0x50 = 80。
+    /// 该值不是电量 —— 见 T9 用例组与 BetopCodec 上方对照表。
+    /// </summary>
+    private static readonly byte[] T9StreamNotLinked =
         Hex("04 02 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50");
 
     /// <summary>充满后的状态流帧：byte23 = 0x78 = 120 → 100%（北通助手满格绿色）。</summary>
@@ -129,8 +132,15 @@ public class BetopCodecTests
         Hex("04 0C 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 58");
 
     /// <summary>同上，占位值 0x50（同一批 81 条真机帧里 byte[1] ∈ {0x02, 0x0C}、byte[23] ∈ {80, 88}）。</summary>
-    private static readonly byte[] T9StreamIdleTag0C =
+    private static readonly byte[] T9StreamNotLinkedTag0C =
         Hex("04 0C 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50");
+
+    /// <summary>
+    /// **用户报"我设备已经关闭了 只有连接器还在电脑上"那一刻的真机帧**（2026-10-06 17:03 起，
+    /// 手柄关机后 dongle 改推这帧，一直推到 17:12+ 没停）：byte[1] = 0x04、byte23 = 0x50。
+    /// </summary>
+    private static readonly byte[] T9StreamNotLinkedTag04 =
+        Hex("04 04 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50");
 
     [Fact]
     public void T1_解析T9状态流_唤醒_73()
@@ -139,14 +149,21 @@ public class BetopCodecTests
         Assert.NotNull(parsed);
         Assert.Equal(73, parsed!.Value.Percent);
         Assert.False(parsed.Value.Charging);
+        Assert.True(parsed.Value.Linked);
     }
 
     [Fact]
     public void T7_byte1是可变状态位_0x0C也要认()
     {
         // 回归：byte[1] 不是固定帧头，只有 report ID 0x04 才是稳定识别特征
-        Assert.Equal(73, BetopCodec.ParseT9Status(T9StreamWakeTag0C)!.Value.Percent);
-        Assert.Equal(67, BetopCodec.ParseT9Status(T9StreamIdleTag0C)!.Value.Percent);
+        var wake = BetopCodec.ParseT9Status(T9StreamWakeTag0C);
+        Assert.Equal(73, wake!.Value.Percent);
+        Assert.True(wake.Value.Linked);
+
+        // 0x0C 下的占位帧同样要认出来是"没连上"（不能因为 byte[1] 变了就当正常读数）
+        var notLinked = BetopCodec.ParseT9Status(T9StreamNotLinkedTag0C);
+        Assert.NotNull(notLinked);
+        Assert.False(notLinked!.Value.Linked);
     }
 
     [Fact]
@@ -159,21 +176,55 @@ public class BetopCodecTests
     }
 
     [Fact]
-    public void T2_解析T9占位帧_休眠_67()
+    public void T2_解析T9占位帧_手柄未连接_不算电量()
     {
-        Assert.Equal(67, BetopCodec.ParseT9Status(T9StreamIdle)!.Value.Percent);
+        // ⚠ 回归（2026-10-06 晚用户复报）：dongle 插着、手柄关了，dongle 仍推 byte23=0x50 的占位帧。
+        // 旧实现把它当 67% 采信 → 列表里"北通 T9 67% 在线"。现在必须标成"未连接"。
+        var parsed = BetopCodec.ParseT9Status(T9StreamNotLinked);
+        Assert.NotNull(parsed);
+        Assert.False(parsed!.Value.Linked);
+    }
+
+    [Fact]
+    public void T9_手柄关机真机帧_0x04加0x50也算未连接()
+    {
+        // 用户报 bug 当下的原帧（byte[1] = 0x04，与休眠期的 0x02 又不同）
+        var parsed = BetopCodec.ParseT9Status(T9StreamNotLinkedTag04);
+        Assert.NotNull(parsed);
+        Assert.False(parsed!.Value.Linked);
+    }
+
+    [Fact]
+    public void T10_占位判据只认0x50_不误伤其它读数()
+    {
+        // 只要不是 0x50 就必须当成有效读数（宁可漏判、不可误判）：
+        // 若按"低位=链路标志"去猜，这些偶数等级全会被误判离线 —— 那才是真事故。
+        foreach (byte raw in new byte[] { 0x08, 0x18, 0x28, 0x38, 0x48, 0x58, 0x68, 0x78 })
+        {
+            byte[] frame = new byte[24];
+            frame[0] = BetopCodec.T9StreamReportId;
+            frame[23] = raw;
+            var parsed = BetopCodec.ParseT9Status(frame);
+            Assert.NotNull(parsed);
+            Assert.True(parsed!.Value.Linked, $"raw=0x{raw:X2} 应视为有效读数");
+            Assert.Equal(BetopCodec.T9ToPercent(raw), parsed.Value.Percent);
+        }
     }
 
     [Fact]
     public void T5_解析T9满值帧_100()
     {
-        Assert.Equal(100, BetopCodec.ParseT9Status(T9StreamFull)!.Value.Percent);
+        var parsed = BetopCodec.ParseT9Status(T9StreamFull);
+        Assert.Equal(100, parsed!.Value.Percent);
+        Assert.True(parsed.Value.Linked);
     }
 
     [Fact]
     public void T6_T9电量换算覆盖各级别()
     {
         // raw = 等级(0~15) × 8，满值 120 = 100%
+        // 注意：0x50(80) 虽然换算得出 67%，但在状态流里它是"未连接占位值"、不参与换算
+        // （见 T2/T9/T10），这里只验纯换算函数本身。
         Assert.Equal(0, BetopCodec.T9ToPercent(0));
         Assert.Equal(50, BetopCodec.T9ToPercent(60));    // 0x3C
         Assert.Equal(67, BetopCodec.T9ToPercent(80));    // 0x50
