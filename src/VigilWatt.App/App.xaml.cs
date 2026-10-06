@@ -77,7 +77,6 @@ public partial class App : Application
 
         Log.Info($"启动 VigilWatt，参数: {args.Arguments}");
         Services = new AppServices();
-        AutostartService.MigrateLegacy();
         Services.Manager.Start();
 
         Services.MainWindow = new MainWindow();
