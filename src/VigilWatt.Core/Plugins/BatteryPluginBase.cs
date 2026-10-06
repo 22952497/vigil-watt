@@ -331,7 +331,8 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
     /// <summary>
     /// 子类在 <see cref="PollDevice"/> 里判定"设备已进入休眠/关机"时调用：基类立即把设备标离线，
-    /// 不等 3 次查询失败（那要 3 分钟）。典型场景见 MchosePlugin 的 `13 0A … 02` 状态通知帧。
+    /// 不等 3 次查询失败（那要 3 分钟）。典型场景见 BetopPlugin 的 T9 占位帧（byte23=0x50 ⟺ 手柄未连接）。
+    /// 只认协议层"零歧义"的离线证据（宁可漏判不可误判）：迈从 0x02 状态通知帧就因语义存疑被降级为仅记录。
     /// </summary>
     protected static void RequestOffline(TrackedDevice dev) => dev.OfflineRequested = true;
 

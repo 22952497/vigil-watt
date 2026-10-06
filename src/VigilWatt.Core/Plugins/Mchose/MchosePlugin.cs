@@ -12,7 +12,9 @@ namespace VigilWatt.Core.Plugins.Mchose;
 /// - 开会话：[13, 05, 01, 0×16, sum]（官方 M HUB WEB 连接时发送，会话没开 dongle 不响应）；
 /// - 电量查询：[13, 4A, 01, 0×16, sum] → [5]=电量%、[6]=充电标志；
 /// - dongle 自发推送：[13, 0A, 01, 00, 04, **类型**, …]，**类型 0x05 = 电量**（[6]=电量%、[7]=标志），
-///   **类型 0x02 = 设备状态通知（实测=键盘休眠）**，payload [6]=0x01。
+///   **类型 0x02 = 设备状态通知**，payload 实测 0x00/0x01 交替、设备随后仍可应答查询，语义未明，仅记录。
+/// 注意：键盘空闲（未打字）时 dongle 对电量查询返回**逐字节相同的缓存帧**，充电标志可能冻结很久；
+/// 键盘被唤醒（按键/会话重建）后缓存才刷新——这是固件行为，主机侧无法提前感知（2026-10-06 实测）。
 /// 另实现新一代 QHW 协议（M HUB WEB 前端逆向，report 0x4D + 命令 0x0904），供新 dongle 使用。
 /// 安全约束（doc/hardware/safety.md）：只发官方/实测帧；禁止任何命令扫描；写入受
 /// MchoseProbingEnabled 开关控制；连续 3 次失败由基类自动停写。
@@ -131,7 +133,7 @@ public sealed class MchosePlugin : BatteryPluginBase
         {
             var input = dev.Handle.ReadInput(TimeSpan.FromMilliseconds(300));
             if (input == null) continue;
-            var read = InterpretV1Input(input, dev, out bool stop);
+            var read = InterpretV1Input(input, out bool stop);
             if (stop) return read;
         }
         return null;
@@ -310,7 +312,7 @@ public sealed class MchosePlugin : BatteryPluginBase
     /// 2. 电量查询：[0x13, 0x4A, 0x01, 0×16, sum] → [5]=电量%, [6]=充电标志（0x10 充电中）。
     ///    实测 35% 时 [6]=0x01，充电语义待用户插线校准。
     /// 3. dongle 自发推送：[13, 0x0A, 01, 00, 04, 类型, …]，类型 0x05=电量（[6]=%，[7]=标志），
-    ///    类型 0x02=设备状态通知（实测键盘休眠）。
+    ///    类型 0x02=设备状态通知（payload 0x00/0x01 交替，语义未明，仅记录不当离线信号）。
     /// 帧格式与解析全部在 <see cref="MchoseV1Codec"/>（纯函数，单测在 src/tests/VigilWatt.Core.Tests/）。
     /// 会话必须先开，否则 dongle 不响应（且被崩溃进程占住会话时所有人都会静音，需重新插拔释放）。
     /// </summary>
@@ -326,17 +328,11 @@ public sealed class MchosePlugin : BatteryPluginBase
             var input = handle.ReadInput(TimeSpan.FromMilliseconds(300));
             if (input == null) continue;
 
-            var read = InterpretV1Input(input, null, out bool stop);
+            var read = InterpretV1Input(input, out bool stop);
             if (stop)
             {
-                if (read.HasValue)
-                {
-                    Log.Info($"迈从 会话期间即收到电量推送，直接采用");
-                    return read;
-                }
-                // 设备状态通知（键盘已睡）→ 放弃本次探测，别白等查询超时
-                Log.Info($"迈从 keyboard-v1 会话期间收到休眠通知，放弃探测: {handle.Info.DevicePath}");
-                return null;
+                Log.Info($"迈从 会话期间即收到电量推送，直接采用");
+                return read;
             }
             Log.Info($"迈从 会话ACK: {Log.Hex(input)}");
         }
@@ -356,7 +352,7 @@ public sealed class MchosePlugin : BatteryPluginBase
                 var input = handle.ReadInput(TimeSpan.FromMilliseconds(300));
                 if (input == null) continue;
 
-                var read = InterpretV1Input(input, null, out bool stop);
+                var read = InterpretV1Input(input, out bool stop);
                 if (stop) return read;
             }
         }
@@ -372,10 +368,10 @@ public sealed class MchosePlugin : BatteryPluginBase
     }
 
     /// <summary>
-    /// 解读一条输入帧（0A 推送或 4A 响应），并负责日志与休眠通知。
-    /// <paramref name="stop"/> = true 表示本轮不必再等（已拿到读数，或设备已告知休眠）。
+    /// 解读一条输入帧（0A 推送或 4A 响应），并负责日志。
+    /// <paramref name="stop"/> = true 表示本轮不必再等（已拿到读数）。
     /// </summary>
-    private static (int? Percent, ChargingState Charging)? InterpretV1Input(byte[] input, TrackedDevice? dev, out bool stop)
+    private static (int? Percent, ChargingState Charging)? InterpretV1Input(byte[] input, out bool stop)
     {
         stop = false;
 
@@ -387,9 +383,10 @@ public sealed class MchosePlugin : BatteryPluginBase
                 return (push.Percent, ParseKeyboardV1Charge(push.ChargeFlag, push.Percent));
 
             case V1PushKind.StateNotify:
-                Log.Info($"迈从 收到设备状态通知（疑似休眠/关机，payload=0x{push.Payload:X2}）: {Log.Hex(input)}");
-                if (dev != null) RequestOffline(dev);
-                stop = true;
+                // 0x02 通知不当休眠/关机处理（2026-10-06 复测推翻旧结论）：payload 0x00/0x01 全天交替出现，
+                // 且每次通知后 1 分钟内设备都能正常应答电量查询，按休眠标离线只会造成在线↔离线闪烁。
+                // 语义未明，仅记录；真正的失联由基类连续 3 次查询失败兜底标离线。
+                Log.Info($"迈从 收到设备状态通知（payload=0x{push.Payload:X2}，语义未明仅记录）: {Log.Hex(input)}");
                 return null;
 
             case V1PushKind.BatteryInvalid:
@@ -436,7 +433,7 @@ public sealed class MchosePlugin : BatteryPluginBase
         {
             var input = dev.Handle.ReadInput(TimeSpan.FromMilliseconds(300));
             if (input == null) continue;
-            var read = InterpretV1Input(input, dev, out bool stop);
+            var read = InterpretV1Input(input, out bool stop);
             if (stop) return read;
         }
         return null;
