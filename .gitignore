@@ -6,6 +6,8 @@ obj/
 publish/
 # 安装包产物（scripts/build-installer.ps1 输出：Setup.exe + RELEASES + nupkg）
 dist/
+# GitHub PAT（scripts/publish-github.ps1 读取），绝不入库
+.vpk-github-token
 *.log
 
 # 工具 / 助手元数据目录（不入库）

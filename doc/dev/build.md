@@ -95,16 +95,20 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 
 仓库公开：github.com/ACoolOctober/VigilWatt。GitHub Release 里的资产本身就是更新源，发一次 Release = 发布一个版本。
 
-1. push 代码。
-2. 发 Release，二选一：
-   - **自动（推荐）**：先建一个 PAT（GitHub → Settings → Developer settings → Fine-grained tokens，只勾本仓库 + Contents: Read and write；classic token 则勾 repo），然后：
+**一次性配置**：建一个 PAT（GitHub → Settings → Developer settings → Fine-grained tokens，只勾本仓库 + Contents: Read and write；classic token 则勾 repo），存到仓库根 `.vpk-github-token` 文件（一行纯 token，**已被 gitignore，绝不入库**）。也可改用环境变量 `VPK_GITHUB_TOKEN` 或 `-Token` 参数临时传，三者优先级：参数 > 环境变量 > 文件。
 
-     ```
-     vpk upload github --repoUrl https://github.com/ACoolOctober/VigilWatt --token <PAT> --outputDir dist --releaseName "VigilWatt 1.0.1" --tag v1.0.1 --publish
-     ```
+**日常发布两步**：
 
-     不加 `--publish` 只建草稿不发布；以后发新版**加 `--merge`**（允许与现有 Release 的资产合并，新旧 nupkg 共存才能算出增量包）。PAT 别写进脚本和仓库，用环境变量或命令行临时传。
-   - **手动**：GitHub 网页 → Releases → Draft a new release → tag `v1.0.1` → 把 `dist/` 下全部文件拖进去 → Publish。
-3. 用户在设置页"更新源"填 `https://github.com/ACoolOctober/VigilWatt` 即可收到后续更新（公开仓库免 token；GithubSource 未登录有每小时 60 次 API 限速，个人使用足够）。
+```
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1     # 打包（版本号取自 csproj <Version>）
+powershell -ExecutionPolicy Bypass -File scripts\publish-github.ps1      # 上传为 Release v<版本>
+```
+
+- `publish-github.ps1` 自动读 csproj 版本号生成 `--releaseName "VigilWatt <版本>" --tag v<版本>`，无需手填
+- **加 `-Merge`**：与已有 Release 的资产合并（同一版本重传补资产、或需要保留旧版本资产时用）
+- **加 `-Draft`**：只建草稿，去 GitHub 网页确认后再发布
+- 手动兜底：GitHub 网页 → Releases → Draft a new release → tag `v<版本>` → 把 `dist/` 下全部文件拖进去 → Publish
+
+用户侧：设置页"更新源"填 `https://github.com/ACoolOctober/VigilWatt` 即可收到后续更新（公开仓库免 token；GithubSource 未登录有每小时 60 次 API 限速，个人使用足够）。
 
 **坑**：`UpdateManager` 的字符串构造**不识别** GitHub 地址——它按普通 web 源去抓 `{url}/RELEASES`，GitHub 上没有这个路径，必 404。所以 `UpdateService` 里 GitHub 地址必须走 `GithubSource`（走 API 列 Release 资产）。若仓库转私有，Release 资产也随之私有，GithubSource 需要传 accessToken（当前实现不传，仅支持公开仓库）。
