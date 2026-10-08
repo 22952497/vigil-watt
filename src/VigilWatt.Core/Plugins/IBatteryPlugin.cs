@@ -32,6 +32,12 @@ public interface IBatteryPlugin
     /// <summary>轮询一轮电量，返回本次有更新的设备状态。</summary>
     IReadOnlyList<DeviceStatus> Poll();
 
+    /// <summary>
+    /// 插件在轮询之外主动推送的状态更新（如罗技 HID++ 电量/充电自发通知）。
+    /// 不推送的插件可永不触发；DeviceManager 订阅后走与 Poll 相同的 Upsert。
+    /// </summary>
+    event Action<DeviceStatus>? StatusPushed;
+
     /// <summary>释放打开的句柄并释放全部认领（插件被禁用或退出时调用）。</summary>
     void Detach();
 }

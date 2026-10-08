@@ -19,7 +19,7 @@ VigilWatt.sln
 │   │   └── HidWriteProbe              # 【已退役】旧探测矩阵，仅存档勿调用
 │   ├── Plugins/
 │   │   ├── IBatteryPlugin             # 插件契约：Attach / Poll / Detach
-│   │   ├── BatteryPluginBase          # "接口认领"型基类：冷却/熔断/生命周期/稳定Id
+│   │   ├── BatteryPluginBase          # "接口认领"型基类：冷却/熔断/生命周期/稳定Id/被动实时监听(StatusPushed)
 │   │   ├── DeviceClaimRegistry        # 中央认领注册表（同一接口同时只归一个插件）
 │   │   ├── PluginUtils                # 共享工具（路径 FNV-1a 稳定哈希）
 │   │   ├── Logitech/                  # HID++ 1.0/2.0（接收器会话型，含雷柏实验支持）
@@ -66,7 +66,7 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 | 决策 | 理由 |
 |---|---|
 | **插件制（IBatteryPlugin）+ 反射自动发现** | 每家 2.4G 协议完全私有，隔离在一个类里；DeviceManager 反射扫描 Core 程序集实例化全部实现类。新增品牌 = 加一个类文件，DeviceManager/设置页零改动 |
-| **BatteryPluginBase 基类** | 冷却/熔断/设备生命周期/稳定 Id 是安全机制而非可选样板，沉到基类后新插件想漏都漏不掉；会话型插件（罗技）可不继承，直接实现接口 + 共享工具 |
+| **BatteryPluginBase 基类** | 冷却/熔断/设备生命周期/稳定 Id / 被动实时监听（`SupportsPassiveListen`→`TryParsePassiveInput`→`StatusPushed`）沉到基类；会话型插件（罗技）自建通知泵，直接实现接口 |
 | **DeviceClaimRegistry 中央认领** | 按接口路径记账，同一接口同一时刻只归一个插件，从结构上杜绝两个插件同时开句柄/抢会话（此前靠各插件手动排除对方 VID） |
 | **插件每轮收到全量 HID 接口列表（Attach 幂等）** | 设备插拔天然由扫描驱动，插件无需自己监听硬件事件；消失的设备在 Attach 里标记离线 |
 | **Core 无 UI 依赖** | 协议调试可以脱离 WinUI（控制台/脚本复用 Core）；WinUI 编译器崩溃也不影响核心逻辑 |

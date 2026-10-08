@@ -32,6 +32,7 @@
    - `[6]` = 充电标志：`0x10` 位 = 充电中（确定）；实测 35% 放电时 = 0x01。已充满/其餘位语义**待插充电线校准**（看日志 `状态字节`）
    - **`≤1` 一律视为无效读数**（真实电量到不了 1：低电量阈值是 20%，早该提醒过了，拒绝它不会漏告警）
 3. **自发推送（report 0x13，`[1]=0x0A`）**：`13 0A 01 00 04 <类型位> <载荷> … sum`
+   **实时更新**：认领后基类后台被动听 0A/CZ 推送，`StatusPushed` 即时 Upsert；主动 `4A` 查询仍每分钟兜底（dongle 缓存冻结见 §1.3.1）。
    **`[5]` 是消息类型位，必须先认它，再决定 `[6]` 怎么解释**：
 
    | 类型位 `[5]` | 含义 | `[6]` 是什么 |
@@ -111,8 +112,31 @@ WebHID 侧 reportId 自动加首字节；Windows WriteFile 时 [0] 就是要写�
 
 ## 3. 罗技 / 雷柏 / Elan 现状
 
-### 罗技 Logitech (VID_046D)
-HID++ 1.0/2.0 已按 Solaar 逻辑实现（Unifying/Bolt/Lightspeed/USB 直连；电量级联：Unified Battery 0x1004 → Battery Status 0x1000 → 1.0 寄存器 0x07/0x0D）。**本机未发现罗技设备**（用户自述"罗技"实为雷柏），待真机验证。
+### 罗技 Logitech (VID_046D) —— ✅ Bolt 真机验证（2026-10-08）；协议驱动 + 嵌入目录
+
+HID++ 1.0/2.0 协议发现（无型号白名单）。电量级联：
+`0x1004` Unified Battery → `0x1000` Battery Status → `0x1001` Battery Voltage → `0x1F20` ADC Measurement → 1.0 寄存器 `0x07`/`0x0D`。
+
+嵌入资源 [`logitech-hidpp.json`](../../src/VigilWatt.Core/Plugins/Logitech/logitech-hidpp.json) 提供接收器槽位/报文偏好与毫伏曲线；**目录是补充不是白名单**——未知 PID 仍打开 HID++ 接口（默认最多 6 槽、有长则跳短）。
+
+| 新设备类型 | 怎么扩展 |
+|---|---|
+| 新的 HID++ 鼠标 / 键盘 / 演示器（已有特征） | **零代码**——ping + GetFeature 自动发现 |
+| 新的接收器族（确认 PID / 槽位 / 长短偏好后） | 在 JSON `receivers` **加一行** |
+| 某 WPID 电压曲线与默认锂电差很大 | JSON `wpidCurves` + `voltageCurves` |
+| 全新电量特征 ID，或根本不是 HID++ | **改 C#**（耳机 / Centurion / 仅 G HUB 等） |
+
+蓝牙罗技走标准 GATT `0x180F`（`BleBatteryWatcher`），不在此插件。
+
+**本机 Logi Bolt 接收器 `046D:C548` + MX Master 3S（2026-10-08）：**
+- 必须走 20 字节长接口（usage `FF00/0002`，report **0x11**）；旁边 7 字节短接口（`0x10`）对 Bolt 鼠标不应答，应跳过（目录 `reportPreference=long`）。
+- Unifying（`C52B`/`C532`）常只在短接口应答 → 目录 `reportPreference=short`，有短同伴时跳过长接口。
+- 把 `0x10` 补零写进长接口 → 驱动 `ERROR_INVALID_FUNCTION`（与北通硬编码错 report ID 同类）。
+- `Request()` 返回缓冲从 feature 字节起，**参数在下标 2**：GetFeature 下标 / 电量% / 充电态分别是 `resp[2]` / `resp[2]` / `resp[4]`（旧代码读 `resp[0]` 会把 feature 下标当成电量）。
+- 发现 ping 醒着约 1s 才回，超时宜 ≥1.5s；设备名走 `GetFeature(0x0005)` 再 GetCount/GetChar；设备类型优先读接收器配对寄存器 `0xB5`（Unifying `0x2N` / Bolt `0x5N`），读不到再 `DeviceKindGuesser`。
+- Unified Battery `0x1004`：**func 1 = GetStatus**（电量% + 充电态），**func 0 = GetCapabilities**（不能当电量）。组装请求必须 `(feature<<8)|(func<<4)`，写成 `|func` 会被 SwId 补丁抹成 func 0（真机曾把 Capabilities 的 15 误当电量，充着电也读不到 charging）。
+- **实时充电**：插拔电时设备会发 HID++ 自发通知（`sw` 低 4 位=0，payload 与 GetStatus 同布局）。插件后台 `PumpNotifications` 只读不写，经 `StatusPushed` 即时 Upsert——不必等 60 秒轮询（与 Logi Battery Dashboard 同源）。未知 `devIdx` 的通知会当场补 ping 发现。
+- 每次 `Attach` 按目录槽位数补扫尚未发现的索引（接收器上第二台不必等重启）。
 
 ### 雷柏 Rapoo (VID_24AE) —— V2 世代 status-report7 协议 —— ✅ 插件已落地（纯被动）
 
@@ -146,6 +170,8 @@ dongle 每 ~3 秒自发推送 **input report 0x07（19 字节，hidraw 含 ID �
 | [18] | bit7=RF 已连接，bit0..6=RSSI |
 
 **电量没有查询命令**——官方驱动也是被动听心跳。充电标志已实测校准（0x01=放电/0x02=充电，见上表 [7]）；充满态的原始值待下次充满时看日志 `充电标志` 补全。
+
+**实时更新**：`BatteryPluginBase` 认领后后台只读 0x07 心跳，经 `StatusPushed` 即时 Upsert（沉默 >12s → 离线）；不必等 60 秒轮询。
 
 #### 2. 其余通道（仅备查，本应用不使用）
 
@@ -266,6 +292,7 @@ bit: 7 6 5 4 | 3 2 1 0
 真机（2026-10-06，Windows 11）实测：T9 的厂商接口（Col01/Col04/Col05，report ID `0x01`/`0x04`/`0x05`）
 **对 `02 15` 查询全程无响应**（含"写一个接口、读全部三个"的路由测试），也不出现任何 `0x15` 帧。
 取而代之：**dongle 在 Col04 上持续推**一帧固定结构的状态流，电量直接就在里面。
+**实时更新**：基类被动听该流，电量/未连接占位帧经 `StatusPushed` 即时 Upsert（鲲鹏等仍靠轮询写 0x15）。
 
 帧特征（识别用）：
 

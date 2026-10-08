@@ -7,17 +7,12 @@ namespace VigilWatt.Core.Plugins;
 /// <summary>
 /// "接口认领"型插件的基类：一台设备 = 一个长持有的 HID 接口句柄。
 /// 沉淀通用机制（新插件只实现协议本身，安全机制由基类统一保证）：
-/// - 探测失败冷却：失败接口 ProbeCooldown 内不再打扰；
-/// - 写入熔断：连续 MaxConsecutiveFailures 次查询失败自动 WritesDisabled（PollDevice 内写帧前应检查 CanWrite）；
-/// - 中央认领：认领前经 DeviceClaimRegistry.TryClaim，防止与其他插件抢同一接口；
-/// - 设备生命周期：消失设备自动关句柄、标离线、释放认领；
-/// - 读数异常过滤：短时间涨跌超过 MaxPlausibleStepPercent 的读数判异常、本轮不采用，
-///   需持续 AnomalyPersistWindow 才采信（挡休眠/关机瞬间的 0/1 伪读数，防误报低电量），见 BatteryReadingFilter；
-/// - 稳定 Id：{name小写}:{路径 FNV-1a 哈希}；
-/// - 首扫提速：新认领设备本轮标记 FreshlyClaimed（探测值即最新读数，Poll 本轮跳过不重读）；
-/// - 快速发现：纯被动零写入插件可把 SupportsFastDiscovery 置 true，参与 15 秒发现节拍（见该类属性）。
-/// 协议差异由子类实现 IsCandidate / Probe / PollDevice。
-/// 会话型插件（如罗技经接收器枚举多设备）可不继承本类，直接实现 IBatteryPlugin 并使用 PluginUtils/DeviceClaimRegistry。
+/// - 探测失败冷却 / 写入熔断 / 中央认领 / 设备生命周期 / 读数异常过滤 / 稳定 Id / 首扫提速；
+/// - 快速发现：纯被动零写入插件可把 SupportsFastDiscovery 置 true；
+/// - <b>被动实时监听</b>：SupportsPassiveListen 的插件认领后后台只读不写，
+///   收到心跳/推送立即 StatusPushed（与罗技 HID++ 通知同思路，插拔电不必等 60 秒轮询）。
+/// 协议差异由子类实现 IsCandidate / Probe / PollDevice（及可选 TryParsePassiveInput）。
+/// 会话型插件（罗技）直接实现 IBatteryPlugin，自建通知泵。
 /// </summary>
 public abstract class BatteryPluginBase : IBatteryPlugin
 {
@@ -32,6 +27,32 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// 默认 false（会写帧的插件保持默认值）；**只有纯被动零写入插件**才该覆盖成 true。
     /// </summary>
     public virtual bool SupportsFastDiscovery => false;
+
+    /// <summary>基类默认不推送；被动监听与子类实时事件走 <see cref="RaiseStatusPushed"/>。</summary>
+    public event Action<DeviceStatus>? StatusPushed;
+
+    /// <summary>供子类/基类被动监听推送轮询外的状态更新。</summary>
+    protected void RaiseStatusPushed(DeviceStatus status) => StatusPushed?.Invoke(status);
+
+    /// <summary>
+    /// 认领成功后是否启动后台被动监听（只读不写）。
+    /// 雷柏心跳 / 迈从 0A 推送 / 北通 T9 流 等覆盖为 true，并实现 <see cref="TryParsePassiveInput"/>。
+    /// </summary>
+    protected virtual bool SupportsPassiveListen => false;
+
+    /// <summary>
+    /// 被动监听超过此时长无有效帧则在 Poll 里标离线。
+    /// <see cref="TimeSpan.Zero"/> = 不按沉默判离线（推送稀疏的协议，如迈从，仍靠主动查询失败熔断）。
+    /// </summary>
+    protected virtual TimeSpan PassiveSilenceOffline => TimeSpan.Zero;
+
+    /// <summary>
+    /// 解析一条被动 input report。
+    /// 返回 null = 不是本协议帧；Offline=true = 设备明确离线（如北通未连接占位）。
+    /// <b>必须零写入</b>。
+    /// </summary>
+    protected virtual (int? Percent, ChargingState Charging, bool Offline)? TryParsePassiveInput(
+        TrackedDevice dev, byte[] input) => null;
 
     /// <summary>
     /// 探测失败后的冷却时间（期间不再探测该接口）。
@@ -66,6 +87,12 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         public bool OfflineRequested;
         /// <summary>本轮刚由探测建立（探测返回值就是最新读数）：本轮 Poll 跳过、下一轮起正常轮询。</summary>
         public bool FreshlyClaimed;
+        /// <summary>与后台被动监听互斥，保护单悬空 ReadInput / 写读会话。</summary>
+        public readonly object IoGate = new();
+        /// <summary>最近一次被动监听解析到有效帧的时间（用于沉默离线）。</summary>
+        public DateTimeOffset LastPassiveAt;
+        public CancellationTokenSource? ListenCts;
+        public Task? ListenTask;
     }
 
     /// <summary>单个候选接口的探测产物（探测阶段只做 I/O，不碰非线程安全的字典）。</summary>
@@ -137,6 +164,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
             if (availableDevices.Any(d => d.DevicePath == path)) continue;
             if (_devices.Remove(path, out var gone))
             {
+                StopPassiveListen(gone);
                 gone.Handle.Dispose();
                 gone.Status.IsOnline = false;
                 _claims.Release(path, Name);
@@ -202,14 +230,74 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                 // 现有插件探测成功时都带读数，所以这条规则对它们是无操作。
                 IsOnline = percent.HasValue,
             };
-            _devices[o.Info.DevicePath] = new TrackedDevice
+            var dev = new TrackedDevice
             {
                 Info = o.Info, Handle = o.Handle!, Status = status, Protocol = protocol,
                 Filter = CreateFilter(percent), FreshlyClaimed = true,
+                LastPassiveAt = percent.HasValue ? DateTimeOffset.Now : default,
             };
+            _devices[o.Info.DevicePath] = dev;
+            if (SupportsPassiveListen)
+                StartPassiveListen(dev);
             Log.Info($"认领{DisplayName}设备: {o.Info} proto={protocol} 电量={percent} 充电={charging}");
             claimed.Add(status);
         }
+    }
+
+    private void StartPassiveListen(TrackedDevice dev)
+    {
+        if (dev.ListenTask != null) return;
+        dev.ListenCts = new CancellationTokenSource();
+        var cts = dev.ListenCts;
+        dev.ListenTask = Task.Run(() =>
+        {
+            Log.Info($"{DisplayName} 被动监听已启动: {dev.Status.DisplayName}");
+            while (!cts.IsCancellationRequested)
+            {
+                try
+                {
+                    byte[]? input;
+                    lock (dev.IoGate)
+                        input = dev.Handle.ReadInput(TimeSpan.FromMilliseconds(500));
+                    if (input == null) continue;
+
+                    var parsed = TryParsePassiveInput(dev, input);
+                    if (parsed == null) continue;
+
+                    var (percent, charging, offline) = parsed.Value;
+                    if (offline)
+                    {
+                        RequestOffline(dev);
+                        if (dev.Status.IsOnline)
+                        {
+                            dev.Status.IsOnline = false;
+                            dev.Status.LastUpdated = DateTimeOffset.Now;
+                            Log.Info($"{DisplayName} {dev.Status.DisplayName} 被动帧告知离线");
+                            RaiseStatusPushed(dev.Status);
+                        }
+                        continue;
+                    }
+
+                    dev.LastPassiveAt = DateTimeOffset.Now;
+                    if (TryApplyReading(dev, percent, charging, push: true))
+                        Log.Info($"{DisplayName} 被动更新: {dev.Status.DisplayName} {percent}% {charging}");
+                }
+                catch (Exception ex)
+                {
+                    if (!cts.IsCancellationRequested)
+                        Log.Warn($"{DisplayName} 被动监听异常: {ex.Message}");
+                }
+            }
+        }, cts.Token);
+    }
+
+    private void StopPassiveListen(TrackedDevice dev)
+    {
+        try { dev.ListenCts?.Cancel(); } catch { /* ignore */ }
+        try { dev.ListenTask?.Wait(TimeSpan.FromSeconds(1)); } catch { /* ignore */ }
+        dev.ListenCts?.Dispose();
+        dev.ListenCts = null;
+        dev.ListenTask = null;
     }
 
     public IReadOnlyList<DeviceStatus> Poll()
@@ -227,9 +315,11 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                     continue;
                 }
 
-                var read = PollDevice(dev);
+                (int? Percent, ChargingState Charging)? read;
+                lock (dev.IoGate)
+                    read = PollDevice(dev);
 
-                // 设备主动告知休眠/关机（协议层明确帧，如迈从 13 0A … 02）：立即标离线，
+                // 设备主动告知休眠/关机（协议层明确帧，如北通 T9 占位）：立即标离线，
                 // 不必等 3 次查询失败（那要 3 分钟）。这是设备告知，不计入通信失败。
                 if (dev.OfflineRequested)
                 {
@@ -247,41 +337,23 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
                 if (read.HasValue)
                 {
-                    var (percent, charging) = read.Value;
-
-                    // 读数异常过滤：短时间涨跌幅度过大（休眠/关机伪读数、dongle 抽风）先过滤掉，
-                    // 本轮不更新 status（UI 与低电量判定都看不到这个值）。
-                    if (percent.HasValue)
+                    if (TryApplyReading(dev, read.Value.Percent, read.Value.Charging, push: false))
+                        updated.Add(dev.Status);
+                }
+                else if (SupportsPassiveListen)
+                {
+                    // 被动监听负责实时读数；轮询空读不算通信失败。
+                    // 可选：心跳类协议（雷柏）沉默过久 → 离线。
+                    if (PassiveSilenceOffline > TimeSpan.Zero &&
+                        dev.LastPassiveAt != default &&
+                        DateTimeOffset.Now - dev.LastPassiveAt > PassiveSilenceOffline &&
+                        dev.Status.IsOnline)
                     {
-                        int baseline = dev.Filter.LastAcceptedPercent;
-                        var verdict = dev.Filter.Evaluate(percent.Value, DateTimeOffset.Now);
-                        if (verdict is ReadingVerdict.RejectAnomaly or ReadingVerdict.InvalidValue)
-                        {
-                            Log.Warn($"{DisplayName} {dev.Status.DisplayName} 读数异常已过滤：" +
-                                     $"{baseline}%→{percent}%，本轮不采用" +
-                                     (verdict == ReadingVerdict.InvalidValue
-                                         ? $"（数值无效，低于 {dev.Filter.MinValidPercent}%）"
-                                         : $"（变化超过 {dev.Filter.MaxStepPercent} 点，需持续 " +
-                                           $"{dev.Filter.PersistWindow.TotalMinutes:0} 分钟才采信）"));
-                            continue;
-                        }
-                        if (verdict == ReadingVerdict.AcceptConfirmed)
-                        {
-                            Log.Warn($"{DisplayName} {dev.Status.DisplayName} 读数 {baseline}%→{percent}% " +
-                                     $"已持续 {dev.Filter.PersistWindow.TotalMinutes:0} 分钟，采信为真实变化");
-                        }
+                        dev.Status.IsOnline = false;
+                        dev.Status.LastUpdated = DateTimeOffset.Now;
+                        Log.Info($"{DisplayName} {dev.Status.DisplayName} 被动沉默超过 {PassiveSilenceOffline.TotalSeconds:0}s，标记离线");
+                        updated.Add(dev.Status);
                     }
-
-                    dev.Status.BatteryPercent = percent;
-                    dev.Status.Charging = charging;
-                    dev.Status.LastUpdated = DateTimeOffset.Now;
-                    if (!dev.Status.IsOnline)
-                    {
-                        dev.Status.IsOnline = true;
-                        Log.Info($"{DisplayName} 设备重新上线: {dev.Status.DisplayName}");
-                    }
-                    dev.ConsecutiveFailures = 0;
-                    updated.Add(dev.Status);
                 }
                 else
                 {
@@ -307,9 +379,61 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         return updated;
     }
 
+    /// <summary>
+    /// 统一应用读数（过滤 + 更新字段）。
+    /// <paramref name="push"/> = true 时若有变化则 RaiseStatusPushed；false 时由 Poll 收集返回值。
+    /// 返回是否产生了应对外可见的状态变化。
+    /// </summary>
+    private bool TryApplyReading(TrackedDevice dev, int? percent, ChargingState charging, bool push)
+    {
+        if (percent.HasValue)
+        {
+            int baseline = dev.Filter.LastAcceptedPercent;
+            var verdict = dev.Filter.Evaluate(percent.Value, DateTimeOffset.Now);
+            if (verdict is ReadingVerdict.RejectAnomaly or ReadingVerdict.InvalidValue)
+            {
+                Log.Warn($"{DisplayName} {dev.Status.DisplayName} 读数异常已过滤：" +
+                         $"{baseline}%→{percent}%，本轮不采用" +
+                         (verdict == ReadingVerdict.InvalidValue
+                             ? $"（数值无效，低于 {dev.Filter.MinValidPercent}%）"
+                             : $"（变化超过 {dev.Filter.MaxStepPercent} 点，需持续 " +
+                               $"{dev.Filter.PersistWindow.TotalMinutes:0} 分钟才采信）"));
+                return false;
+            }
+            if (verdict == ReadingVerdict.AcceptConfirmed)
+            {
+                Log.Warn($"{DisplayName} {dev.Status.DisplayName} 读数 {baseline}%→{percent}% " +
+                         $"已持续 {dev.Filter.PersistWindow.TotalMinutes:0} 分钟，采信为真实变化");
+            }
+        }
+
+        bool changed = dev.Status.BatteryPercent != percent
+                    || dev.Status.Charging != charging
+                    || !dev.Status.IsOnline;
+
+        dev.Status.BatteryPercent = percent;
+        dev.Status.Charging = charging;
+        dev.Status.LastUpdated = DateTimeOffset.Now;
+        if (!dev.Status.IsOnline)
+        {
+            dev.Status.IsOnline = true;
+            Log.Info($"{DisplayName} 设备重新上线: {dev.Status.DisplayName}");
+            changed = true;
+        }
+        dev.ConsecutiveFailures = 0;
+
+        if (changed && push)
+            RaiseStatusPushed(dev.Status);
+        return changed;
+    }
+
     public virtual void Detach()
     {
-        foreach (var dev in _devices.Values) dev.Handle.Dispose();
+        foreach (var dev in _devices.Values)
+        {
+            StopPassiveListen(dev);
+            dev.Handle.Dispose();
+        }
         _devices.Clear();
         _claims?.ReleaseAll(Name);
         Log.Info($"{DisplayName} 插件已卸载");
@@ -350,7 +474,9 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// <summary>协议探测：成功返回 (协议名, 电量, 充电状态)，失败返回 null（进入冷却）。</summary>
     protected abstract (string Protocol, int? Percent, ChargingState Charging)? Probe(HidDeviceHandle handle);
 
-    /// <summary>单设备轮询：返回本次读数；null = 失败/无数据（计入熔断）。</summary>
+    /// <summary>单设备轮询：返回本次读数；null = 失败/无数据。
+    /// 基类已在 <see cref="TrackedDevice.IoGate"/> 内调用——子类写读同一句柄时不必再加锁。
+    /// 开启被动监听的纯心跳协议可返回 null（由后台负责读数）。</summary>
     protected abstract (int? Percent, ChargingState Charging)? PollDevice(TrackedDevice dev);
 
     /// <summary>默认显示名：产品字符串，空则用品牌名 + VID/PID。</summary>

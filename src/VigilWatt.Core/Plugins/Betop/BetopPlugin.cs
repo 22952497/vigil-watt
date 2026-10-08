@@ -62,6 +62,18 @@ public sealed class BetopPlugin : BatteryPluginBase
     protected override bool WritesEnabled => ProbingEnabled;
 
     /// <summary>
+    /// T9 等型号在 Col04 上持续推状态流；认领后后台只读即可实时更新电量/离线，
+    /// 鲲鹏等仍靠 Poll 写 0x15 查询（被动听不到时无影响）。
+    /// </summary>
+    protected override bool SupportsPassiveListen => true;
+
+    /// <summary>
+    /// T9 流约 250Hz；超过 3 秒无有效帧多半是句柄异常，不据此判手柄离线
+    /// （未连接有明确占位帧）。鲲鹏无推流，沉默阈值必须为 0。
+    /// </summary>
+    protected override TimeSpan PassiveSilenceOffline => TimeSpan.Zero;
+
+    /// <summary>
     /// 接收器常在、手柄可能休眠：探测失败后 30 秒再试，等用户按键唤醒。
     /// 为什么不是 1 分钟：主轮询周期就是 60 秒，失败发生在轮询开始后 ~6 秒处，
     /// 下一拍只剩 54 秒 → `54s &lt; 60s` 判冷却未过，白白再等一整轮（实测首次发现要 2 分钟）。
@@ -115,6 +127,27 @@ public sealed class BetopPlugin : BatteryPluginBase
         }
 
         return (read.Value.Percent, MapCharging(read.Value.Percent, read.Value.Charging));
+    }
+
+    /// <summary>
+    /// 被动解析 T9 状态流 / 偶发 0x15 状态报告。未连接占位帧 → Offline=true。
+    /// </summary>
+    protected override (int? Percent, ChargingState Charging, bool Offline)? TryParsePassiveInput(
+        TrackedDevice _, byte[] input)
+    {
+        var t9 = BetopCodec.ParseT9Status(input);
+        if (t9.HasValue)
+        {
+            if (!t9.Value.Linked)
+                return (null, ChargingState.Unknown, Offline: true);
+            return (t9.Value.Percent, MapCharging(t9.Value.Percent, t9.Value.Charging), Offline: false);
+        }
+
+        var parsed = BetopCodec.ParseStatus(input);
+        if (parsed.HasValue)
+            return (parsed.Value.Percent, MapCharging(parsed.Value.Percent, parsed.Value.Charging), Offline: false);
+
+        return null;
     }
 
     /// <summary>协议名（电量通道本身；在线/离线由 IsOnline + 电量是否为空表达）。</summary>

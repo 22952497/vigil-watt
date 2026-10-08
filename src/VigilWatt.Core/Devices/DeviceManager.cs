@@ -55,6 +55,9 @@ public sealed class DeviceManager : IDisposable
         _plugins = DiscoverPlugins();
         _ble.DeviceUpdated += d => Upsert(d);
         _classic.DeviceUpdated += Upsert;
+        // 罗技等插件的 HID++ 自发通知（插拔电）不走 60 秒轮询，直接推送
+        foreach (var p in _plugins)
+            p.StatusPushed += Upsert;
     }
 
     /// <summary>反射发现 Core 程序集里的全部插件。新增品牌 = 加一个 IBatteryPlugin 实现类文件，无需改这里。</summary>
@@ -492,7 +495,11 @@ public sealed class DeviceManager : IDisposable
         _pollTimer?.Dispose();
         _sampleTimer?.Dispose();
         _discoveryTimer?.Dispose();
-        foreach (var p in _plugins) p.Detach();
+        foreach (var p in _plugins)
+        {
+            p.StatusPushed -= Upsert;
+            p.Detach();
+        }
         _ble.Dispose();
         _classic.Dispose();
         _passGate.Dispose();

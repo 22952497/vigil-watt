@@ -66,7 +66,7 @@ public sealed class BleBatteryWatcher : IDisposable
 
         watcher.Added += (w, info) => HandleDevice(info.Id, info.Properties, info.Name);
         watcher.Updated += (w, update) => HandleDevice(update.Id, update.Properties, null);
-        watcher.Removed += (w, update) => _devices.TryRemove(update.Id, out _);
+        watcher.Removed += (w, update) => HandleRemoved(update.Id);
         watcher.Start();
         _watcher = watcher;
         Log.Info("BLE DeviceWatcher 已启动");
@@ -74,8 +74,11 @@ public sealed class BleBatteryWatcher : IDisposable
 
     private void HandleDevice(string id, IReadOnlyDictionary<string, object> props, string? name)
     {
+        // Updated 只带变化的属性：IsConnected 缺失时必须沿用现状，不能默认 false
+        // （真机 2026-10-08：戴尔 WK717 已连接却被后续 Updated 误判离线，与经典蓝牙同坑）
+        bool? connected = ReadConnected(props);
+
         int? percent = null;
-        bool connected = false;
         if (_batteryProp != null && props.TryGetValue(_batteryProp, out var batteryObj))
         {
             try
@@ -85,22 +88,23 @@ public sealed class BleBatteryWatcher : IDisposable
             }
             catch { /* 类型不对就忽略 */ }
         }
-        if (props.TryGetValue(PropConnected, out var connObj))
-        {
-            try { connected = Convert.ToBoolean(connObj); } catch { }
-        }
 
-        if (percent == null && !connected)
+        if (connected == false)
         {
-            // 已跟踪的设备断开了：标离线；没跟踪过（邻居设备）直接忽略
             if (_devices.TryGetValue(id, out var tracked) && tracked.IsOnline)
             {
                 tracked.IsOnline = false;
                 tracked.LastUpdated = DateTimeOffset.Now;
+                Log.Info($"BLE 设备离线: {tracked.DisplayName}");
                 DeviceUpdated?.Invoke(tracked);
             }
             return;
         }
+
+        // 未跟踪过、且本次既无电量也未明确在线 → 邻居设备，忽略
+        bool known = _devices.ContainsKey(id);
+        if (!known && percent == null && connected != true)
+            return;
 
         var status = _devices.GetOrAdd(id, _ => new DeviceStatus
         {
@@ -109,30 +113,65 @@ public sealed class BleBatteryWatcher : IDisposable
             Source = DeviceSource.Ble,
             Protocol = "BLE GATT",
         });
-        if (!string.IsNullOrEmpty(name)) status.Name = name!;
-        else if (props.TryGetValue(PropName, out var nameObj))
-        {
-            var n = nameObj?.ToString();
-            if (!string.IsNullOrEmpty(n)) status.Name = n!;
-        }
+        ApplyName(status, name, props);
+        if (status.Kind == DeviceKind.Unknown)
+            status.Kind = DeviceKindGuesser.Guess(status.Name);
 
+        // 明确在线，或读到电量，或本来就在列表里且本次未说断开 → 保持/标为在线
+        bool wasOffline = !status.IsOnline;
         status.IsOnline = true;
         status.LastUpdated = DateTimeOffset.Now;
 
         if (percent.HasValue)
         {
+            bool batteryChanged = status.BatteryPercent != percent;
             status.BatteryPercent = percent;
-            DeviceUpdated?.Invoke(status);
+            if (wasOffline || batteryChanged || !known)
+                DeviceUpdated?.Invoke(status);
             return;
         }
 
-        // 系统没给电量且设备在线：主动 GATT 读一次（限流 2 分钟）
-        if (connected &&
-            (!_lastGattAttempt.TryGetValue(id, out var last) ||
-             DateTimeOffset.Now - last > TimeSpan.FromMinutes(2)))
+        if (wasOffline || !known)
+            DeviceUpdated?.Invoke(status);
+
+        // 系统没给电量：主动 GATT 读一次（限流 2 分钟）
+        if (!_lastGattAttempt.TryGetValue(id, out var last) ||
+            DateTimeOffset.Now - last > TimeSpan.FromMinutes(2))
         {
             _lastGattAttempt[id] = DateTimeOffset.Now;
             _ = ReadBatteryViaGattAsync(id, status);
+        }
+    }
+
+    private void HandleRemoved(string id)
+    {
+        if (_devices.TryRemove(id, out var tracked) && tracked.IsOnline)
+        {
+            tracked.IsOnline = false;
+            tracked.LastUpdated = DateTimeOffset.Now;
+            Log.Info($"BLE 设备移除: {tracked.DisplayName}");
+            DeviceUpdated?.Invoke(tracked);
+        }
+    }
+
+    private static bool? ReadConnected(IReadOnlyDictionary<string, object> props)
+    {
+        if (!props.TryGetValue(PropConnected, out var obj)) return null;
+        try { return Convert.ToBoolean(obj); } catch { return null; }
+    }
+
+    private static void ApplyName(
+        DeviceStatus status, string? infoName, IReadOnlyDictionary<string, object> props)
+    {
+        if (!string.IsNullOrEmpty(infoName))
+        {
+            status.Name = infoName!;
+            return;
+        }
+        if (props.TryGetValue(PropName, out var nameObj))
+        {
+            var n = nameObj?.ToString();
+            if (!string.IsNullOrEmpty(n)) status.Name = n!;
         }
     }
 
@@ -145,6 +184,10 @@ public sealed class BleBatteryWatcher : IDisposable
             if (ble == null) return;
             using (ble)
             {
+                // FromIdAsync 成功且能读 GATT = 设备实际可达，纠正假离线
+                if (ble.ConnectionStatus != BluetoothConnectionStatus.Connected)
+                    return;
+
                 var svcResult = await ble
                     .GetGattServicesForUuidAsync(GattServiceUuids.Battery, BluetoothCacheMode.Uncached)
                     .AsTask().WaitAsync(TimeSpan.FromSeconds(8));
@@ -164,10 +207,16 @@ public sealed class BleBatteryWatcher : IDisposable
                 int percent = reader.ReadByte();
                 if (percent is > 0 and <= 100)
                 {
+                    bool wasOffline = !status.IsOnline;
+                    status.IsOnline = true;
                     status.BatteryPercent = percent;
                     status.LastUpdated = DateTimeOffset.Now;
+                    if (status.Kind == DeviceKind.Unknown)
+                        status.Kind = DeviceKindGuesser.Guess(status.Name);
                     DeviceUpdated?.Invoke(status);
-                    Log.Info($"BLE GATT 直读: {status.DisplayName} {percent}%");
+                    Log.Info(wasOffline
+                        ? $"BLE GATT 直读(恢复在线): {status.DisplayName} {percent}%"
+                        : $"BLE GATT 直读: {status.DisplayName} {percent}%");
                 }
             }
         }
@@ -181,12 +230,11 @@ public sealed class BleBatteryWatcher : IDisposable
         }
     }
 
-    /// <summary>周期轮询所有已连接设备（兜底通道）。</summary>
+    /// <summary>周期轮询已跟踪设备（含曾被误标离线的，便于自愈）。</summary>
     public async Task PollConnectedAsync()
     {
         foreach (var (id, status) in _devices.ToArray())
         {
-            if (!status.IsOnline) continue;
             if (!_lastGattAttempt.TryGetValue(id, out var last) ||
                 DateTimeOffset.Now - last > TimeSpan.FromMinutes(2))
             {

@@ -16,13 +16,21 @@ public sealed class HidDeviceInfo
     public ushort InputReportLength { get; init; }
     public ushort OutputReportLength { get; init; }
     public ushort FeatureReportLength { get; init; }
+
+    /// <summary>
+    /// 输出报文的 report ID（扫描时从 caps 读取）。null = 读不到；0 = 接口不使用 report ID。
+    /// HID++ 长接口应是 0x11、短接口应是 0x10——以本字段为准，勿硬编码。
+    /// </summary>
+    public byte? OutputReportId { get; init; }
+
     public string Product { get; init; } = "";
     public string Manufacturer { get; init; } = "";
 
     public string VidPid => $"VID_{VendorId:X4}&PID_{ProductId:X4}";
 
     public override string ToString() =>
-        $"{Product} [{VidPid}] usage=0x{UsagePage:X4}/0x{Usage:X4} in={InputReportLength} out={OutputReportLength} feat={FeatureReportLength}";
+        $"{Product} [{VidPid}] usage=0x{UsagePage:X4}/0x{Usage:X4} in={InputReportLength} out={OutputReportLength} feat={FeatureReportLength}" +
+        (OutputReportId.HasValue ? $" outId=0x{OutputReportId.Value:X2}" : "");
 
     /// <summary>打开设备。键盘/鼠标等受保护的 collection 会抛 UnauthorizedAccessException。</summary>
     public HidDeviceHandle Open()

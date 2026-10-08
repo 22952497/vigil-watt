@@ -31,7 +31,7 @@
 | 迈从键盘 MCHOSE G87 (dongle VID_41E4&PID_2001) | report 0x13 会话协议：开会话 `[13,05,01,…,sum]` → 电量查询 `[13,4A,01,…,sum]` → `[5]=电量%、[6]=充电标志`；dongle 自发推送 `[13,0A,…]` | ✅ **本机实测工作**（电量=35% 与键盘指示一致） |
 | 迈从新世代 QHW 协议（M HUB WEB 逆向，report 0x4D + 命令 0x0904） | `[4D,01,03,len,cmdLo,cmdHi,biz,seq,…,XOR]`，getBattery 响应 payload `[0]=充电 [1]=电量` | 已实现，供新 dongle（3837:3033 等）使用 |
 | 北通手柄 BETOP（鲲鹏20 `PID_5191` / T9 `PID_5073`） | 厂商接口 `usage_page 0xFF00`。鲲鹏20：report `0x02` + header `0x15` 查询，响应 `[2]=电量%、[4]&0x0F=充电标志`；T9：不响应查询，解析 Col04 被动流 `[23]`（4-bit 等级×8，满值 120=100%）；`[23]==0x50` = 手柄未连接占位帧 → 标离线 | ✅ 已实现；**T9 已真机验证（2026-10-06）**，含"手柄关机只剩 dongle"判离线；鲲鹏20 待真机确认 |
-| 罗技 Logitech (VID_046D) | HID++ 1.0/2.0（Unifying/Bolt/Lightspeed/USB 直连），级联 0x1004 → 0x1000 → 寄存器 0x07/0x0D | ✅ 按协议实现，待真机验证 |
+| 罗技 Logitech (VID_046D) | HID++ 协议发现 + 嵌入目录；级联 0x1004 → 0x1000 → 0x1001 → 0x1F20 → 寄存器 0x07/0x0D | ✅ **Bolt 真机验证**（C548 + MX Master 3S：长接口 report 0x11）；新型号一般零代码 / 改 JSON |
 | 雷柏 Rapoo (VID_24AE) | vendor 接口结构接近 HID++，ping 无响应，feature 0x08 有响应 | ⚠️ 实验性，需抓包校准 |
 | Elan 接收器 (VID_04F3，时砂等耳机) | feature 0x05 回固件版本号，电量命令未知 | ⚠️ 纯观察模式（只记日志不认领，避免误报） |
 

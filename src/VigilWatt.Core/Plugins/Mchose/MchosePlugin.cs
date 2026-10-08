@@ -37,6 +37,12 @@ public sealed class MchosePlugin : BatteryPluginBase
     public static bool ProbingEnabled => AppSettings.Load().MchoseProbingEnabled;
     protected override bool WritesEnabled => ProbingEnabled;
 
+    /// <summary>认领后后台听 0A/CZ 推送，插拔电不必等 60 秒主动查询。</summary>
+    protected override bool SupportsPassiveListen => true;
+
+    /// <summary>推送稀疏（仅状态变化时），不按沉默判离线；失联仍靠查询失败熔断。</summary>
+    protected override TimeSpan PassiveSilenceOffline => TimeSpan.Zero;
+
     protected override bool IsCandidate(HidDeviceInfo info)
     {
         if (info.VendorId == Logitech.LogitechPlugin.LogitechVid) return false;
@@ -99,43 +105,47 @@ public sealed class MchosePlugin : BatteryPluginBase
 
     protected override (int? Percent, ChargingState Charging)? PollDevice(TrackedDevice dev)
     {
-        // 熔断期间只走被动监听（CanWrite 在退避期满后自动放行一轮）
-        if (!CanWrite(dev))
-        {
-            return dev.Protocol switch
-            {
-                "qhw" or "qhw-push" => ListenCzPush(dev.Handle, TimeSpan.FromSeconds(1)) is { } r
-                    ? ((int? Percent, ChargingState Charging)?)(r.Percent,
-                        r.Charging ? ChargingState.Charging : ChargingState.Discharging)
-                    : null,
-                "keyboard-v1" => ListenV1Push(dev),
-                _ => null,
-            };
-        }
+        // 熔断 / 未开写入 / 纯推送协议：读数交给后台被动监听，轮询不占 ReadInput。
+        if (!CanWrite(dev) || dev.Protocol == "qhw-push")
+            return null;
 
         return dev.Protocol switch
         {
             "qhw" => PollQhw(dev),
-            "qhw-push" => ListenCzPush(dev.Handle, TimeSpan.FromSeconds(1)) is { } r
-                ? ((int? Percent, ChargingState Charging)?)(r.Percent,
-                    r.Charging ? ChargingState.Charging : ChargingState.Discharging)
-                : null,
             "keyboard-v1" => PollKeyboardV1(dev),
             _ => null,
         };
     }
 
-    /// <summary>被动读一小段，解析 V1 自发推送（不写帧，熔断后的降级路径）。</summary>
-    private static (int? Percent, ChargingState Charging)? ListenV1Push(TrackedDevice dev)
+    /// <summary>
+    /// 被动解析：keyboard-v1 的 0A 电量推送，或 QHW CZ 通道 FA FB 07 推送。
+    /// 查询应答（4A / QHW getBattery）留给 PollDevice 的写读会话，这里不抢。
+    /// </summary>
+    protected override (int? Percent, ChargingState Charging, bool Offline)? TryParsePassiveInput(
+        TrackedDevice dev, byte[] input)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1);
-        while (DateTime.UtcNow < deadline)
+        if (dev.Protocol is "keyboard-v1")
         {
-            var input = dev.Handle.ReadInput(TimeSpan.FromMilliseconds(300));
-            if (input == null) continue;
-            var read = InterpretV1Input(input, out bool stop);
-            if (stop) return read;
+            var push = MchoseV1Codec.ParsePush(input);
+            if (push.Kind == V1PushKind.Battery)
+                return (push.Percent, ParseKeyboardV1Charge(push.ChargeFlag, push.Percent), Offline: false);
+            if (push.Kind == V1PushKind.StateNotify)
+            {
+                // 语义未明，仅记录（与 InterpretV1Input 一致，不当离线）。
+                Log.Info($"迈从 被动收到设备状态通知（payload=0x{push.Payload:X2}，仅记录）: {Log.Hex(input)}");
+            }
+            return null;
         }
+
+        if (dev.Protocol is "qhw" or "qhw-push")
+        {
+            var cz = ParseCzPush(input);
+            if (cz.HasValue)
+                return (cz.Value.Percent,
+                    cz.Value.Charging ? ChargingState.Charging : ChargingState.Discharging,
+                    Offline: false);
+        }
+
         return null;
     }
 

@@ -39,6 +39,14 @@ public class DeviceKindGuesserTests
     }
 
     [Fact]
+    public void K5_罗技MX系列产品名不含mouse也能认成鼠标()
+    {
+        Assert.Equal(DeviceKind.Mouse, DeviceKindGuesser.Guess("MX Master 3S"));
+        Assert.Equal(DeviceKind.Mouse, DeviceKindGuesser.Guess("MX Anywhere 3"));
+        Assert.Equal(DeviceKind.Mouse, DeviceKindGuesser.Guess("G Pro X Superlight"));
+    }
+
+    [Fact]
     public void K4_空名字返回Unknown()
     {
         Assert.Equal(DeviceKind.Unknown, DeviceKindGuesser.Guess(null));

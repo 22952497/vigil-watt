@@ -21,7 +21,11 @@ public static class DeviceKindGuesser
         if (Contains(n, "手柄", "gamepad", "controller", "joystick",
                         "北通", "betop", "beitong", "xbox"))
             return DeviceKind.Gamepad;
-        if (Contains(n, "鼠标", "mouse")) return DeviceKind.Mouse;
+        // 罗技 MX Master / Anywhere 等产品名不含 "mouse"（真机 "MX Master 3S"）
+        if (Contains(n, "鼠标", "mouse",
+                        "mx master", "mx anywhere", "mx ergo", "mx vertical",
+                        "g502", "g304", "g305", "g pro", "superlight"))
+            return DeviceKind.Mouse;
         if (Contains(n, "键盘", "keyboard")) return DeviceKind.Keyboard;
         if (Contains(n, "音箱", "speaker")) return DeviceKind.Speaker;
         if (Contains(n, "耳机", "head", "airpods", "buds")) return DeviceKind.Headset;

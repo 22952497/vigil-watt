@@ -73,6 +73,7 @@ public static class HidDeviceScanner
 
         ushort usagePage = 0, usage = 0;
         ushort inLen = 0, outLen = 0, featLen = 0;
+        byte? outReportId = null;
         int capsStatus = -1;
         bool preparsedOk = NativeHid.HidD_GetPreparsedData(safe, out var preparsed);
         if (preparsedOk)
@@ -90,6 +91,9 @@ public static class HidDeviceScanner
                     inLen = caps.InputReportByteLength;
                     outLen = caps.OutputReportByteLength;
                     featLen = caps.FeatureReportByteLength;
+                    // 输出集合优先；没有则退回输入集合（Report ID 是全局项，同接口共用）
+                    outReportId = NativeHid.ReadReportId(preparsed, NativeHid.HIDP_REPORT_TYPE.HidP_Output)
+                               ?? NativeHid.ReadReportId(preparsed, NativeHid.HIDP_REPORT_TYPE.HidP_Input);
                 }
             }
             finally
@@ -110,6 +114,7 @@ public static class HidDeviceScanner
             InputReportLength = inLen,
             OutputReportLength = outLen,
             FeatureReportLength = featLen,
+            OutputReportId = outReportId,
             Product = GetString(safe, NativeHid.HidD_GetProductString) ?? "",
             Manufacturer = GetString(safe, NativeHid.HidD_GetManufacturerString) ?? "",
         };

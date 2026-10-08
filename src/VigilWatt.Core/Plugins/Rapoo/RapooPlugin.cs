@@ -52,6 +52,15 @@ public sealed class RapooPlugin : BatteryPluginBase
     /// <summary>本插件不存在任何写入路径；置 false 作为纵深防御（CanWrite 恒 false）。</summary>
     protected override bool WritesEnabled => false;
 
+    /// <summary>认领后后台只读心跳帧，插拔电/电量变化立即 StatusPushed。</summary>
+    protected override bool SupportsPassiveListen => true;
+
+    /// <summary>
+    /// 心跳约 3.04 秒；超过 ~4 个周期无帧视为鼠标休眠（dongle 全静音）。
+    /// 不走"写失败熔断"（本插件零写入），沉默即离线。
+    /// </summary>
+    protected override TimeSpan PassiveSilenceOffline => TimeSpan.FromSeconds(12);
+
     /// <summary>
     /// 候选接口：vendor 通道（雷柏把 0xFF00 放在 UsagePage 或 Usage 字段——hidapi 与本仓库扫描器字段序相反，两边都查），
     /// 且输入长度 **正好 19 字节**（状态报表 0x07 的长度）。
@@ -80,12 +89,19 @@ public sealed class RapooPlugin : BatteryPluginBase
         return ("status-report7", read.Value.Percent, read.Value.Charging);
     }
 
-    /// <summary>轮询 = 被动听 5 秒（心跳 3.04 秒，鼠标醒着必能听到一条）。 null 计入基类失败计数（标离线）。</summary>
-    protected override (int? Percent, ChargingState Charging)? PollDevice(TrackedDevice dev)
+    /// <summary>
+    /// 读数由后台被动监听负责；轮询不再占 ReadInput（避免与监听抢同一悬空读）。
+    /// 沉默离线见 <see cref="PassiveSilenceOffline"/>。
+    /// </summary>
+    protected override (int? Percent, ChargingState Charging)? PollDevice(TrackedDevice _) => null;
+
+    /// <summary>解析被动 input：0x07 状态帧 → 电量/充电；其它帧忽略。</summary>
+    protected override (int? Percent, ChargingState Charging, bool Offline)? TryParsePassiveInput(
+        TrackedDevice _, byte[] input)
     {
-        var read = ListenStatus(dev.Handle, TimeSpan.FromSeconds(5));
-        if (!read.HasValue) return null;
-        return (read.Value.Percent, read.Value.Charging);
+        var parsed = ParseStatusReport(input);
+        if (!parsed.HasValue) return null;
+        return (parsed.Value.Percent, parsed.Value.Charging, Offline: false);
     }
 
     /// <summary>在截止时间前收 input report，解析 0x07 状态帧。所有听到的帧都记原始日志（协议排错靠它）。</summary>
