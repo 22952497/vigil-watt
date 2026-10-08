@@ -6,6 +6,8 @@
 
     <!--
       间距常量与 WidgetWindow.xaml.cs 的 PadH/PadV/RowGap 必须保持一致。
+      设备行的纵向间距写在这里的 ChipStack.Spacing，C# 侧对应常量 RowGap ——
+      改一个必须同步改另一个，否则窗口高度会和实际渲染对不上（滚动区底部会切行）。
 
       圆角分两条路（WidgetWindow.xaml.cs 运行时决定）：
       - Win11：DWM 原生圆角（带抗锯齿）把窗口矩形裁成圆角，这里写 12 即可。
@@ -26,8 +28,23 @@
         <Border.ContextFlyout>
             <MenuFlyout>
                 <MenuFlyoutItem Text="打开主窗口" Click="OpenMain_Click" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="退出" Click="Exit_Click" />
             </MenuFlyout>
         </Border.ContextFlyout>
-        <StackPanel x:Name="ChipStack" Orientation="Vertical" Spacing="16" />
+
+        <!--
+          设备行放进 ScrollViewer：一屏只显示"最多显示设备数"（设置项 WidgetMaxDevices，1~5，默认 3），
+          多出来的靠滚轮查看。滚动条常隐（Overlay），不挤占宽度、不破坏卡片轮廓。
+          VerticalScrollBarVisibility=Auto：只有真正超过上限时才允许滚动。
+        -->
+        <ScrollViewer x:Name="ChipScroll"
+                      VerticalScrollBarVisibility="Auto"
+                      VerticalScrollMode="Auto"
+                      HorizontalScrollMode="Disabled"
+                      HorizontalScrollBarVisibility="Disabled"
+                      IsTabStop="False">
+            <StackPanel x:Name="ChipStack" Orientation="Vertical" Spacing="16" />
+        </ScrollViewer>
     </Border>
 </Window>

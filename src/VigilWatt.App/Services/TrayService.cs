@@ -296,6 +296,12 @@ public sealed class TrayService : IDisposable
         Environment.Exit(0);
     }
 
+    /// <summary>
+    /// 供其它入口（小组件右键菜单）调用的退出通道：与托盘右键的"退出"走同一条路，
+    /// 保证都会先摘掉托盘图标再结束进程，避免任务栏残留一个点不动的图标。
+    /// </summary>
+    public static void ExitApplication() => Exit();
+
     // ---------- 低电量气泡 ----------
 
     public void ShowLowBattery(DeviceStatus device)

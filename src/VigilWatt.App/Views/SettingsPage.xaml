@@ -170,15 +170,42 @@
                         <TextBlock Text="小组件" Style="{StaticResource SectionTitleStyle}" />
                     </StackPanel>
                     <Border Style="{StaticResource CardStyle}">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Padding="0,12">
-                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                                <TextBlock Text="桌面小组件" Style="{StaticResource RowTitleStyle}" />
-                                <TextBlock Text="桌面悬浮电量条，可拖动、不进 Alt-Tab 与任务栏" Style="{StaticResource RowDescStyle}" />
-                            </StackPanel>
-                            <ToggleSwitch Grid.Column="1" x:Name="WidgetToggle"
-                                          OnContent="开" OffContent="关"
-                                          MinWidth="0" VerticalAlignment="Center" />
-                        </Grid>
+                        <StackPanel>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Padding="0,12">
+                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="桌面小组件" Style="{StaticResource RowTitleStyle}" />
+                                    <TextBlock Text="桌面悬浮电量条，可拖动、不进 Alt-Tab 与任务栏" Style="{StaticResource RowDescStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" x:Name="WidgetToggle"
+                                              OnContent="开" OffContent="关"
+                                              MinWidth="0" VerticalAlignment="Center" />
+                            </Grid>
+                            <Border Style="{StaticResource RowDividerStyle}" />
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Padding="0,12">
+                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="显示方式" Style="{StaticResource RowTitleStyle}" />
+                                    <TextBlock x:Name="WidgetModeHintText" Style="{StaticResource RowDescStyle}" />
+                                </StackPanel>
+                                <ComboBox Grid.Column="1" x:Name="WidgetModeCombo" Width="180"
+                                          VerticalAlignment="Center"
+                                          SelectionChanged="WidgetMode_Changed">
+                                    <ComboBoxItem Content="浮在其它窗口上方" Tag="Topmost" />
+                                    <ComboBoxItem Content="普通窗口" Tag="Normal" />
+                                    <ComboBoxItem Content="固定在桌面" Tag="Desktop" />
+                                </ComboBox>
+                            </Grid>
+                            <Border Style="{StaticResource RowDividerStyle}" />
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Padding="0,12">
+                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="最多显示设备数" Style="{StaticResource RowTitleStyle}" />
+                                    <TextBlock Text="一屏只显示这么多条，其余用鼠标滚轮查看"
+                                               Style="{StaticResource RowDescStyle}" />
+                                </StackPanel>
+                                <!-- 档位由代码按 WidgetMaxDevicesOptions.Choices 生成，范围只有一处定义 -->
+                                <ComboBox Grid.Column="1" x:Name="WidgetMaxCombo" Width="180"
+                                          VerticalAlignment="Center" />
+                            </Grid>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 

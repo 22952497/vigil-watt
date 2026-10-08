@@ -294,3 +294,39 @@ Mica 是 **Windows 11 专属**（微软文档原文："在 Windows 10 上会回�
 
 **环境提醒**：本机（Win10 19045）用 shell / `nohup` 拉起 `VigilWatt.App.exe` 会在几秒内被
 进程树清理带走（与 handoff.md 记的一致），**Win10 侧的外观只能由用户双击 exe 肉眼确认**。
+
+## 15. 小组件"钉在桌面"只能靠 SetWindowPos(HWND_BOTTOM)，不能靠 IsAlwaysOnTop（2026-10-08）
+
+**需求**：小组件要支持三档层级 —— 浮在其它窗口上方 / 普通窗口 / 固定在桌面。
+
+**API 事实**：WinUI 3 的 `OverlappedPresenter.IsAlwaysOnTop` 是 **bool**，只表达
+"置顶 / 非置顶"，**表达不了"沉到最底"**。`非置顶` 得到的是普通层级（会被后续激活的窗口遮挡），
+不是"压在其它窗口下方"。所以第三档必须走 `SetWindowPos`：
+
+```csharp
+// 桌面档：压到 Z 序最底（只有桌面露出时才可见）
+Native.SetWindowPos(hwnd, Native.HWND_BOTTOM, 0, 0, 0, 0,
+    Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+// 切回置顶/普通档：显式抬回顶层，HWND_TOP + NOACTIVATE 不抢焦点
+Native.SetWindowPos(hwnd, Native.HWND_TOP, 0, 0, 0, 0,
+    Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+```
+
+`Native.HWND_TOP = IntPtr.Zero`、`Native.HWND_BOTTOM = new IntPtr(1)`。
+**不要**混用 `HWND_TOPMOST`：置顶交给 `IsAlwaysOnTop` 管，两套机制同时改 Z 序会互相打架。
+
+**切换必须"先复位再设"**（`ApplyDisplayMode` 每次两档都写一遍）：只单向设置会残留
+上一个模式的状态 —— 例如从"置顶"切到"桌面"时，`IsAlwaysOnTop` 仍为 true 会让窗口
+**又置顶又沉底**，行为不确定。
+
+**为什么不挂 WorkerW（真·嵌入桌面）**：`SetParent` 改父窗口会同时牵动三条既有逻辑 ——
+拖拽（`AppWindow.Move` 在子窗口坐标系下语义变了）、`WS_EX_TOOLWINDOW`、
+Win10 的透明外壳（`ApplyWin10Chrome`）。压到底层的观感与"钉在桌面"等价
+（两者都只在桌面露出时可见），却零侵入。这是有意的取舍，不是偷懒。
+
+**"固定"是懒执行的**：`HWND_BOTTOM` 是"放到**当前** Z 序底部"的快照，不是持久约束；
+之后点桌面（`SHELLDLL_DefView`）刷新、或任何窗口被激活，小组件可能重新出现在上层。
+对自用小工具可接受；真要强约束得用 `SetWinEventHook` 监听
+`EVENT_SYSTEM_FOREGROUND` 再重新压底，复杂度不成比例。
+
+**验证**：`dotnet build` 0 错误；`dotnet test` **101/101**。

@@ -39,11 +39,12 @@ VigilWatt.sln
     │   ├── HistoryPage                # 历史管理：概览卡 + 按设备删除（二次确认 + VACUUM 收缩）
     │   ├── BatteryChartControl        # 自绘 Canvas 折线图（面积填充 + hover 提示，无第三方图表库）
     │   └── SettingsPage               # 设置项 + 应用按钮
-    ├── WidgetWindow(.xaml)            # 桌面小组件（无边框悬浮条，普通层级不置顶，纯代码构建芯片）
+    ├── WidgetWindow(.xaml)            # 桌面小组件（无边框悬浮卡片，纯代码构建设备行）
     ├── ViewModels/DeviceRowModel      # 设备行的绑定模型
     └── Services/
-        ├── TrayService                # 托盘（纯 Win32 Shell_NotifyIcon）
-        ├── Native                     # App 侧 Win32 声明（托盘/菜单/光标/窗口属性）
+        ├── TrayService                # 托盘（纯 Win32 Shell_NotifyIcon）+ 全应用唯一退出通道
+        ├── WidgetDisplayMode          # 小组件层级取值（Topmost/Normal/Desktop）+ 条数上限范围
+        ├── Native                     # App 侧 Win32 声明（托盘/菜单/光标/窗口属性/Z 序）
         └── AutostartService           # HKCU\...\Run 注册表自启
 ```
 
@@ -73,6 +74,9 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 | **BLE 不依赖系统电量属性** | `System.Devices.AepBattery_Level` 在本机 Windows 上不可用（runtime-pitfalls §3），直接 GATT 读标准 Battery Service，任何实现 0x180F 的设备都通用 |
 | **自绘折线图（BatteryChartControl）** | 最初计划用 LiveCharts2，后放弃：只画一条电量曲线，自绘 100 行可控、无依赖、无 SkiaSharp 体积 |
 | **托盘纯 Win32** | H.NotifyIcon 在 WinUI 3 代码创建场景下事件失灵（runtime-pitfalls §5） |
+| **小组件窗口高度按"最多显示数"封顶 + ScrollViewer** | 高度若随设备数变化，插拔/休眠期间卡片会一跳一跳；封顶后只在跨过上限那一刻变尺寸。滚动条用 Overlay 常隐，不挤占宽度 |
+| **"固定在桌面" = SetWindowPos(HWND_BOTTOM)** | 不挂 WorkerW：`SetParent` 改父窗口会连累拖拽/`WS_EX_TOOLWINDOW`/Win10 透明外壳三条既有逻辑，点击落点也要重算。压到底层观感等价（桌面露出时才可见），且零侵入 |
+| **退出只有一条实现（TrayService.ExitApplication）** | 托盘与小组件右键都走它，保证先 `Shell_NotifyIcon(NIM_DELETE)` 摘图标再结束进程，避免残留点不动的托盘图标 |
 | **历史写入双通道** | 定时采样（SampleIntervalMinutes，无变化也写点）+ 电量变化立即写（Upsert 里），保证曲线既平滑又不漏跳变 |
 | **删除历史后立即 VACUUM** | SQLite 的 `DELETE` 只把页标成空闲、**不缩小文件**；不 VACUUM 的话用户删完看到文件大小没变，会以为删除没生效。删除是低频操作，VACUUM 的整库重写开销可接受 |
 | **HistoryStore 支持注入库路径** | `HistoryStore(dbPath)` 可选参数让单测指向临时库，使删除/统计逻辑能进纯 net8.0 测试项目跑真 SQLite（不碰真实 history.db） |
@@ -90,7 +94,7 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 
 | 位置 | 内容 |
 |---|---|
-| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件/插件开关/MchoseProbingEnabled） |
+| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关/MchoseProbingEnabled） |
 | `%LOCALAPPDATA%\VigilWatt\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts) |
 | `%LOCALAPPDATA%\VigilWatt\logs\app.log` | 全部运行日志（协议原始报文也在） |
 

@@ -23,6 +23,20 @@ public class AppSettings
 
     public double WidgetY { get; set; } = 60;
 
+    /// <summary>
+    /// 小组件一屏最多显示几个设备，超出的靠滚轮滚动查看。
+    /// 合法范围见 <c>VigilWatt.App.Services.WidgetMaxDevicesOptions</c>（1~5，默认 3），
+    /// Core 不引用 App，故这里只留数字与默认值，收敛由设置页/小组件负责。
+    /// </summary>
+    public int WidgetMaxDevices { get; set; } = 3;
+
+    /// <summary>
+    /// 小组件显示方式。取值见 <c>VigilWatt.App.Services.WidgetDisplayMode</c>：
+    /// Topmost（浮在其它窗口上方）/ Normal（普通窗口）/ Desktop（压在其它窗口下方）。
+    /// 未知取值一律按 Normal 处理。
+    /// </summary>
+    public string WidgetDisplayMode { get; set; } = "Normal";
+
     public bool StartMinimized { get; set; } = true;
 
     /// <summary>Velopack 更新源：本地文件夹路径、网络共享或 GitHub 仓库 URL；空 = 不检查更新。</summary>

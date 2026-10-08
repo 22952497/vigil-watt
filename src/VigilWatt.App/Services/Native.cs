@@ -160,9 +160,15 @@ internal static class Native
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(IntPtr hwnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
+    // SetWindowPos 的 Z 序插入位。小组件"钉在桌面"档靠 HWND_BOTTOM 把窗口压到最底，
+    // 切回普通/置顶档靠 HWND_TOP 抬回来（HWND_TOPMOST 留给 IsAlwaysOnTop 管，别混用）。
+    public static readonly IntPtr HWND_TOP = IntPtr.Zero;
+    public static readonly IntPtr HWND_BOTTOM = new(1);
+
     public const uint SWP_NOSIZE = 0x1;
     public const uint SWP_NOMOVE = 0x2;
     public const uint SWP_NOZORDER = 0x4;
+    public const uint SWP_NOACTIVATE = 0x10;
     public const uint SWP_FRAMECHANGED = 0x20;
 
     // ---- 窗口整体透明（仅 Win10 的圆角方案用）----

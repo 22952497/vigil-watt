@@ -30,6 +30,33 @@ public sealed partial class SettingsPage : Page
         UpdateSourceBox.Text = s.UpdateUrl;
         UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)}";
 
+        // 小组件显示方式：与"窗口背景"同一套路，下拉框存偏好、副标题写实际行为
+        var mode = WidgetDisplayMode.Normalize(s.WidgetDisplayMode);
+        foreach (ComboBoxItem item in WidgetModeCombo.Items)
+        {
+            if (item.Tag as string == mode)
+            {
+                WidgetModeCombo.SelectedItem = item;
+                break;
+            }
+        }
+        WidgetModeHintText.Text = WidgetDisplayMode.Describe(mode);
+
+        // 最多显示设备数：档位按统一范围生成（1~5），保证下拉框和取值收敛永远同源
+        foreach (var n in WidgetMaxDevicesOptions.Choices)
+        {
+            WidgetMaxCombo.Items.Add(new ComboBoxItem { Content = $"{n} 个", Tag = n });
+        }
+        var maxDevices = WidgetMaxDevicesOptions.Clamp(s.WidgetMaxDevices);
+        foreach (ComboBoxItem item in WidgetMaxCombo.Items)
+        {
+            if (item.Tag is int v && v == maxDevices)
+            {
+                WidgetMaxCombo.SelectedItem = item;
+                break;
+            }
+        }
+
         // 窗口背景：下拉框选中"用户偏好"，副标题说"这台机器上实际会生效什么"——
         // 两者不是一回事（Win10 上选 Mica 会静默降级成 Acrylic），分开显示才不会让人困惑。
         var pref = WindowBackdrop.Normalize(s.WindowBackdrop);
@@ -56,6 +83,12 @@ public sealed partial class SettingsPage : Page
     {
         if (BackdropCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
         UpdateBackdropHint(tag);
+    }
+
+    private void WidgetMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (WidgetModeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
+        WidgetModeHintText.Text = WidgetDisplayMode.Describe(tag);
     }
 
     /// <summary>副标题按"选中的偏好在本机上实际会生效成什么"来写。</summary>
@@ -121,6 +154,12 @@ public sealed partial class SettingsPage : Page
         s.StartMinimized = StartMinimizedToggle.IsOn;
         s.Autostart = AutostartToggle.IsOn;
         s.WidgetEnabled = WidgetToggle.IsOn;
+        s.WidgetDisplayMode = WidgetModeCombo.SelectedItem is ComboBoxItem modeItem && modeItem.Tag is string modeTag
+            ? WidgetDisplayMode.Normalize(modeTag)
+            : WidgetDisplayMode.Normal;
+        s.WidgetMaxDevices = WidgetMaxCombo.SelectedItem is ComboBoxItem maxItem && maxItem.Tag is int maxValue
+            ? WidgetMaxDevicesOptions.Clamp(maxValue)
+            : WidgetMaxDevicesOptions.Default;
         s.UpdateUrl = UpdateSourceBox.Text.Trim();
         s.WindowBackdrop = (BackdropCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? WindowBackdrop.Auto;
         foreach (var (name, toggle) in _pluginToggles)
@@ -142,6 +181,12 @@ public sealed partial class SettingsPage : Page
         {
             App.Services.Widget.Close();
             App.Services.Widget = null;
+        }
+        else if (s.WidgetEnabled)
+        {
+            // 已开着的小组件：先把配置落到位再重画，让"显示方式/最多显示设备数"当场生效，
+            // 不必关掉再开。RefreshFromSettings 内部会重新应用层级并重算窗口高度。
+            App.Services.Widget?.RefreshFromSettings();
         }
 
         // 窗口背景即时生效：改完就想看到效果，不该逼用户重启应用

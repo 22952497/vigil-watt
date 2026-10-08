@@ -40,6 +40,9 @@ public sealed partial class WidgetWindow : Window
     private const double RowHeight = IconSize + RowInnerGap + BarHeight;
     private const double NameMaxWidth = 200;    // 名称列上限（超出省略号），正常设备名都能放下
 
+    /// <summary>n 行内容（含行间距）的总高度。</summary>
+    private static double RowsHeight(int rows) => rows <= 0 ? 0 : rows * RowHeight + (rows - 1) * RowGap;
+
     /// <summary>
     /// Win10 圆角半径（DIP）。比 Win11 大一圈是刻意的：
     /// Win10 的圆角完全由 XAML 绘制（抗锯齿、干净），大一点的弧线观感更接近现代磁贴。
@@ -59,7 +62,7 @@ public sealed partial class WidgetWindow : Window
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
-            // 普通桌面展示：不置顶，允许被其他窗口遮挡（需要时再切回 true）
+            // 层级先按"普通窗口"起步，随后 ApplyDisplayMode 按设置覆盖（置顶 / 桌面）
             presenter.IsAlwaysOnTop = false;
             presenter.IsResizable = false;
             presenter.IsMinimizable = false;
@@ -83,6 +86,8 @@ public sealed partial class WidgetWindow : Window
 
         var s = App.Services.Settings;
         AppWindow.Move(new PointInt32((int)s.WidgetX, (int)s.WidgetY));
+        // 层级：置顶 / 普通 / 桌面（窗口句柄已就绪，构造期就能应用）
+        ApplyDisplayMode(s.WidgetDisplayMode);
 
         App.Services.Manager.DeviceUpdated += _ => DispatcherQueue.TryEnqueue(RefreshContent);
         App.Services.Manager.DevicesChanged += () => DispatcherQueue.TryEnqueue(RefreshContent);
@@ -201,10 +206,16 @@ public sealed partial class WidgetWindow : Window
             ChipStack.Children.Add(BuildRow(d, rowW, skin));
         }
 
+        // 一屏最多显示 MaxVisibleDevices 条（设置项，1~5，默认 3），多出来的靠滚轮查看。
+        // 高度按 min(实际条数, 上限) 算：窗口尺寸因此**封顶**，设备增减不会让卡片一跳一跳。
+        // 上限的 DIP 高度向上取整，避免滚动容器把最后一行切掉半个像素。
+        var maxVisible = WidgetMaxDevicesOptions.Clamp(App.Services.Settings.WidgetMaxDevices);
+        var visibleRows = Math.Min(devices.Count, maxVisible);
+        double visibleRowsH = Math.Ceiling(RowsHeight(visibleRows));
+
         // 总宽补上 Root Border 的 1 DIP 边框线（两侧共 2）+ DPI 舍入余量，
         // 少算几个 DIP 最右侧的百分比列就会被窗口边缘裁掉
-        ResizeContent(PadH * 2 + rowW + 6,
-            PadV * 2 + devices.Count * RowHeight + (devices.Count - 1) * RowGap + 8);
+        ResizeContent(PadH * 2 + rowW + 6, PadV * 2 + visibleRowsH + 8);
     }
 
     private void ResizeContent(double widthDip, double heightDip)
@@ -514,11 +525,73 @@ public sealed partial class WidgetWindow : Window
         TrayService.ShowMainWindow();
     }
 
+    private void Exit_Click(object sender, RoutedEventArgs e)
+    {
+        // 与托盘右键的"退出"完全一致：清理托盘图标后结束进程
+        TrayService.ExitApplication();
+    }
+
+    // ---------- 显示模式 ----------
+
+    /// <summary>
+    /// 设置保存后的即时生效入口：重新应用层级 + 重算窗口高度（最多显示条数可能变了）。
+    /// 由设置页在已存在小组件时调用。
+    /// </summary>
+    public void RefreshFromSettings()
+    {
+        var s = App.Services.Settings;
+        ApplyDisplayMode(s.WidgetDisplayMode);
+        RefreshContent();
+    }
+
+    /// <summary>
+    /// 应用窗口层级。可重复调用（构造期一次、设置页改完再调一次），每次都会先复位再设，
+    /// 避免从"置顶"切到"桌面"时残留 TOPMOST 标记。
+    ///
+    /// 三档对应关系：
+    /// - Topmost：`OverlappedPresenter.IsAlwaysOnTop = true`，浮在其它窗口上方。
+    /// - Normal ：`IsAlwaysOnTop = false`，普通层级，被后激活的窗口遮挡。
+    /// - Desktop：同样不置顶，再用 `SetWindowPos(HWND_BOTTOM)` 把窗口压到 Z 序最底，
+    ///   只有桌面露出时才可见 —— 即"钉在桌面"。
+    ///
+    /// ⚠ Desktop 档不能用 `HWND_TOPMOST` 的反面来做：`IsAlwaysOnTop` 只认识"置顶/非置顶"，
+    /// 表达不了"沉到最底"，必须走 SetWindowPos。
+    /// </summary>
+    public void ApplyDisplayMode(string? mode)
+    {
+        var resolved = WidgetDisplayMode.Normalize(mode);
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (hwnd == IntPtr.Zero) return;
+
+            if (AppWindow.Presenter is OverlappedPresenter presenter)
+                presenter.IsAlwaysOnTop = resolved == WidgetDisplayMode.Topmost;
+
+            if (resolved == WidgetDisplayMode.Desktop)
+            {
+                Native.SetWindowPos(hwnd, Native.HWND_BOTTOM, 0, 0, 0, 0,
+                    Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            }
+            else
+            {
+                // 从桌面档切回来时要显式脱离 bottom：HWND_TOP + NOACTIVATE 把它抬回普通层，
+                // 既不抢焦点，也不会在 Topmost 档下和 IsAlwaysOnTop 打架。
+                Native.SetWindowPos(hwnd, Native.HWND_TOP, 0, 0, 0, 0,
+                    Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"小组件显示模式应用失败({resolved}): {ex.Message}");
+        }
+    }
+
     // ---------- 拖动 ----------
 
     private void Root_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        // 仅左键拖动；右键留给 ContextFlyout（打开主窗口菜单）
+        // 仅左键拖动；右键留给 ContextFlyout（打开主窗口 / 退出菜单）
         if (!e.GetCurrentPoint(Root).Properties.IsLeftButtonPressed) return;
         _dragging = true;
         Root.CapturePointer(e.Pointer);
