@@ -201,15 +201,19 @@ public sealed class DeviceManager : IDisposable
         // 首扫尽快跑（探测已是并行/短路，不再需要 2 秒缓冲）
         _pollTimer = new Timer(_ => _ = RequestPollAsync(), null,
             TimeSpan.FromMilliseconds(300), TimeSpan.FromMinutes(1));
-        // 快速发现节拍：见 RequestDiscoveryAsync。只服务纯被动插件（雷柏鼠标），
-        // 目的 = 鼠标一动就能在十几秒内进列表，而不是苦等下一个 60 秒主轮询。
+        // 快速发现节拍：见 RequestDiscoveryAsync。服务零写入插件（雷柏鼠标）与写入受
+        // ProbeCooldown 约束的插件（迈从键盘），目的 = 设备一醒/一开机就能在十几秒内进列表，
+        // 而不是苦等下一个 60 秒主轮询。
         _discoveryTimer = new Timer(_ => _ = RequestDiscoveryAsync(), null,
             FastDiscoveryInterval, FastDiscoveryInterval);
         _sampleTimer = new Timer(_ => SafeSample(), null,
             TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(Math.Max(1, _settings.SampleIntervalMinutes)));
     }
 
-    /// <summary>快速发现节拍。15 秒 = 雷柏心跳(3.04s)的约 5 倍，发现时延上界 ~15s。</summary>
+    /// <summary>
+    /// 快速发现节拍。15 秒 = 雷柏心跳(3.04s)的约 5 倍，发现时延上界 ~15s；
+    /// 也是迈从键盘的发现节拍（其 ProbeCooldown 必须 &lt; 15s 才能每拍都重探）。
+    /// </summary>
     private static readonly TimeSpan FastDiscoveryInterval = TimeSpan.FromSeconds(15);
 
     /// <summary>设置变化后调用（阈值/采样间隔/插件开关）。</summary>
@@ -263,12 +267,14 @@ public sealed class DeviceManager : IDisposable
     }
 
     /// <summary>
-    /// 快速发现：只让"纯被动零写入"插件（<see cref="IBatteryPlugin.SupportsFastDiscovery"/>）跑一遍认领探测，
-    /// **不轮询电量、不碰 BLE / 经典蓝牙、不触发任何写入**。
+    /// 快速发现：让两类插件跑一遍**只认领、不轮询电量**的发现探测，不碰 BLE / 经典蓝牙：
+    /// - <see cref="IBatteryPlugin.SupportsFastDiscovery"/> = 纯被动零写入插件（雷柏鼠标），完全免费；
+    /// - <see cref="IBatteryPlugin.SupportsDiscoveryProbe"/> = 探测要写帧、但写入频率由插件自己的
+    ///   `ProbeCooldown` 兜住的插件（迈从键盘）。已认领的设备在 `Attach` 里直接返回，**零写入**。
     ///
-    /// 存在的理由：雷柏鼠标休眠时 dongle 全静音，只有用户动它才恢复心跳。60 秒的主轮询
-    /// 常常正好落在它睡着的窗口里，探测落空后又要等整整一轮；首扫时更是必然落空
-    /// （用户刚启动应用、还没碰鼠标）。15 秒节拍把这个"发现"时延从 ~60s 压到 ~15s。
+    /// 存在的理由：这类设备"在位"与否只有探测才知道。60 秒的主轮询常常正好落在它睡着的窗口里，
+    /// 探测落空后又要等整整一轮；首扫时更是必然落空（用户刚启动应用、设备还没醒）。
+    /// 15 秒节拍把这个"发现"时延从 ~60s 压到 ~15s。
     ///
     /// 主轮询正在跑时直接返回它——那一轮本来就包含完整探测，不必重复。
     /// </summary>
@@ -365,7 +371,10 @@ public sealed class DeviceManager : IDisposable
             var hidDevices = HidDeviceScanner.Scan();
             foreach (var plugin in _plugins)
             {
-                if (!plugin.SupportsFastDiscovery || !IsPluginEnabled(plugin)) continue;
+                // 零写入插件（雷柏）与"写入由 ProbeCooldown 兜住"的插件（迈从）都参与；
+                // 其余会写帧的插件仍只吃 60 秒主轮询，避免成倍抬高写入频率。
+                if (!plugin.SupportsFastDiscovery && !plugin.SupportsDiscoveryProbe) continue;
+                if (!IsPluginEnabled(plugin)) continue;
                 try
                 {
                     foreach (var d in plugin.Attach(hidDevices, _claims))

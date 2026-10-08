@@ -38,6 +38,10 @@ public sealed class LogitechPlugin : IBatteryPlugin
     /// <summary>HID++ 探测要写帧（ping / GetFeature），不参与 15 秒快速发现节拍，避免写入频率上升。</summary>
     public bool SupportsFastDiscovery => false;
 
+    /// <summary>同理不参与：HID++ 的发现要 ping 7 个槽位（睡着时约 10 秒），每 15 秒跑一遍代价太高；
+    /// 罗技靠自发的 HID++ 通知做实时更新，不需要加快发现节拍。</summary>
+    public bool SupportsDiscoveryProbe => false;
+
     /// <summary>HID++ 自发电量/充电通知 → DeviceManager 即时 Upsert（对照浏览器扩展的实时更新）。</summary>
     public event Action<DeviceStatus>? StatusPushed;
 

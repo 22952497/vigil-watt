@@ -57,6 +57,16 @@ internal static class MchoseV1Codec
     /// <summary>推送帧类型位：设备状态通知（实测=休眠/关机）。</summary>
     public const byte PushTypeState = 0x02;
 
+    /// <summary>
+    /// 状态通知 payload 的实测取值之一（与 <see cref="StatePayloadOne"/> 全天交替出现）。
+    /// **语义未定论**，所以只当"值得立刻核实一下"的触发器用（见 MchosePlugin 的被动解析），
+    /// 绝不作为离线证据——每次通知后 1 分钟内设备都能正常应答电量查询。
+    /// </summary>
+    public const byte StatePayloadZero = 0x00;
+
+    /// <summary>状态通知 payload 的另一个实测取值。语义同样未定论，当前不做任何处理，仅记录。</summary>
+    public const byte StatePayloadOne = 0x01;
+
     /// <summary>无效电量下界：≤1 一律无效（真机休眠帧 payload 就是 0x01）。低电量阈值 20%，
     /// 正常放电到 1% 之前早就提醒过了，所以拒绝它不会漏掉任何真实告警。</summary>
     public const byte InvalidPercentFloor = 1;

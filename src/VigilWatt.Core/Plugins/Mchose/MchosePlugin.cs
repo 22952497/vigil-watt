@@ -40,8 +40,46 @@ public sealed class MchosePlugin : BatteryPluginBase
     /// <summary>认领后后台听 0A/CZ 推送，插拔电不必等 60 秒主动查询。</summary>
     protected override bool SupportsPassiveListen => true;
 
-    /// <summary>推送稀疏（仅状态变化时），不按沉默判离线；失联仍靠查询失败熔断。</summary>
-    protected override TimeSpan PassiveSilenceOffline => TimeSpan.Zero;
+    /// <summary>
+    /// 本插件的离线判定策略（见 <see cref="OfflinePolicy"/>）。
+    ///
+    /// <b>Silence = 0</b>：0A 推送很稀疏（仅状态变化时才有），沉默在这里毫无信息量，
+    /// 不能当离线判据。
+    ///
+    /// <b>CountPollFailures = false</b>：本插件的轮询**确实会发帧**（<c>13 4A 01</c>），
+    /// 但 <c>PollDevice</c> 返回 null 有三种可能——真的没应答 / 用户关了写入许可 / 熔断停写中，
+    /// 基类分不出来。所以改成由插件自己在发过帧的分支上报账（<c>ReportPollFailure</c>），
+    /// 基类那条"null 就是失败"的自动计数必须关掉，否则会把"用户关了探测"误判成"键盘不在"。
+    ///
+    /// 注意迈从协议里**根本没有"连接状态"字段**（不像雷柏有 bit7、北通有占位帧），
+    /// 所以这里是它唯一能判离线的物理依据——这也正是第②层"要不要被动监听"不能与
+    /// "轮询空读算不算失败"合并的原因。
+    /// </summary>
+    protected override OfflinePolicy Offline { get; } = new()
+    {
+        Silence = TimeSpan.Zero,
+        CountPollFailures = false,
+    };
+
+    /// <summary>
+    /// 探测要写帧（会话帧 + 最多 2 条电量查询），所以不能走 <see cref="SupportsFastDiscovery"/>
+    /// （那条路只给纯被动零写入插件），但**不参与 15 秒发现节拍**的代价是：键盘唤醒/开机后最坏要等
+    /// 60 秒主轮询才被认领，用户看到的是"键盘开了半天才显示在线"（2026-10-08 用户复报）。
+    /// 改用 SupportsDiscoveryProbe 参与 15 秒节拍，写入频率由下面的 ProbeCooldown 兜住。
+    /// </summary>
+    public override bool SupportsDiscoveryProbe => true;
+
+    /// <summary>
+    /// **10 秒 &lt; 15 秒发现节拍**，保证每一拍都允许重探。
+    ///
+    /// 为什么必须小于一拍：探测失败发生在拍点之后约 3.7 秒（会话 1.2s + 两次查询各 1.2s），
+    /// 若冷却 ≥ 15 秒，下一拍看到的是"才过了 11.3 秒"，会被判冷却未过而白白跳过——
+    /// 实际重试间隔翻倍成 30 秒（相位坑见 <see cref="BatteryPluginBase.ProbeCooldown"/> 的注释）。
+    ///
+    /// 写入代价：只有**设备不响应**时才会重探，每次 ≈ 3 帧（1 会话 + ≤2 查询），最坏 4 拍/分钟 ≈ 12 帧/分钟；
+    /// 一旦认领成功，<c>Attach</c> 对已知设备直接返回，这一路**零写入**。
+    /// </summary>
+    protected override TimeSpan ProbeCooldown => TimeSpan.FromSeconds(10);
 
     protected override bool IsCandidate(HidDeviceInfo info)
     {
@@ -58,8 +96,33 @@ public sealed class MchosePlugin : BatteryPluginBase
         return false;
     }
 
-    /// <summary>接口路径 → 已判定协议（进程内学习）。已知 keyboard-v1 的接口下次直接跳过 QHW 的被动空等。</summary>
+    /// <summary>
+    /// 接口路径 → 已判定协议（进程内学习）。**只在探测成功后写入，失败不抹掉**。
+    /// 路径里带 `VID_xxxx&PID_xxxx&MI_xx&Colxx`，同一条路径永远是同一个型号，协议不会变；
+    /// 探测失败最常见的原因是"键盘在睡"（dongle 在位、设备不应答），那说明不了协议变了。
+    /// </summary>
     private static readonly ConcurrentDictionary<string, string> KnownProtocolByPath = new();
+
+    /// <summary>
+    /// "同一条路径只记一次"的日志去重表，key = <c>路径|用途</c>。
+    ///
+    /// 存在的理由：发现节拍每 15 秒会重探一次，设备睡着时逐次记录会把 app.log 刷满、而且没有新信息。
+    /// 配 <see cref="ResetLogOnce"/> 就变成"**状态变化才记**"——恢复正常时清掉标记，
+    /// 下次再出问题会重新记一条（与北通占位帧的记法一致）。
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, bool> LogOnceByKey = new();
+
+    private const string LogKeyQhwSkip = "qhw-skip";          // "这条通道不是 QHW"
+    private const string LogKeyQhwNoPermit = "qhw-no-permit"; // "没开写入许可，跳过主动查询"
+    private const string LogKeyKbV1Silent = "kbv1-silent";    // "keyboard-v1 问了两次都不应答"
+
+    /// <summary>该路径的这类事件还没记过 → 记一条（返回 true）；记过就跳过（返回 false）。</summary>
+    private static bool ShouldLogOnce(HidDeviceHandle handle, string what)
+        => LogOnceByKey.TryAdd($"{handle.Info.DevicePath}|{what}", true);
+
+    /// <summary>清掉"记过"标记，让下次再发生时重新记一条（"状态变化才记"的关键一半）。</summary>
+    private static void ResetLogOnce(HidDeviceHandle handle, string what)
+        => LogOnceByKey.TryRemove($"{handle.Info.DevicePath}|{what}", out _);
 
     /// <summary>协议探测：官方 QHW（新世代）→ 键盘 V1 会话协议（本机 G87）。</summary>
     protected override (string Protocol, int? Percent, ChargingState Charging)? Probe(HidDeviceHandle handle)
@@ -69,13 +132,14 @@ public sealed class MchosePlugin : BatteryPluginBase
 
         var path = handle.Info.DevicePath;
 
-        // 已知协议：只试对应那条通道（跳过另一条的空等）；试不出则清掉记忆、回落完整探测
+        // 已知协议：只试对应那条通道，**失败就返回、不清记忆**。
+        //
+        // 2026-10-08 实修：旧代码在这里 `TryRemove` 后回落完整探测，代价是每 15 秒的发现节拍
+        // 都白写一次 QHW 握手（本机 G87 不是 QHW 通道，必失败 → 每 15 秒一条 WARN 刷屏）
+        // 再重试一遍 keyboard-v1，写入量翻倍。缓存只在**探测成功**时写入，本身就是可靠判据，
+        // 没有理由因为"设备睡着了"把它丢掉；真要重置，重启应用即可（缓存是进程内的）。
         if (KnownProtocolByPath.TryGetValue(path, out var known))
-        {
-            var again = TryKnownProtocol(handle, known);
-            if (again != null) return again;
-            KnownProtocolByPath.TryRemove(path, out _);
-        }
+            return TryKnownProtocol(handle, known);
 
         var qhw = TryQhw(handle);
         if (qhw != null)
@@ -106,15 +170,26 @@ public sealed class MchosePlugin : BatteryPluginBase
     protected override (int? Percent, ChargingState Charging)? PollDevice(TrackedDevice dev)
     {
         // 熔断 / 未开写入 / 纯推送协议：读数交给后台被动监听，轮询不占 ReadInput。
+        // 注意这几条**都没发帧**，所以直接返回、不计失败——不能把"用户关了探测"当成"键盘不在"。
         if (!CanWrite(dev) || dev.Protocol == "qhw-push")
             return null;
 
-        return dev.Protocol switch
+        var read = dev.Protocol switch
         {
             "qhw" => PollQhw(dev),
             "keyboard-v1" => PollKeyboardV1(dev),
             _ => null,
         };
+
+        // 发过帧：有应答 → 清零；无应答 → 记账（满 3 次 → 标离线 + 熔断停写）。
+        //
+        // 必须在这里自己报账（2026-10-08 用户复报"键盘关机后一直不显示离线"）：
+        // 本插件把 OfflinePolicy.CountPollFailures 置成了 false（因为 null 有歧义，见上面那条注释），
+        // 所以基类不会替我们数——只有本插件知道这一轮到底发帧了没有。
+        if (read.HasValue) ReportPollAnswered(dev);
+        else ReportPollFailure(dev);
+
+        return read;
     }
 
     /// <summary>
@@ -131,8 +206,22 @@ public sealed class MchosePlugin : BatteryPluginBase
                 return (push.Percent, ParseKeyboardV1Charge(push.ChargeFlag, push.Percent), Offline: false);
             if (push.Kind == V1PushKind.StateNotify)
             {
-                // 语义未明，仅记录（与 InterpretV1Input 一致，不当离线）。
-                Log.Info($"迈从 被动收到设备状态通知（payload=0x{push.Payload:X2}，仅记录）: {Log.Hex(input)}");
+                // payload 0x00/0x01 的语义**至今未定论**（全天交替出现，且每次通知后 1 分钟内设备
+                // 都能正常应答电量查询），所以绝不能当离线证据。
+                //
+                // 但可以当**触发器**：收到 payload=0x00 就让基类立刻补一次核实查询。
+                // 键盘真关机时，这条路径把"发现离线"从 60 秒轮询攒 3 次失败（2~3 分钟）
+                // 压到秒级；键盘其实好着的话，那次查询会正常应答，什么都不会发生。
+                // 只认 0x00（不当证据，所以选哪个值只影响触发时机，不影响判定结果）。
+                if (push.Payload == MchoseV1Codec.StatePayloadZero)
+                {
+                    Log.Info($"迈从 被动收到设备状态通知 payload=0x00，触发一次核实查询: {Log.Hex(input)}");
+                    RequestConfirm(dev);
+                }
+                else
+                {
+                    Log.Info($"迈从 被动收到设备状态通知（payload=0x{push.Payload:X2}，仅记录）: {Log.Hex(input)}");
+                }
             }
             return null;
         }
@@ -215,13 +304,18 @@ public sealed class MchosePlugin : BatteryPluginBase
     }
 
     /// <summary>发送官方握手帧（数据 AA 55 AA 55 AA 55，report 0x4D）。</summary>
-    private static bool SendQhwHandshake(HidDeviceHandle handle)
+    /// <param name="quiet">
+    /// 写失败时不记 WARN。**只有"把握手当通道判据"的探测路径该传 true**——
+    /// 非 QHW 通道的描述符里没有 report 0x4D，写必然失败，这正是"不是这条通道"的判据；
+    /// 而在已知的 QHW 设备上（轮询）握手写失败是真故障，要留 WARN。
+    /// </param>
+    private static bool SendQhwHandshake(HidDeviceHandle handle, bool quiet = false)
     {
         var handshake = new byte[handle.Info.OutputReportLength];
         handshake[0] = QhwReportId;
         byte[] data = { 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55 };
         Array.Copy(data, 0, handshake, 1, data.Length);
-        return handle.WriteOutput(handshake, TimeSpan.FromMilliseconds(500));
+        return handle.WriteOutput(handshake, TimeSpan.FromMilliseconds(500), quiet);
     }
 
     /// <summary>
@@ -240,20 +334,32 @@ public sealed class MchosePlugin : BatteryPluginBase
                 var (pct0, chg0) = passive.Value;
                 return ("qhw-push", pct0, chg0 ? ChargingState.Charging : ChargingState.Discharging);
             }
-            Log.Info($"迈从 qhw: 未开启写入许可，跳过主动查询: {handle.Info.DevicePath}");
+            // 同样只在状态变化时记：关掉写入许可后设备永远不会被认领，这条本来会每 15 秒一条、
+            // 无限刷下去（比"键盘睡着"那种自限的情况更糟）。重新开启许可会清标记。
+            if (ShouldLogOnce(handle, LogKeyQhwNoPermit))
+                Log.Info($"迈从 qhw: 未开启写入许可，跳过主动查询: {handle.Info.DevicePath}");
             return null;
         }
+
+        // 许可已开：清掉"没许可"的记过标记，这样下次再关掉时会重新记一条
+        ResetLogOnce(handle, LogKeyQhwNoPermit);
 
         // 官方时序：先握手。非 QHW dongle（如本机 G87：该接口只声明 report 0x13）握手写会立即以
         // ERROR_INVALID_PARAMETER 失败 → 这里直接返回，省掉旧版"先空等 3 秒被动监听"的浪费。
         // 对照实验已确认：旧时序（先被动监听再握手）在本机 G87 上每次首扫白等 3 秒，结果完全相同。
-        if (!SendQhwHandshake(handle))
+        // quiet: true —— 写失败在这里是**预期结果**（"不是 QHW 通道"的判据），下面那条 INFO 已经
+        // 说清楚了；否则发现节拍每 15 秒就会刷一条 WARN，看着像故障（2026-10-08 实修）。
+        // INFO 本身也只记第一次：设备一直睡着时它会每 15 秒重复一条（同样刷屏）。
+        if (!SendQhwHandshake(handle, quiet: true))
         {
-            Log.Info($"迈从 qhw 握手写失败（非 QHW 通道，快速跳过）: {handle.Info.DevicePath}");
+            if (ShouldLogOnce(handle, LogKeyQhwSkip))
+                Log.Info($"迈从 qhw 握手写失败（非 QHW 通道，快速跳过；同路径后续不再重复记录）: {handle.Info.DevicePath}");
             return null;
         }
 
-        // 握手成功说明是 QHW 通道：先给一小段时间收 CZ 自发电量推送
+        // 握手成功说明是 QHW 通道：清掉"不是 QHW"的记过标记（下次真出问题会重新记一条），
+        // 先给一小段时间收 CZ 自发电量推送
+        ResetLogOnce(handle, LogKeyQhwSkip);
         var result = ListenCzPush(handle, TimeSpan.FromSeconds(1));
         if (result.HasValue)
         {
@@ -325,6 +431,9 @@ public sealed class MchosePlugin : BatteryPluginBase
     ///    类型 0x02=设备状态通知（payload 0x00/0x01 交替，语义未明，仅记录不当离线信号）。
     /// 帧格式与解析全部在 <see cref="MchoseV1Codec"/>（纯函数，单测在 src/tests/VigilWatt.Core.Tests/）。
     /// 会话必须先开，否则 dongle 不响应（且被崩溃进程占住会话时所有人都会静音，需重新插拔释放）。
+    ///
+    /// **"无响应"只在状态变化时记日志**：发现节拍每 15 秒重探一次，键盘睡着时逐次记录会把 app.log
+    /// 刷满且没有新信息。成功一次就 <see cref="ResetLogOnce"/>，于是"好了之后又不应答"会重新记一条。
     /// </summary>
     private static (int? Percent, ChargingState Charging)? TryKeyboardV1(HidDeviceHandle handle)
     {
@@ -342,6 +451,7 @@ public sealed class MchosePlugin : BatteryPluginBase
             if (stop)
             {
                 Log.Info($"迈从 会话期间即收到电量推送，直接采用");
+                ResetLogOnce(handle, LogKeyKbV1Silent);
                 return read;
             }
             Log.Info($"迈从 会话ACK: {Log.Hex(input)}");
@@ -363,10 +473,16 @@ public sealed class MchosePlugin : BatteryPluginBase
                 if (input == null) continue;
 
                 var read = InterpretV1Input(input, out bool stop);
-                if (stop) return read;
+                if (stop)
+                {
+                    ResetLogOnce(handle, LogKeyKbV1Silent);
+                    return read;
+                }
             }
         }
-        Log.Info($"迈从 keyboard-v1 两次询问无响应: {handle.Info.DevicePath}");
+
+        if (ShouldLogOnce(handle, LogKeyKbV1Silent))
+            Log.Info($"迈从 keyboard-v1 两次询问无响应（键盘多半在睡；恢复应答后会再记一条）: {handle.Info.DevicePath}");
         return null;
     }
 
@@ -390,12 +506,20 @@ public sealed class MchosePlugin : BatteryPluginBase
         {
             case V1PushKind.Battery:
                 stop = true;
+                // 必须打日志：这条路径原来静默，于是"轮询到底跑没跑、有没有拿到读数"在日志里看不见
+                // （2026-10-08 排查时就撞上过：某一拍轮询全无痕迹，其实就是走了这里拿到的读数）。
+                Log.Info($"迈从 0A 电量推送: 电量={push.Percent} 标志=0x{push.ChargeFlag:X2} 原始={Log.Hex(input)}");
                 return (push.Percent, ParseKeyboardV1Charge(push.ChargeFlag, push.Percent));
 
             case V1PushKind.StateNotify:
                 // 0x02 通知不当休眠/关机处理（2026-10-06 复测推翻旧结论）：payload 0x00/0x01 全天交替出现，
                 // 且每次通知后 1 分钟内设备都能正常应答电量查询，按休眠标离线只会造成在线↔离线闪烁。
-                // 语义未明，仅记录；真正的失联由基类连续 3 次查询失败兜底标离线。
+                // 语义未明，仅记录。**真正的失联靠 PollDevice 里的失败记账**（ReportPollFailure，
+                // 满 OfflinePolicy.MaxFailures 次标离线 + 熔断）——本插件把 CountPollFailures 置成了 false，
+                // 基类不会替我们数，所以必须自己报账。2026-10-08 修正：旧注释以为基类会自动兜底，是错的。
+                //
+                // 这里不做"触发核实"：本方法服务于主动路径（探测/轮询），查询刚刚才发过，
+                // 立刻再查一次没有新信息。触发核实只放在被动路径（TryParsePassiveInput）。
                 Log.Info($"迈从 收到设备状态通知（payload=0x{push.Payload:X2}，语义未明仅记录）: {Log.Hex(input)}");
                 return null;
 

@@ -466,6 +466,193 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 **测试 67 → 119**（新增 `SystemPowerReaderTests` 45 个 + `SystemBatteryChargingTests` 7 个；
 前者含 `Theory` 展开 5 个）。`dotnet test` 全绿，`dotnet build VigilWatt.sln -c Debug` 0 错误。
 
+### 2026-10-08 第十一轮：本地打包发布 1.0.2（不推 GitHub）+ 修 Release 构建坑
+
+**背景**：用户要"本地发布"，明确**不推 GitHub**（`ACoolOctober` 账号被 GitHub 停用，API 返回
+`Sorry. Your account was suspended`，`.vpk-github-token` 里的 PAT 已失效）。所以只走
+`scripts/build-installer.ps1` 出本地安装包，**不走** `publish-github.ps1`。
+
+**版本号决策**：csproj 已是 `1.0.2`，`dist/` 里也已有 1.0.2 产物，但——**那份是旧代码**。
+判别手法（可复用）：解包 `dist/*-full.nupkg` 里的 `lib/app/VigilWatt.Core.dll`，用
+`grep -c -a SystemPowerReader` 找符号；旧包只有 `MchosePlugin`/`BetopPlugin`，
+**没有** `SystemPowerReader`/`SystemBatteryWatcher`，即第十轮的「本机电量监控」没打进去。
+用户选择**仍用 1.0.2**（不 bump），直接重打覆盖。
+
+**踩到的坑（本轮最大收获）：Release 打包 `CS0227: 不安全代码…` + XamlCompiler `MSB3073`**。
+`dotnet publish -c Release` 时 WinRT AOT 源生成器生成的 `WinRTGenericInstantiation.g.cs` 含
+`unsafe` 代码，工程没开 `<AllowUnsafeBlocks>` → 一屏 CS0227，XamlCompiler pass1 中间项目编译失败
+→ `MSB3073 退出码 1`。**表象与 build.md §1「XAML 属性名写错」完全相同**，别被带偏：
+**先有 CS0227 才是本坑**，只有 MSB3073 无 CS 错误才是 §1。Debug 不启用该生成器故从不报错
+（`dotnet build -c Debug` 一直 0 错误，极易误判"工程没问题"）。
+修法 = `VigilWatt.App.csproj` 加一行 `<AllowUnsafeBlocks>true</AllowUnsafeBlocks>`（已加）。
+详见 build.md §4。
+
+**重打同版本的注意**：`vpk` 不允许同版本重复 pack（build.md §8.3），所以先把 `dist/` 里
+1.0.2 的产物（full/delta/Setup/Portable/RELEASES/*.json）删掉，**只留 1.0.1-full.nupkg 作增量基线**
+再跑脚本——这样 vpk 会自动生成新的 `1.0.1 -> 1.0.2` delta（本次 5.0MB，patch 9 个文件）。
+若把整个 dist 清空则拿不到 delta（只能出全量包）。
+
+**产物（`dist/`，2026-10-08 20:52）**：`VigilWattApp-win-Setup.exe`（44.2MB，当前用户安装、无 UAC）、
+`VigilWattApp-win-Portable.zip`（36.7MB，免安装）、`VigilWattApp-1.0.2-full.nupkg`（36.7MB）、
+`VigilWattApp-1.0.2-delta.nupkg`（5.0MB）、`RELEASES`、`assets.win.json`、`releases.win.json`；
+`publish/`（仓库根）出 self-contained 版 `VigilWatt.App.exe`。
+**验证**：新 full.nupkg 与 `publish/VigilWatt.Core.dll` 均含 `SystemPowerReader`/`SystemBatteryWatcher` ✓。
+**未签名**（SmartScreen 会提示"未知发布者"）。
+
+**顺带记录**：`git status` 显示本地 `main` **领先 origin/main 5 个提交**，仍未推送（账号停用期间搁置）。
+
+### 2026-10-08 第十二轮：两个"设备在线判定"问题（用户复报）
+
+**① 雷柏鼠标"一直在用却显示掉线"** —— 阈值太紧，不是硬件问题。
+
+- 日志实测 0x07 状态帧是**活动驱动**的心跳：动鼠标稳定 3.04s 一帧，一停手 dongle 就静音，
+  正常空档里 13~39 秒很常见（4 分钟内出现 5 次 >10s）。`PassiveSilenceOffline = 12s` 落在空档分布
+  **内部**，任何一次 60 秒轮询（或手动刷新/改设置触发的补跑）撞进去就把鼠标标离线
+  —— 用户 20:59:38 看到的那次，实际只沉默 **13.3 秒**。
+- 修法：`BatteryPluginBase.StartPassiveListen` 改成**收到任何报文都刷新 `LastPassiveAt`**
+  （不再只认能解析出 0x07 的帧）；`RapooPlugin.PassiveSilenceOffline` **12s → 90s**（降级为兜底）。
+- 影响面：只有雷柏会走到沉默分支（北通/迈从的阈值本就是 `TimeSpan.Zero`）。
+- 验证：运行会话内出现 2 次 >12s 空档（最大 16.2s），`标记离线` / `重新上线` 各 **0** 次。
+
+**② 迈从键盘"开了要等一会儿才显示在线"** —— 发现节拍只覆盖零写入插件。
+
+- `DiscoverOnlyAsync`（15 秒节拍）原来只跑 `SupportsFastDiscovery` 的插件（只有雷柏，纯被动零写入）；
+  迈从探测要写帧，按 safety.md 规则 4 被排除 → **只吃 60 秒主轮询** → 键盘唤醒/开机后最坏等
+  ~60s + ~4s 探测。实测 21:16 那次：21:16:25 启动 → 探测 #1/#2 连续无响应 →
+  21:18:15 用户点「刷新」才认领成功，**110 秒**（期间列表里显示的是历史补出来的"离线"占位）。
+- 修法（用户批准）：新增 `IBatteryPlugin.SupportsDiscoveryProbe` —— 探测写帧、但**写入频率由插件
+  自己的 `ProbeCooldown` 兜住**的插件也可参与 15 秒节拍。迈从置 true，`ProbeCooldown` 设 **10 秒**
+  （一次探测本身约 3.7s，`10 + 3.7 < 15` 才能每拍都重探，否则被相位吃掉变成 30 秒）。
+  已认领后 `Attach` 对已知设备直接返回 → 这条路径**零写入**；代价只出现在**设备不响应**期间
+  （最坏 ≈3 帧/次 × 4 次/分钟 ≈ 12 帧/分钟）。
+- 安全口径已写进 **safety.md 规则 4 的例外**：发帧内容不变，仍然只有官方/实测的会话帧与 0x4A 电量查询，
+  **没有引入任何新命令**。
+- **遗留**：21:15 那个实例是被 `cmd start` 拉起后遭进程树清理**强杀**的，按 safety.md §2 可能把
+  dongle 会话占死，所以上面那两次"无响应"未必是键盘在睡。**需要一次干净的复现**（拔插 dongle 后再量时延）。
+
+### 2026-10-08 第十三轮：雷柏离线判定改用"设备自己说断链"（用户提问引出）
+
+**起因**：复盘第十二轮时发现断电重连那一帧带 `RF=0x7F(bit7连接=False)`，用户问"不能被动得到这个信息吗"。
+
+**考证结论**：这个信息**本来就是被动拿到的**，只是被丢掉了。
+- `RapooPlugin` 的解析早已取出 `[18].bit7` 并打进日志——那行日志走的就是**被动监听路径**（零写入、零探测）；
+- 但 `TryParsePassiveInput` 硬编码 `Offline: false`，bit7 到这就断了；
+- 基类 `BatteryPluginBase` 的"被动帧告知离线"通道**早就铺好**（`offline=true` → `RequestOffline` +
+  立即标离线 + `RaiseStatusPushed`），参照实现是北通 T9 占位帧。
+
+**方案（用户选 B：延迟确认）**——不直接判离线：`bit7` 是 **RF 链路**状态，比"设备在不在"
+敏感得多（关机 / 移出范围 / 受干扰都会翻 0），直接判会让列表闪。改成"标记候选 + 等确认窗口"：
+真关机没有恢复帧 → 窗口到点后翻离线（比 90 秒兜底快一个数量级）；抖动 → 下一帧 bit7=1 撤销候选。
+> 窗口最初定 12 秒，**第十四轮按用户要求收紧为 6 秒**，参数也从散落的虚属性收敛进 `OfflinePolicy`。
+
+**改动**
+- **基类**：新增 `PassiveOfflineConfirm`（默认 `TimeSpan.Zero` = 不启用）、`MarkOfflineCandidate` /
+  `ClearOfflineCandidate`（幂等）、`TrackedDevice.OfflineCandidateSince`。
+  **检查点放在被动监听循环的空闲 tick（约 500ms 一次）**，不放 60 秒轮询——否则"12 秒确认"会退化成
+  "12 + 最多 60 秒"。
+- **新增** `Plugins/PassiveOfflinePolicy.cs`：纯函数 `IsExpired`（零依赖，可单测）。
+- **新增** `Plugins/Rapoo/RapooCodec.cs`：把状态帧解析抽成纯函数编解码（对齐 `MchoseV1Codec` /
+  `BetopCodec` 惯例），新增 `RapooFrameKind` 三态（`NotStatus` / `Status` / `StatusInvalidPercent`）。
+- **`RapooPlugin`**：`PassiveOfflineConfirm = 12s`；`TryParsePassiveInput` 里 bit7=0 标记候选、bit7=1 撤销
+  ——**放在电量越界判断之前**，因为链路位与电量无关（越界帧同样要能标记/撤销）。
+
+**验证**：build **0 错误**（3 个既有警告）；test **139/139**
+（+20：`RapooCodecTests` 13 例 + `PassiveOfflinePolicyTests` 7 例，用例帧全部取自真机日志）。
+
+**真机验证（2026-10-08 晚，用户复报后）**：雷柏 ✓ ——"连接很快"，两次 `RF=0x7F` → `标记离线`
+分别耗时 **12.4s / 12.2s**，恢复帧一到立刻"设备重新上线"，列表不闪。
+迈从 ✗ ——"一直没反应"，查出**结构性根因**，见第十四轮。
+
+**遗留**：断电重连时 `[7] 充电标志` 由 `0x01` 变 `0x00`、电量 94%→95%，`0x00` 的含义待确认
+（此前只校准过 `0x01`=放电 / `0x02`=充电）。
+
+### 2026-10-08 第十四轮：迈从"关机后永不显示离线"的真凶 + 离线参数收敛（用户复报 + 讨论后拍板）
+
+**① 真凶：`SupportsPassiveListen` 的语义过载**（不是"慢"，是**永远不会**）
+
+一个布尔量被当成两个含义用："我起后台被动监听"（**机制事实**，正确）+ "所以轮询返回 null 不算失败"
+（**策略推断**，错误）。后果：迈从的 `SupportsPassiveListen = true` 让它走进 `Poll()` 的
+`else if (SupportsPassiveListen)` 分支，而 `PassiveSilenceOffline = TimeSpan.Zero` 让分支内的 if 不成立
+→ **什么都不做**；含 `dev.ConsecutiveFailures++` 的那个 `else` 对迈从**永远不可达**
+→ 失败计数恒为 0 → 永远到不了 3 次 → 既不标离线也不熔断。旧代码注释"真正的失联由基类连续 3 次查询失败
+兜底标离线"是**错误假设**（第十三轮已修正注释，第十四轮才真正修好）。
+
+日志佐证：键盘关机后状态通知 `0x00`(21:51:52) → `0x01`(21:52:53) 跨 61 秒，全程 **0 次**离线标记。
+
+**修法**：把两件事拆开。基类新增 `OfflinePolicy.CountPollFailures`（默认 true = 传统查询型插件）；
+迈从置 false，改由 `PollDevice` 在**发过帧**的分支自己调 `ReportPollFailure` / `ReportPollAnswered`
+（只有插件知道这一轮到底发帧了没有——`null` 与"用户关了写入许可 / 熔断停写中"不可区分）。
+
+**② 第③层参数收敛成 `OfflinePolicy`（用户拍板）**
+
+起因是用户问"为什么这些不设置成统一的？你好像把很多东西都弄成了各品牌的专有了"。
+盘出插件配置其实分三层：① 协议事实（帧结构 / 有没有查询命令 / 有没有连接状态字段）
+② 安全声明（要不要写帧、用户开关、探测冷却）——这两层**必须** per-brand，因为物理上就是三种不同东西
+（北通占位帧 / 雷柏 `bit7` / 迈从根本没有连接状态字段）；③ **离线判定策略**——机制同一套，
+只是参数不同，**该收敛**。
+
+- **新增** `Plugins/OfflinePolicy.cs`：`record`，四个参数 `Silence` / `Confirm` / `MaxFailures` /
+  `CountPollFailures`，外加纯函数 `IsConfirmExpired`。每插件只写一行
+  `protected override OfflinePolicy Offline { get; } = new() { … };`。
+- **删除** `PassiveOfflinePolicy.cs`（其 `IsExpired` 并入 `OfflinePolicy`）与对应的
+  `PassiveSilenceOffline` / `PassiveOfflineConfirm` 两个虚属性、`MaxConsecutiveFailures` 常量。
+- 基类新增私有 `MarkOffline(dev, reason)` 作为**所有离线路径的唯一落地点**（幂等：已离线则无操作），
+  以及 `ConsumeOfflineRequest`（`RequestOffline` 的消费端，`Poll` 与"立刻核实"共用）。
+- 各插件取值：雷柏 `Confirm=6s, Silence=90s, CountPollFailures=false`；
+  迈从 `Silence=0, CountPollFailures=false`；北通 `Silence=0, CountPollFailures=false`；Elan 全默认。
+
+**③ 雷柏断联窗口 12s → 6s（用户拍板）**
+
+依据：心跳间隔实测 3.04s，6s ≈ 2 个周期。用户提过 3 秒，被否——3s 只等于 1 个周期，
+正常丢一帧就会误判；且鼠标停手时 dongle 本来就会静音，"断链后一直没有新帧"与"停手静音"
+在被动路径上无法区分。
+
+**④ 迈从"关机后立刻定性"：`0x00` 触发核实（用户拍板）**
+
+`0x0A payload=0x00` 语义**至今未定论**（与 `0x01` 全天交替、之后设备都能正常应答查询），
+所以**不能当离线证据**——但可以当**触发器**：基类新增 `RequestConfirm(dev)`，插件在被动帧里调它，
+基类在**空闲 tick（约 500ms）**上跑一次与轮询同款的 `PollDevice` 做核实。
+怎么知道"插件确实发了帧却没应答"：看 `ConsecutiveFailures` 有没有被插件推高（插件没发帧就不会报账）
+——推高就当场判离线，**不等 3 次**；这条路径**不触发熔断停写**（一次核实失败不足以停写 10 分钟）。
+效果：键盘真关机时，发现延迟从"60 秒轮询攒 3 次失败 ≈ 2~3 分钟"压到**秒级**。
+
+**验证**：build **0 错误**；test **143/143**（`OfflinePolicyTests` 11 例，替换原 7 例）。
+
+**真机验证（2026-10-08 22:11~22:14 会话，用户确认"看着比较正常了"）**——两条链路都跑通：
+
+| 设备 | 触发 | 判定离线 | 耗时 | 恢复 |
+|---|---|---|---|---|
+| 迈从 | 22:13:33.322 收到 `0A payload=0x00` → 触发核实 | 22:13:35.070 核实查询无应答 | **1.75s**（原 2~3 分钟） | 22:13:46.488 键盘开机即上线 |
+| 雷柏 | 22:13:37.094 收到 `RF=0x7F`（bit7=0）→ 标记候选 | 22:13:43.211 候选持续 6s | **6.12s**（12s 窗口时实测 12.4/12.2s） | 22:13:49.493 恢复帧 `RF=0xD1` 即上线 |
+
+全程 `标记离线` / `判定离线` 各 **1 次**（都对应真实关机）、`重新上线` **2 次**、
+`读数异常已过滤` **0 次**——**没有误判、没有闪烁**。雷柏恢复时候选已被撤销，列表不闪。
+
+**顺带拿到一条新证据（第一次支持"0x00=链路断"）**：键盘**关机**那一刻来的正是 `0x00`，
+**开机**那一刻来的正是 `0x01`，与电源状态严格对应。这与 2026-10-06"全天交替"不矛盾——
+若那次交替其实是**键盘空闲休眠/唤醒**（无线键盘空闲会自己睡），则休眠也算"链路断"，
+但 dongle 仍能应答缓存帧，所以"每次通知后设备都能正常应答查询"。
+**待验**：让键盘自然休眠（不关电源），看是否发 `0x00`、以及那时 `4A` 查询是否仍能应答。
+即便成立也**仍不该直接判离线**（休眠会闪）——现在"触发器 + 核实"的用法正好绕开这个坑。
+详见 protocols.md §1.3。
+
+**未提交；未做发行打包**（`src/publish` 已更新到本轮，应用在跑）。
+
+**遗留**：① ~~迈从 `0x00` 触发的真机效果待验~~ **已验证（22:13，1.75 秒）**；
+② `0x00/0x01` 语义仍未定论（但 22:13 那次样本与电源状态严格对应，见上）；
+③ 北通"休眠时表现为离线"（类头写的预期行为）**其实不会发生**——它没有像迈从那样自报失败，
+需要真机样本再决定要不要补，别盲改（已在 `BetopPlugin.Offline` 注释里留了口子）；
+④ 日志噪音（**已修，2026-10-08**）：迈从 dongle 不是 QHW 通道，发现节拍每 15 秒会在 QHW 握手上撞一次
+`WriteOutput 异常 … (参数错误。)`（WARN 级）。这是**预期行为**（代码里就叫"快速跳过"），但级别偏高、
+看着像故障。三处一起改掉：
+   - `HidDeviceHandle.WriteOutput` 新增 `quiet` 参数（预期失败不记 WARN），只给 QHW 握手用；
+   - `MchosePlugin.Probe` 不再因"探测失败"清掉 `KnownProtocolByPath`（失败最常见的原因是键盘在睡，
+     说明不了协议变了）——**顺带把白写的握手帧也省掉了**，写入量不再翻倍；
+   - 探测期日志一律"**状态变化才记**"（`LogOnceByKey` + `ShouldLogOnce`/`ResetLogOnce`）：
+     "不是 QHW 通道" / "没开写入许可" / "keyboard-v1 两次询问无响应"各只记第一次，
+     恢复后清标记（再出问题会重新记一条，与北通占位帧同一记法）。
+     其中"没开写入许可"那条原本是**无限刷**（关掉许可后设备永不被认领，每 15 秒一条）。
+
 ## 4. 待办（按优先级，详见 experience.md §5）
 
 
@@ -492,15 +679,19 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 5. **构建**（dev/build.md）：sln 构建、从 `bin\x64\...\win-x64\` 启动；XamlCompiler 静默崩溃查 XAML 属性名；应用运行中先 taskkill。
 6. **用户偏好**：中文交流、文档中文；界面只要中英文；个人自用工具，克制功能范围（不做游戏内显示/HTTP API/账号等）。
 7. **验证习惯**：改完协议代码看三处——日志认领电量值 vs 键盘 FN+B 指示、history.db 采样、拔插自愈。
-8. **雷柏特性**：鼠标睡着 = dongle 全静音（被动监听空转、显示离线是预期），动一下鼠标即恢复；别把静音误判成协议/会话问题。协议细节与已证伪路径见 protocols.md §3。
+8. **雷柏特性**：鼠标停手 = dongle 静音（被动监听空转是预期），动一下鼠标即恢复心跳；**静音 ≠ 离线**——0x07 是活动驱动的心跳，2026-10-08 起存活判据改成"接口有没有在说话"，`OfflinePolicy.Silence = 90s` 只是兜底。**离线主判据是 `[18].bit7`（RF 断链位）**：鼠标断电瞬间 dongle 会主动吐一帧 `[18]=0x7F`，走 **6 秒**延迟确认（`OfflinePolicy.Confirm`）——但 bit7 是链路状态不是"设备在不在"，**别改成直接判离线**，抖动会让列表闪。别把静音误判成协议/会话问题。协议细节与已证伪路径见 protocols.md §3。
 9. **脚本/项目存放规则**：临时调试脚本（PowerShell/Python/一次性 P/Invoke 探针）写进 `scripts/`（索引见 scripts/README.md），**用完即删**；**长期存在的 C# 项目放 `src/tests/`**（单测/诊断工具），不放 scripts/；工程源码在 `src/`。**仓库根目录只放工程文件**；临时产物用 `%TEMP%`，用完即删。别在根目录或 src/ 里散落 .ps1/.py。
+10. **发现节拍**（2026-10-08）：设备"在位与否"只有探测才知道，而主轮询 60 秒一拍太慢。15 秒快速发现节拍服务两类插件——`SupportsFastDiscovery`（零写入，雷柏）与 `SupportsDiscoveryProbe`（写帧但 `ProbeCooldown` 兜住写入，迈从）。**新增会写帧的插件若要吃 15 秒节拍，必须先过 safety.md 规则 4 的例外口径**，并把 `ProbeCooldown` 压到 15 秒以下（含一次探测的耗时余量）。
+11. **本机启动应用的方式**：shell / `nohup` / `cmd //c start` 拉起的进程会被进程树清理带走（约 5 秒后死，日志无退出记录）；WMI `Win32_Process Create` 被安全策略拦。**`explorer.exe "VigilWatt.App.exe"` 可用**（挂在资源管理器下，脱离工具进程树）。强杀实例会按 safety.md §2 把 dongle 会话占死，之后要重新插拔 dongle。
+12. **插件配置分三层，别混（2026-10-08 第十四轮）**：① 协议事实 ② 安全声明 —— 这两层**必须** per-brand；③ **离线判定策略**集中在 `OfflinePolicy`（`Plugins/OfflinePolicy.cs`），每插件一行。**尤其注意 `CountPollFailures` 与 `SupportsPassiveListen` 是两件事**：前者回答"轮询返回 null 算不算失联"（策略），后者只说"我起后台只读线程"（机制）。曾经合成一个布尔量复用，导致迈从键盘关机后**永远**不显示离线。新增"要被动监听、但轮询空读确实是失联"的插件时，必须把 `CountPollFailures` 置 false 并在 `PollDevice` 发过帧的分支自己调 `ReportPollFailure`，否则同样的 bug 会再犯一次。
 
 ## 6. 关键文件速查
 
 | 要动什么 | 去哪 |
 |---|---|
 | 迈从协议/解析 | `src/VigilWatt.Core/Plugins/Mchose/MchosePlugin.cs`（规格 protocols.md §1） |
-| 雷柏协议/解析 | `src/VigilWatt.Core/Plugins/Rapoo/RapooPlugin.cs`（规格 protocols.md §3） |
+| 雷柏协议/解析 | `src/VigilWatt.Core/Plugins/Rapoo/RapooPlugin.cs` + `RapooCodec.cs`（纯函数，有单测；规格 protocols.md §3） |
+| 被动离线判定机制 | `Plugins/OfflinePolicy.cs`（第③层参数 + 纯函数 `IsConfirmExpired`，有单测 `OfflinePolicyTests`）+ `BatteryPluginBase`（`MarkOffline` / `MarkOfflineCandidate` / `ClearOfflineCandidate` / `RequestOffline` / `RequestConfirm` / `ReportPollFailure`）。五条路径对照表见 code-flow.md §4.2 |
 | 北通协议/解析 | `src/VigilWatt.Core/Plugins/Betop/BetopPlugin.cs` + `BetopCodec.cs`（规格 protocols.md §4；**"手柄未连接"占位帧 §4.4.1**）；report ID 解析见 `Hid/NativeHid.cs` 的 `ReadReportId` |
 | 插件"认领但离线"规则 | `BatteryPluginBase.CommitProbes` 的 `IsOnline = percent.HasValue`（探测成功但无读数 = 设备在位不可读，标离线） |
 | 经典蓝牙显示名 | `src/VigilWatt.Core/Ble/ClassicDeviceName.cs`（纯逻辑：占位名识别）+ `ClassicPairedNames.cs`（注册表配对名兜底） |

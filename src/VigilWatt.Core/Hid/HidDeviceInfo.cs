@@ -127,8 +127,15 @@ public sealed class HidDeviceHandle : IDisposable
         return NativeHid.HidD_SetFeature(_stream.SafeFileHandle, buffer, len);
     }
 
-    /// <summary>写 output report（WriteFile，异步带超时）。buffer[0] 是 report ID。</summary>
-    public bool WriteOutput(byte[] report, TimeSpan timeout)
+    /// <summary>
+    /// 写 output report（WriteFile，异步带超时）。buffer[0] 是 report ID。
+    ///
+    /// <paramref name="quiet"/> = true 时不把失败记成 WARN——调用方已知这次失败是**预期结果**，
+    /// 会自己记一条更精确的日志。典型场景：探测一条不属于本协议的通道时，设备的报告描述符里
+    /// 没有那个 report ID，写必然失败（ERROR_INVALID_PARAMETER），而"写失败"正是"不是这条通道"
+    /// 的判据。**别用它掩盖真正的写入故障。**
+    /// </summary>
+    public bool WriteOutput(byte[] report, TimeSpan timeout, bool quiet = false)
     {
         try
         {
@@ -137,14 +144,14 @@ public sealed class HidDeviceHandle : IDisposable
             if (!writeTask.IsCompletedSuccessfully)
             {
                 int err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
-                Utils.Log.Warn($"WriteOutput 失败 len={report.Length} lastWin32Err={err}");
+                if (!quiet) Utils.Log.Warn($"WriteOutput 失败 len={report.Length} lastWin32Err={err}");
                 return false;
             }
             return true;
         }
         catch (Exception ex)
         {
-            Utils.Log.Warn($"WriteOutput 异常 len={report.Length}: {ex.Message}");
+            if (!quiet) Utils.Log.Warn($"WriteOutput 异常 len={report.Length}: {ex.Message}");
             return false;
         }
     }

@@ -68,10 +68,25 @@ public sealed class BetopPlugin : BatteryPluginBase
     protected override bool SupportsPassiveListen => true;
 
     /// <summary>
-    /// T9 流约 250Hz；超过 3 秒无有效帧多半是句柄异常，不据此判手柄离线
-    /// （未连接有明确占位帧）。鲲鹏无推流，沉默阈值必须为 0。
+    /// 本插件的离线判定策略（见 <see cref="OfflinePolicy"/>）。
+    ///
+    /// <b>Silence = 0</b>：T9 在推流（约 250Hz），但沉默在这里不是可靠判据——鲲鹏无推流，
+    /// 而 T9 "停流"也可能是句柄异常。手柄"没连上"有**明确占位帧**，走 <c>RequestOffline</c>
+    /// 立即生效，不需要沉默兜底。
+    ///
+    /// <b>CountPollFailures = false</b>：与迈从同理——<c>PollDevice</c> 返回 null 有三种可能
+    /// （真的没应答 / 用户关了探测 / 熔断停写中），基类分不出来，所以不能把"用户关了探测"
+    /// 当成"手柄不在"。本插件当前的离线只由占位帧（<c>RequestOffline</c>）与拔插触发。
+    ///
+    /// 待确认（本轮不改）：类头写"手柄休眠时无响应，此时本插件表现为离线，属预期"，
+    /// 但本插件并没有像迈从那样在发过帧的分支自报失败，所以"休眠翻离线"其实不会发生。
+    /// 要不要补上得先有真机样本（鲲鹏20 / T9 各一次休眠），避免改成误报。
     /// </summary>
-    protected override TimeSpan PassiveSilenceOffline => TimeSpan.Zero;
+    protected override OfflinePolicy Offline { get; } = new()
+    {
+        Silence = TimeSpan.Zero,
+        CountPollFailures = false,
+    };
 
     /// <summary>
     /// 接收器常在、手柄可能休眠：探测失败后 30 秒再试，等用户按键唤醒。

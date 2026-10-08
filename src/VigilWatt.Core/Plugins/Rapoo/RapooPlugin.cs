@@ -19,14 +19,20 @@ namespace VigilWatt.Core.Plugins.Rapoo;
 /// 充电标志 [7] 本机实测校准（2026-10-05）：0x01=放电、0x02=充电（与 mousectl 在 VT3 PRO 一代记录的
 /// 1/2 编码同族）；充满态的值待采样（当前 100% 一律判充满）。
 ///
-/// 鼠标休眠时 dongle 全静音（连鼠标报文都停）→ 表现为离线；一动鼠标即恢复。此前 HID++ ping / 0xAA 查询
+/// 鼠标休眠时 dongle 转静音，一动鼠标即恢复心跳。此前 HID++ ping / 0xAA 查询
 /// 全部无效是正常的——该世代协议里电量根本没有查询命令，只能等心跳。
+/// 注意"静音"不等于"设备不在"：休眠/停手是常态，**不据此判离线**（见 <see cref="OfflinePolicy.Silence"/>）。
+///
+/// 离线判定有两条腿（2026-10-08 补上第二条）：
+/// 1. **设备自己说断链**：状态帧 [18].bit7 = "RF 已连接"，鼠标断电瞬间 dongle 会主动吐一帧 bit7=0
+///    （实测 `… 7F`，随后静音 27.9 秒）。走 <see cref="OfflinePolicy.Confirm"/> 延迟确认。
+/// 2. **接口彻底不说话**：90 秒兜底，见 <see cref="OfflinePolicy.Silence"/>。
+/// 两条都是"宁可漏判不可误判"的保守判据，参数集中在本插件的 <c>Offline</c> 里。
+/// 帧解析本身在 <see cref="RapooCodec"/>（纯函数，可单测）。
 /// </summary>
 public sealed class RapooPlugin : BatteryPluginBase
 {
     public const ushort RapooVid = 0x24AE;
-    private const byte StatusReportId = 0x07;
-    private const int StatusReportLength = 19;
 
     public override string Name => "Rapoo";
     public override string DisplayName => "雷柏";
@@ -56,10 +62,30 @@ public sealed class RapooPlugin : BatteryPluginBase
     protected override bool SupportsPassiveListen => true;
 
     /// <summary>
-    /// 心跳约 3.04 秒；超过 ~4 个周期无帧视为鼠标休眠（dongle 全静音）。
-    /// 不走"写失败熔断"（本插件零写入），沉默即离线。
+    /// 本插件的离线判定策略——三条判据的参数都在这里，机制由基类统一实现（见 <see cref="OfflinePolicy"/>）。
+    ///
+    /// <b>Confirm = 6 秒</b>（2026-10-08 用户拍板，从 12 秒收紧）：
+    /// 依据是心跳间隔实测 3.04 秒，6 秒 ≈ 2 个周期——足够让"还没死透"的链路把恢复帧吐出来，
+    /// 响应又比 12 秒快一倍。断链帧（[18]=0x7F）到"标记离线"的实测延迟：12 秒窗口下是 12.4 / 12.2 秒，
+    /// 本窗口预期 ≈ 6 秒。恢复帧一到候选立即被撤销（<c>ClearOfflineCandidate</c>），列表不闪。
+    ///
+    /// 为什么不更短（用户提过 3 秒）：3 秒只等于 1 个心跳周期，正常丢一帧就会误判；
+    /// 而且鼠标停手时 dongle 本来就会静音，"断链后一直没有新帧"与"停手静音"在被动路径上无法区分。
+    ///
+    /// <b>Silence = 90 秒</b>：**兜底，不是主要判据**。0x07 是活动驱动的心跳，动鼠标时稳定 3.04 秒一帧，
+    /// 一停手就静音——4 分钟内实测有 5 次 >10 秒的正常空档（13.3 / 18.2 / 26.1 / 35.3 / 39.5 秒），
+    /// 所以 12 秒那种短阈值必然误报。90 秒只留给"鼠标真关机/没电"。
+    ///
+    /// <b>CountPollFailures = false</b>：本插件零写入（<c>WritesEnabled=false</c>，不存在任何写入路径），
+    /// <see cref="BatteryPluginBase.PollDevice"/> 恒返回 null 是**协议形态**（该世代协议没有电量查询命令），
+    /// 不是失联，所以不能让基类把它当失败计数。
     /// </summary>
-    protected override TimeSpan PassiveSilenceOffline => TimeSpan.FromSeconds(12);
+    protected override OfflinePolicy Offline { get; } = new()
+    {
+        Confirm = TimeSpan.FromSeconds(6),
+        Silence = TimeSpan.FromSeconds(90),
+        CountPollFailures = false,
+    };
 
     /// <summary>
     /// 候选接口：vendor 通道（雷柏把 0xFF00 放在 UsagePage 或 Usage 字段——hidapi 与本仓库扫描器字段序相反，两边都查），
@@ -74,7 +100,7 @@ public sealed class RapooPlugin : BatteryPluginBase
     {
         if (info.VendorId != RapooVid) return false;
         if (info.UsagePage != 0xFF00 && info.Usage != 0xFF00) return false;
-        return info.InputReportLength == StatusReportLength;
+        return info.InputReportLength == RapooCodec.StatusReportLength;
     }
 
     /// <summary>
@@ -91,17 +117,31 @@ public sealed class RapooPlugin : BatteryPluginBase
 
     /// <summary>
     /// 读数由后台被动监听负责；轮询不再占 ReadInput（避免与监听抢同一悬空读）。
-    /// 沉默离线见 <see cref="PassiveSilenceOffline"/>。
+    /// 沉默离线见 <see cref="OfflinePolicy.Silence"/>。
     /// </summary>
     protected override (int? Percent, ChargingState Charging)? PollDevice(TrackedDevice _) => null;
 
-    /// <summary>解析被动 input：0x07 状态帧 → 电量/充电；其它帧忽略。</summary>
+    /// <summary>解析被动 input：0x07 状态帧 → 电量/充电，并维护 RF 断链候选；其它帧忽略。</summary>
     protected override (int? Percent, ChargingState Charging, bool Offline)? TryParsePassiveInput(
-        TrackedDevice _, byte[] input)
+        TrackedDevice dev, byte[] input)
     {
-        var parsed = ParseStatusReport(input);
-        if (!parsed.HasValue) return null;
-        return (parsed.Value.Percent, parsed.Value.Charging, Offline: false);
+        var status = RapooCodec.Parse(input);
+        if (status.Kind == RapooFrameKind.NotStatus) return null;
+
+        Log.Info($"雷柏 状态帧: 连接={status.Link} 充电标志={status.ChargeFlag} 电量={status.Percent}% " +
+                 $"RF=0x{status.RfByte:X2}(bit7连接={!status.LinkDown} RSSI={status.RfByte & 0x7F}) 原始={Log.Hex(input)}");
+
+        // 链路位与电量无关，先处理——电量越界的帧（休眠瞬态）同样要能标记/撤销候选。
+        if (status.LinkDown) MarkOfflineCandidate(dev);
+        else ClearOfflineCandidate(dev);
+
+        if (status.Kind == RapooFrameKind.StatusInvalidPercent)
+        {
+            Log.Info($"雷柏 电量越界/归零（疑似休眠瞬态），丢弃: {Log.Hex(input)}");
+            return null;
+        }
+
+        return (status.Percent, status.Charging, Offline: false);
     }
 
     /// <summary>在截止时间前收 input report，解析 0x07 状态帧。所有听到的帧都记原始日志（协议排错靠它）。</summary>
@@ -114,38 +154,8 @@ public sealed class RapooPlugin : BatteryPluginBase
             if (input == null) continue;
             Log.Info($"雷柏 收到报文: {Log.Hex(input)}");
 
-            var parsed = ParseStatusReport(input);
-            if (parsed.HasValue) return parsed;
-        }
-        return null;
-    }
-
-    /// <summary>解析状态帧（兼容带/不带 report ID 前缀两种布局）。电量 0 视为无效读数（休眠/瞬态）。</summary>
-    private static (int Percent, ChargingState Charging)? ParseStatusReport(byte[] input)
-    {
-        foreach (int off in new[] { 0, 1 })
-        {
-            if (input.Length < off + StatusReportLength) continue;
-            if (input[off] != StatusReportId) continue;
-
-            int linkRaw = input[off + 1] & 0x0F;
-            byte chargeFlag = input[off + 7];
-            byte pct = input[off + 8];
-            byte rfByte = input[off + 18];
-            string link = linkRaw switch { 0 => "2.4G", 2 => "有线", _ => $"link{linkRaw}" };
-
-            Log.Info($"雷柏 状态帧: 连接={link} 充电标志={chargeFlag} 电量={pct}% RF=0x{rfByte:X2}(bit7连接={(rfByte & 0x80) != 0} RSSI={rfByte & 0x7F}) 原始={Log.Hex(input)}");
-
-            if (pct is 0 or > 100)
-            {
-                Log.Info($"雷柏 电量越界/归零（疑似休眠瞬态），丢弃: {Log.Hex(input)}");
-                return null;
-            }
-            // [7] 充电标志实测：0x01=放电、0x02=充电；充满态的值未采样，100% 一律判充满兜底
-            var charging = chargeFlag == 0x02 ? ChargingState.Charging
-                : pct >= 100 ? ChargingState.Full
-                : ChargingState.Discharging;
-            return (pct, charging);
+            var status = RapooCodec.Parse(input);
+            if (status.Kind == RapooFrameKind.Status) return (status.Percent, status.Charging);
         }
         return null;
     }

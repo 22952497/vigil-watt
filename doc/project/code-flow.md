@@ -39,7 +39,7 @@ PollOnceAsync
 ```
 DiscoverOnlyAsync
 ├── HidDeviceScanner.Scan()
-└── foreach 插件 where SupportsFastDiscovery && 已启用
+└── foreach 插件 where (SupportsFastDiscovery || SupportsDiscoveryProbe) && 已启用
     └── plugin.Attach(hidDevices, _claims)   # 只认领，**不 Poll、不碰 BLE/经典蓝牙、不写任何帧**
 ```
 
@@ -47,9 +47,19 @@ DiscoverOnlyAsync
 主轮询 60 秒一拍，撞上鼠标睡着的窗口就必然落空，而首扫时更是必然落空（用户刚启动应用、还没碰鼠标）。
 15 秒节拍把"发现时延"从最长一个主周期压到 ~15 秒。
 
-**只有纯被动零写入插件可以置 `SupportsFastDiscovery = true`**（目前只有 Rapoo）。会写帧的插件保持
-默认 false —— 加快节拍等于成倍提高写入频率，违反 hardware/safety.md 的约定。雷柏的 `ProbeCooldown`
-同步收到 5 秒，保证每个 15 秒节拍都允许重探（冷却必须小于节拍，否则又被相位吃掉）。
+两个标志（都默认 false，由插件自己声明）：
+
+| 标志 | 谁能置 | 探测写帧 | 已认领后每拍代价 |
+|---|---|---|---|
+| `SupportsFastDiscovery` | **只有纯被动零写入插件**（Rapoo） | 否 | 0 |
+| `SupportsDiscoveryProbe` | 探测要写帧、但写入频率由自己 `ProbeCooldown` 兜住的插件（Mchose） | 是（≈3 帧/次） | **0**（`Attach` 对已知设备直接返回，不探测） |
+
+会写帧的插件**不得**用 `SupportsFastDiscovery`——加快节拍等于成倍抬高写入频率，违反 hardware/safety.md。
+`SupportsDiscoveryProbe` 是 2026-10-08 为"键盘开了半天才显示在线"开的第二条路：代价只出现在
+**设备不响应**期间（最坏 ≈12 帧/分钟），认领成功后归零。
+
+`ProbeCooldown` **必须小于 15 秒节拍**，否则又被相位吃掉（重试间隔翻倍）：雷柏 5 秒、迈从 10 秒
+——迈从一次探测本身约 3.7 秒，`10 + 3.7 < 15` 才能每拍都重探。
 
 **首扫提速（2026-10-06）**：`Attach` 的返回值曾被丢弃 → 探测刚读到的电量被丢、紧接着 `Poll` 又完整重读一遍（雷柏白多花 5s）。现在：
 - `Attach` 返回值立即 `Upsert` → **新设备探测出来就进 UI**，不等整轮扫描结束；
@@ -129,8 +139,12 @@ BatteryPluginBase.Attach(hidDevices, claims)
     ├── info.Open() → HidDeviceHandle（长持有，退出/禁用时释放）
     ├── Probe(handle)：
     │   ├── 守卫：输出/输入 < 20 字节 → 放弃
+    │   ├── KnownProtocolByPath 命中 → 只试那一条通道，**失败直接返回、不清记忆**
+    │   │   （2026-10-08 实修：旧代码失败即 TryRemove 并回落完整探测，于是每 15 秒发现节拍
+    │   │    都白写一次 QHW 握手 + 重试一遍 keyboard-v1，写入翻倍、WARN 刷屏）
     │   ├── TryQhw：                    # 新世代 dongle 协议（本机不命中）
     │   │   被动监听 CZ 推送 3s →（ProbingEnabled?）握手 0x4D+AA55… → getBattery(0x0904) → 解析
+    │   │   握手写用 quiet: true —— 非 QHW 通道必然 ERROR_INVALID_PARAMETER，那是判据不是故障
     │   └── TryKeyboardV1：             # 本机 G87 dongle 协议 ✅
     │       SendKeyboardV1Frame(0x05,0x01) 开会话 → 收 ACK/推送
     │       SendKeyboardV1Frame(0x4A,0x01) 查电量 → [5]=% [6]=充电标志
@@ -138,15 +152,57 @@ BatteryPluginBase.Attach(hidDevices, claims)
     └── 成功 → 建 DeviceStatus{Id="mchose:"+路径哈希, Protocol="keyboard-v1"} 存表
 ```
 
+**探测期的日志一律"状态变化才记"**（`MchosePlugin.LogOnceByKey` + `ShouldLogOnce` / `ResetLogOnce`，
+2026-10-08 加）：发现节拍每 15 秒重探一次，而设备睡着 / 关了写入许可时这些路径**永远走不到成功**，
+逐次记录会把 app.log 刷满且没有新信息。现在三个位置各只记第一次——
+"这条通道不是 QHW"、"没开写入许可"、"keyboard-v1 两次询问无响应"，
+恢复正常时 `ResetLogOnce` 清标记，于是"好了之后又出问题"会重新记一条（与北通占位帧同一记法）。
+
 ### 4.2 轮询（Poll，基类骨架 + 子类 PollDevice）
 
-`PollDevice` 按 `dev.Protocol` 分派：`keyboard-v1` → `PollKeyboardV1`（发一条 `13 4A 01`，1.2 秒内解析 4A 响应或 `13 0A` 自发推送）。**所有帧解析走纯函数单元 `MchoseV1Codec`**（`BuildFrame`/`ParsePush`/`ParseBatteryResponse`，零依赖，单测在 `src/tests/VigilWatt.Core.Tests/`）。关键：0A 推送帧的**类型位（下标 5）必须先认**——0x05=电量（[6]=%、[7]=标志），0x02=设备状态通知（实测键盘休眠，[6] **不是电量**）。失败记账在基类：**连续 3 次 → `WritesDisabled=true` 熔断停写，之后各协议分支只走被动监听；停写 10 分钟退避期满 `CanWrite` 自动放行一轮**（对付键盘休眠唤醒，safety.md §3 规则 3）。`ProbingEnabled=false` 时轮询/探测直接短路，不写任何字节。子类判定"设备已休眠"时调基类 `RequestOffline(dev)` → 立即标离线，不等 3 次失败（省约 3 分钟）。
+`PollDevice` 按 `dev.Protocol` 分派：`keyboard-v1` → `PollKeyboardV1`（发一条 `13 4A 01`，1.2 秒内解析 4A 响应或 `13 0A` 自发推送）。**所有帧解析走纯函数单元 `MchoseV1Codec`**（`BuildFrame`/`ParsePush`/`ParseBatteryResponse`，零依赖，单测在 `src/tests/VigilWatt.Core.Tests/`）。关键：0A 推送帧的**类型位（下标 5）必须先认**——0x05=电量（[6]=%、[7]=标志），0x02=设备状态通知（实测键盘休眠，[6] **不是电量**）。失败记账：迈从把 `OfflinePolicy.CountPollFailures` 置 false（`null` 与"没开写入 / 熔断中"不可区分），改由 `PollDevice` 在**发过帧**的分支调 `ReportPollFailure` / `ReportPollAnswered` 自己报账；**连续 `OfflinePolicy.MaxFailures`（默认 3）次 → `WritesDisabled=true` 熔断停写**，之后各协议分支只走被动监听；停写 10 分钟退避期满 `CanWrite` 自动放行一轮（对付键盘休眠唤醒，safety.md §3 规则 3）。`ProbingEnabled=false` 时轮询/探测直接短路，不写任何字节。子类判定"设备已休眠"时调基类 `RequestOffline(dev)` → 立即标离线，不等 3 次失败（省约 3 分钟）。
 
 **读数异常过滤（`BatteryReadingFilter`，每设备一个实例，基类 `BatteryPluginBase.Poll` 调用，2026-10-06 加）**：判定只做两件事——① **数值有效性**：低于 `MinValidPercent`（默认 2，即 0/1 是休眠占位帧）或 >100 → `InvalidValue`，永不采信；② **变化幅度**：与 `LastAcceptedPercent` 相比涨跌超过 `MaxPlausibleStepPercent`（默认 20 点）→ `RejectAnomaly`，本轮**不写入 status**（UI 和低电量判定都看不到），需持续 `AnomalyPersistWindow`（默认 5 分钟）才升级为 `AcceptConfirmed` 采信；读数回到基准附近则持续计时清零。基准**不随离线清空**（伪读数常出现在"刚掉线/刚回来"的窗口）。越界/异常都打 `读数异常已过滤` 日志。阈值均为 `protected virtual`，子类可覆盖。单测见 `src/tests/VigilWatt.Core.Tests/`。
 
+**离线判定的五条路径（2026-10-08 补第三、五条）**：
+
+| 路径 | 触发方式 | 延迟 | 谁在用 |
+|---|---|---|---|
+| `RequestOffline` | 子类发现**零歧义**离线证据 | **立即** | 北通 T9 占位帧（`byte23=0x50`） |
+| `MarkOfflineCandidate` + `OfflinePolicy.Confirm` | 被动帧里的**有歧义**证据 | 确认窗口（雷柏 **6s**） | 雷柏 `[18].bit7=0`（RF 断链位） |
+| `OfflinePolicy.Silence` | 接口**彻底不说话** | 阈值（雷柏 90s），判定发生在 60 秒轮询里 | 雷柏兜底 |
+| `OfflinePolicy.MaxFailures` 次查询失败 → 熔断 | 主动查询类插件（发过帧却没应答） | ~3 分钟 | 迈从 / 北通主动路径 |
+| `RequestConfirm` → 空闲 tick 立刻核实 | 被动帧里的**触发器**（**不是证据**） | **秒级** | 迈从 `0A` 状态通知 `payload=0x00` |
+
+**第③层参数集中在 `OfflinePolicy`（`Plugins/OfflinePolicy.cs`，2026-10-08 收敛）**：
+`Silence` / `Confirm` / `MaxFailures` / `CountPollFailures` 四个参数装在一个 `record` 里，
+每插件只写一行 `protected override OfflinePolicy Offline { get; } = new() { … };`。
+收敛的理由：**机制是同一套，只有参数不同**——不像第①层（协议事实：帧结构、有没有查询命令、
+有没有连接状态字段）和第②层（安全声明：要不要写帧、用户开关、探测冷却）那样**必须** per-brand。
+`CountPollFailures` 是本次拆出来的关键一项：它回答"轮询返回 null 算不算失联"，
+**必须**与"要不要起被动监听"（`SupportsPassiveListen`，机制事实）分开——
+曾经把两者合成一个布尔量，于是迈从（要被动监听、但轮询空读确实是失联）键盘关机后永远不显示离线。
+默认 `true`（传统查询型插件）；雷柏（无查询命令）/ 迈从 / 北通（null 与"没开写入、熔断中"不可区分）
+置 `false`，改由插件在 `PollDevice` 里调 `ReportPollFailure` 自己报账。
+
+延迟确认的**检查点在被动监听循环的空闲 tick（约 500ms 一次）**，不在 60 秒轮询里——
+否则"6 秒确认"会退化成"6 + 最多 60 秒"。`MarkOfflineCandidate` 是**幂等**的（候选已开始就不刷新
+起始时刻），否则持续抖动会把判定无限往后推。判定逻辑是 `OfflinePolicy.IsConfirmExpired`
+（纯函数，有单测 `OfflinePolicyTests`）。恢复在线**不必显式做**——设备回来后 `TryApplyReading`
+自己会把 `IsOnline` 翻回来。所有离线路径最后都落到私有 `MarkOffline(dev, reason)`（幂等，已离线则无操作）。
+
+**`RequestConfirm` 的"立刻核实"（第五条的机制）**：插件在被动帧里发现"值得核实"的信号时调它，
+基类在**空闲 tick** 上跑一次与轮询同款的 `PollDevice`。怎么知道"插件确实发了帧却没应答"？
+看 `ConsecutiveFailures` 有没有被插件推高——插件没发帧就不会报账，计数不动，于是不会误判
+（这条也是 `CountPollFailures=false` 的插件必须自己报账的原因之一）。
+计数被推高 ⇒ 核实失败 ⇒ 不等 3 次，当场判离线；但这条路径**不触发熔断停写**
+（一次核实失败不足以停写 10 分钟，真失联时后面几轮轮询自然会把阈值攒满）。
+
 ### 4.3 读取通道（HidDeviceHandle）
 
-WriteOutput：异步 WriteFile（500ms 超时，失败记 Win32 错误码）。
+WriteOutput：异步 WriteFile（500ms 超时，失败记 Win32 错误码）。可传 `quiet: true` 让**预期失败**不记 WARN——
+唯一用途是"探测一条不属于本协议的通道"（设备描述符里没有那个 report ID，写必然失败，而写失败正是判据）；
+调用方此时会自己记一条更精确的 INFO。**别用它掩盖真正的写入故障。**
 ReadInput：**单悬空读**——句柄生命周期只有一个挂着的 ReadAsync，超时让它继续挂着，下次复用（runtime-pitfalls §1，改坏这条所有协议集体失灵）。
 
 ## 5. 状态汇聚与历史（DeviceManager.Upsert / SafeSample）

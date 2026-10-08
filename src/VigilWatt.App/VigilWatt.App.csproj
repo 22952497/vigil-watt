@@ -17,6 +17,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <!-- Release 下 WinRT AOT 源生成器（WinRTAotSourceGenerator）产出的 WinRTGenericInstantiation.g.cs
+         含 unsafe 代码，不开此项会 CS0227 + XamlCompiler MSB3073；Debug 不启用该生成器故不报错 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- 非打包部署：直接跑 exe，无需 MSIX -->
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>

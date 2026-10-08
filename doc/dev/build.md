@@ -29,6 +29,12 @@ dotnet publish src/VigilWatt.App -c Release -p:Platform=x64 -o publish
 
 self-contained（含 Windows App SDK 运行时），约 102MB，无需安装任何依赖。产物落在仓库根 `publish/`（已 gitignore）。sln 的 GUID 是手写的，VS 能正常打开。
 
+**坑：Release 发布必须开 `AllowUnsafeBlocks`**（2026-10-08 实踩）。`dotnet publish -c Release` 时 WinRT AOT 源生成器（`WinRTAotSourceGenerator`）会生成 `obj\...\intermediatexaml\WinRT.SourceGenerator\...\WinRTGenericInstantiation.g.cs`，内含 `unsafe` 代码；工程若没开 `<AllowUnsafeBlocks>true</AllowUnsafeBlocks>`，就会刷一屏 `error CS0227: 不安全代码只会在使用 /unsafe 编译的情况下出现`，并连带 XamlCompiler 报 `error MSB3073 ... XamlCompiler.exe 已退出，代码为 1`。
+
+**别被 MSB3073 带偏**——它的表象和 §1「XAML 属性名写错」一模一样，但这里根因是**编译选项缺失**：XamlCompiler 的 pass1 中间项目编译失败，才以退出码 1 收场。判别法：错误列表里**先有 CS0227**（在 `WinRTGenericInstantiation.g.cs` 上）就是本坑；只有 MSB3073、没有任何 CS 错误才是 §1。
+
+Debug 构建不启用该生成器，所以**只有 Release 打包时暴露**（`dotnet build -c Debug` 一直 0 错误，容易误判成"工程没问题"）。已在 `VigilWatt.App.csproj` 加好该项。
+
 ## 4.1 测试
 
 ```
