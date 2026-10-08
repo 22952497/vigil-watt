@@ -40,6 +40,8 @@
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceKindGuesser.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceStatus.cs" />
     <Compile Include="..\..\VigilWatt.Core\Devices\DeviceStatusMerger.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Power\SystemPowerReader.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Power\SystemBatteryWatcher.cs" />
     <Compile Include="..\..\VigilWatt.Core\Storage\HistoryStore.cs" />
     <Compile Include="..\..\VigilWatt.Core\Utils\AppPaths.cs" />
     <Compile Include="..\..\VigilWatt.Core\Utils\ByteSize.cs" />

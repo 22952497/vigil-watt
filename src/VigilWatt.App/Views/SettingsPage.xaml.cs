@@ -27,6 +27,7 @@ public sealed partial class SettingsPage : Page
         StartMinimizedToggle.IsOn = s.StartMinimized;
         AutostartToggle.IsOn = AutostartService.IsEnabled();
         WidgetToggle.IsOn = s.WidgetEnabled;
+        SystemBatteryToggle.IsOn = s.MonitorSystemBattery;
         UpdateSourceBox.Text = s.UpdateUrl;
         UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)}";
 
@@ -154,6 +155,7 @@ public sealed partial class SettingsPage : Page
         s.StartMinimized = StartMinimizedToggle.IsOn;
         s.Autostart = AutostartToggle.IsOn;
         s.WidgetEnabled = WidgetToggle.IsOn;
+        s.MonitorSystemBattery = SystemBatteryToggle.IsOn;
         s.WidgetDisplayMode = WidgetModeCombo.SelectedItem is ComboBoxItem modeItem && modeItem.Tag is string modeTag
             ? WidgetDisplayMode.Normalize(modeTag)
             : WidgetDisplayMode.Normal;

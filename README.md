@@ -7,6 +7,7 @@
 - **蓝牙 (BLE) 电量**：自动发现已连接的 BLE 设备，直读 GATT Battery Service (0x180F/0x2A19)
 - **经典蓝牙 (A2DP/HFP) 电量**：耳机/音箱走 HFP 免手操作网关节点的 `DEVPKEY_Device_BatteryLevel`（与 Windows 设置页同源），并显示连接状态
 - **2.4G 设备电量**：按品牌适配私有协议（见下方"2.4G 协议适配状态"）
+- **本机电量**：可选监控笔记本电池（`GetSystemPowerStatus`），在设置页「本机」分节开启（默认关）。接入后出现在设备列表、桌面小组件与历史统计里；托盘"最低电量"仍只反映无线外设，避免笔记本正常放电就染红图标
 - **历史统计**：SQLite 存储，设备页/统计页查看 24h / 7 天 / 30 天电量曲线（指标摘要卡 + 悬停读数）
 - **历史管理**：独立页面查看库大小/条数/设备数，按设备删除历史（勾选批量 + 二次确认 + 删除后 VACUUM 收缩文件）
 - **托盘图标**：纯 Win32 实现（Shell_NotifyIcon），图标实时显示最低电量设备的百分比数字；左键打开主窗口，右键菜单查看全部设备/退出；新图标默认收在任务栏"^"溢出区，可拖到常驻区
@@ -20,7 +21,7 @@
 
 - 开发调试：`dotnet build VigilWatt.sln -c Debug`，运行 `src\VigilWatt.App\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\VigilWatt.App.exe`
 - 发布版：`publish\VigilWatt.App.exe`（self-contained，无需安装运行时），建议固定到任务栏或加入自启
-- 测试：`dotnet test src/tests/VigilWatt.Core.Tests`（67 个用例，改读数过滤器 / V1 帧解析 / 北通帧解析 / 经典蓝牙名称识别 / 设备类型判定 / 历史库删除统计后必跑）
+- 测试：`dotnet test src/tests/VigilWatt.Core.Tests`（119 个用例，改读数过滤器 / V1 帧解析 / 北通帧解析 / 经典蓝牙名称识别 / 设备类型判定 / 系统电源读数与充电推导 / 历史库删除统计后必跑）
 
 数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log / tray.ico）
 
@@ -63,11 +64,12 @@ src/
       Betop/                   # 北通手柄：厂商接口 0x15 状态报告 + T9 被动流（含纯逻辑 BetopCodec）
       Elan/                    # Elan 接收器观察模式
     Devices/DeviceManager      # 聚合、采样、低电量判定
+    Power/                     # 本机电源：SystemPowerReader（GetSystemPowerStatus）+ SystemBatteryWatcher（事件式数据源）
     Storage/HistoryStore       # SQLite（写入/查询/按设备删除/VACUUM）
   VigilWatt.App/           # WinUI 3 主程序
     MainWindow（导航）+ Views（设备/统计/历史管理/设置）+ WidgetWindow + Services（托盘/ICO/自启）
   tests/
-    VigilWatt.Core.Tests/  # Core 纯逻辑 + 存储单测（xUnit，67 个用例，链接 Core 真源文件）
+    VigilWatt.Core.Tests/  # Core 纯逻辑 + 存储单测（xUnit，119 个用例，链接 Core 真源文件）
     VigilWatt.BleScan/     # 诊断小工具：蓝牙适配器能力 + 已配对经典/LE 设备探查
 publish/                       # 发布产物（self-contained，已 gitignore）
 scripts/                       # 临时调试脚本（.py/.ps1，用完即删，索引见 scripts/README.md）

@@ -486,6 +486,30 @@ public sealed partial class WidgetWindow : Window
                 return box;
             }
 
+            case DeviceKind.Computer:
+            {
+                // 显示器造型：屏幕 + 支架。与设置/列表里的 \uE7F8 语义一致。
+                var box = new Grid { Width = 14, Height = 11 };
+                box.Children.Add(new Border
+                {
+                    Width = 14,
+                    Height = 9.5,
+                    BorderThickness = new Thickness(1.2),
+                    CornerRadius = new CornerRadius(1.8),
+                    BorderBrush = brush,
+                    VerticalAlignment = VerticalAlignment.Top,
+                });
+                box.Children.Add(new Border
+                {
+                    Width = 5,
+                    Height = 1.4,
+                    Background = brush,
+                    CornerRadius = new CornerRadius(0.7),
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                });
+                return box;
+            }
+
             default:
                 return new Ellipse
                 {

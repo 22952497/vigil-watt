@@ -42,6 +42,7 @@
 | **跑错输出目录（bin\Debug vs bin\x64\Debug）** | 用旧 exe 验证新代码，浪费一小时。固定：sln 构建 + bin\x64 路径启动 |
 | **每个接口都当候选探测** | dongle 的 consumer/system 接口没输出通道，探测它们除了越界崩溃没别的产出。候选过滤先按能力（报告长度）筛 |
 | **轻信网上逆向文档的完整性** | mchose-hid-bridge 的 K99 V1 帧格式是对的，但没写"必须先开会话"——差这一条等于全错。文档要验，关键时序要抓包补全 |
+| **命名空间取名 `VigilWatt.Core.System`**（2026-10-08，本机电量） | 它在 `VigilWatt.Core` 命名空间树里会**遮蔽 BCL 的 `System`**——同项目里 `System.Threading.Timer`、`System.Text.*`、`System.Runtime.InteropServices` 全部解析失败（CS0234，报错点在其它文件，很迷惑）。教训：**别用框架命名空间做叶子名**（`System`/`Text`/`IO`/`Json` 都危险）；`Enumerable`/`Path` 这类类型名当前缀同理。改用 `Power` 后立即正常 |
 
 ## 3. 值得记住的调试直觉
 
@@ -67,5 +68,6 @@
 3. **雷柏充满态采样**：协议已按 rapoo-software-linux 落地（RapooPlugin 纯被动 status-report7）；充电标志已实测（0x01=放电/0x02=充电），充满时 [7] 的值待采样后补全映射
 4. ~~**时砂耳机**~~ **已结案（2026-10-06）**：2.4G dongle（38FF:0001）主机侧实测无通道（USB 仅 MI_00 音频 + MI_03 consumer HID，OUT/FEATURE=0，输入报文无电量字段），RoseLink 逆向亦无电量命令 → 主机侧与官方 App 侧均无解，不再投入（protocols.md §3）
 5. **新世代迈从 dongle**（0x3837:0x3033）：QHW 协议已备好，接入即用（hardware/protocols.md §2）
+6. ~~**本机电量监控**~~ **已完成（2026-10-08）**：可选监控笔记本电池（默认关，设置页「本机」分节）。`GetSystemPowerStatus` 只读、零写入；托盘"最低电量"显式排除它（`DeviceSource.System`）。唯一遗留：**本机验证时应用活不过 1 分钟，没能确认 `history.db` 里 `sys:battery` 的采样**——下次长驻运行时看一眼库里有没有这个 device_id（采样路径是既有代码，只多了个条目，风险低）。
 
 > 发布版 `src/publish/` 已是最新代码（2026-10-05，含协议/架构/语言包/0% 修复），下次改动后重新 publish 并重启应用即可。

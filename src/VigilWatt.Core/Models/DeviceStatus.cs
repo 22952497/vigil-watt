@@ -5,6 +5,9 @@ public enum DeviceSource
     Ble,
     Hid24G,
     BluetoothClassic,
+
+    /// <summary>本机电源（系统电池）。非外设，由 SystemBatteryWatcher 提供。</summary>
+    System,
 }
 
 public enum ChargingState

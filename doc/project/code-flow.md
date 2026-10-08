@@ -78,6 +78,43 @@ DiscoverOnlyAsync
 
 **经典蓝牙电量（ClassicAudioBattery，2026-10-06 打通）**：AEP 属性（`System.Devices.AepBattery_Level` 等）在本机全部无效，但 Windows 设置页显示的耳机电量另有来源——**HFP 免手操作音频网关设备节点的 PnP 属性 `DEVPKEY_Device_BatteryLevel`**（`{104EA319-6EE2-4701-BD47-8DDBF425BBE5},2`，BYTE）。`ClassicAudioBattery` 用 SetupAPI（`SetupDiGetClassDevsW` → `SetupDiEnumDeviceInfo` → `SetupDiGetDeviceInstanceIdW` → `SetupDiGetDevicePropertyW`）枚举 `BTHENUM\*` 节点读该属性，从实例 ID 末段（`…&0CAEBDC6CDA7_C00000000`）取设备 MAC；watcher 侧用 `MacFromAepId`（AEP ID 形如 `Bluetooth#Bluetooth<适配器MAC>-<设备MAC>`，取最后一段）对上号。整表结果缓存 5 秒；`RefreshBattery()` 挂在 SafePoll 上每分钟重读，有变化才通知。实测 EDIFIER W820NB 读数与设置页一致。排查手法见 scripts/probe-devnode-battery.py。
 
+## 3.1 本机电量流（SystemBatteryWatcher，2026-10-08 新增）
+
+**不是插件**。系统电量没有 HID 接口可"认领"，也不是设备事件源，所以照 `BluetoothClassicWatcher` 的范式做成事件式数据源：
+
+```
+DeviceManager 构造 → _system.DeviceUpdated += Upsert
+DeviceManager.Start() → if (Settings.MonitorSystemBattery) _system.Start()
+PollOnceAsync 尾部 → if (Settings.MonitorSystemBattery) _system.Refresh()
+                      （与 _classic.RefreshBattery() 并排，每分钟一次）
+```
+
+**读数**（`SystemPowerReader`，P/Invoke `GetSystemPowerStatus`，零写入）：
+- `BatteryFlag` 128（无电池）/ 255（未知）→ **不出现在列表**（台式机场景，用户明确要"检测不到就不显示"）。
+- `BatteryLifePercent` 255 → `Percent=null` 但**仍算有电池**（有电池但一次读不到，不该整行消失）。
+- 翻译逻辑抽成 `internal static Interpret(acLineStatus, batteryFlag, batteryLifePercent)`，纯函数，`SystemPowerReaderTests` 覆盖。
+
+**充电推导**（`SystemBatteryWatcher.DeriveCharging`，本类唯一的逻辑）：
+`GetSystemPowerStatus` 只说"是否接着交流电"，不说"是否在充电"，所以用满电与否区分：
+接电 + 100% → `Full`；接电未满 → `Charging`；未接电 → `Discharging`；百分比未知 → `Unknown`。
+**注意**：插着电且 100% 时显示「已充满」而不是「充电中」，与 Windows 电池图标一致，不是 bug。
+
+**设备标识**：固定 `Id = "sys:battery"`（`SystemBatteryWatcher.DeviceId`），`Source = DeviceSource.System`，`Kind = DeviceKind.Computer`，
+显示名「本机电池」，列表徽标「本机」（`DeviceRowModel.SourceText`）。Id 永不变——历史曲线、低电量"每档只提醒一次"都靠它做键。
+
+**开关语义**（`MonitorSystemBattery`，默认关）：
+- `ApplySettings()` → `ApplySystemBatterySetting()`：开 → `_system.Start()`；关 → `_system.Stop()` **并从 `_devices` 撤掉条目**
+  （理由同 `DropDevicesOf`：留着就会带着最后一帧电量继续显示，用户以为开关没生效）。
+- `RestoreOfflineTombstones()` 跳过它：开关关着时，历史里的系统电量记录不该把它复活成离线占位。
+
+**各处的取舍**（用户 2026-10-08 拍板）：
+| 位置 | 行为 |
+|---|---|
+| 设备列表 / 桌面小组件 | 正常显示（`WidgetWindow.Glyph` 有 `Computer` 的显示器形状） |
+| 历史统计 | 正常写入 + 可选曲线（走既有 `SafeSample` / `Upsert` 路径，无特殊代码） |
+| 低电量提醒 | 正常参与（共用 `CheckLowBattery` 阈值与气泡通道） |
+| **托盘"最低电量"** | **排除**——`TrayService.Render()` 里 `if (d.Source == DeviceSource.System) continue;` |
+
 ## 4. 2.4G 插件流（以 MchosePlugin 为例，最重要的一条链路）
 
 ### 4.1 认领（Attach，每轮调用、幂等）
@@ -146,9 +183,11 @@ SafeSample（每 SampleIntervalMinutes 分钟）:
 
 Initialize：RegisterClassW 建隐藏消息窗口（类名带 GUID）→ Shell_NotifyIconW NIM_ADD（图标 = System.Drawing 画 32×32 彩色圆+百分比文字 → GetHicon）。消息窗口 WndProc 收到回调消息 0x8C40：左键/双击 → ShowMainWindow；右键 → SetForegroundWindow + TrackPopupMenuEx(TPM_RETURNCMD)（打开主界面 / 退出）。任务栏重建（Explorer 重启）监听 TaskbarCreated 重新添加图标。低电量气泡 = NIF_INFO。
 
+`Render()` 遍历 `Manager.Devices` 取**在线且有电量**的最低者 → 图标显示其百分比/⚡，`szTip` 显示其名字。**`DeviceSource.System`（本机电量）在此被 `continue` 跳过**（2026-10-08）——本机是"用到 30% 也正常"的另一类设备，不该抢托盘那一个数字，否则真正的"外设快没电了"信号会被盖掉。托盘提示文字变化才记日志（`托盘提示已更新`），是最常用的托盘排错线索。
+
 ## 9. 设置流（SettingsPage.Save）
 
-收集 UI 值 → AppSettings.Save()（settings.json）→ 按改动项生效：AutostartService 写/删 HKCU Run 键、小组件开/关、Manager.ApplySettings()（重建定时器）、CleanupHistoryNow()（按保留天数清理）。
+收集 UI 值 → AppSettings.Save()（settings.json）→ 按改动项生效：AutostartService 写/删 HKCU Run 键、小组件开/关、Manager.ApplySettings()（重建定时器 + 同步本机电量开关）、CleanupHistoryNow()（按保留天数清理）。
 
 ## 10. 退出流
 

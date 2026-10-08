@@ -56,6 +56,9 @@
 | 北通图标像键盘 / 显示名带 `For Keyboard & Mouse` | 显示名是 USB product string；图标按名字匹配时 keyboard/mouse 排在手柄前面被先命中 | project/handoff.md「第二轮真机复测」 |
 | 键盘/鼠标/耳机图标全是通用蓝牙图标 | 真机显示名（`Rapoo Gaming Device`/`MCHOSE 2.4G Wireless`/`EDIFIER W820NB 双金标版`）里没有任何关键字，按名字猜必然失败；已改为插件显式声明 `DeviceKind` | project/handoff.md「第三轮：改显式声明设备类型」 |
 | 主界面"刷新"按钮点了像没反应 | 三个原因叠加：① `Refresh()` 自己把按钮 `IsEnabled` 设回 true，禁用状态同帧被抹掉、零视觉反馈；② `PollConnectedAsync` 是 fire-and-forget，`RequestPoll` 同步返回时 BLE 侧还没跑；③ `SafePoll` 用 `Interlocked` 标志重入即静默 `return`，撞上自动轮询就什么都不做。已改为可 await 的 `RequestPollAsync` + 转圈/文案反馈 + 复用进行中那一轮 | project/handoff.md「第四轮：刷新按钮」 |
+| 本机电量不显示（开了开关也没有） | ① 台式机 / 电池被禁用（`BatteryFlag=128/255`，设计上不显示）；② 设置的「监控本机电量」没开（默认关）；③ 开关刚打开但还没到下一轮轮询 | project/code-flow.md §本机电量 |
+| 本机电量显示"已充满"而不是"充电中" | 接电且读到 100% 时按 `Full` 处理（与 Windows 电池图标一致），不是 bug | project/code-flow.md §本机电量 |
+| 托盘图标为什么不显示笔记本电量 | 设计如此：托盘"最低电量"只统计无线外设，本机电量不参与（否则笔记本正常放电就染红图标）。本机电量仍进列表/小组件/历史统计/低电量提醒 | project/code-flow.md §托盘 |
 
 数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log）。
 

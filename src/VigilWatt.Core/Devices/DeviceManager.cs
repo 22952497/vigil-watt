@@ -3,6 +3,7 @@ using VigilWatt.Core.Ble;
 using VigilWatt.Core.Hid;
 using VigilWatt.Core.Models;
 using VigilWatt.Core.Plugins;
+using VigilWatt.Core.Power;
 using VigilWatt.Core.Settings;
 using VigilWatt.Core.Storage;
 using VigilWatt.Core.Utils;
@@ -20,6 +21,7 @@ public sealed class DeviceManager : IDisposable
     private readonly HistoryStore _history;
     private readonly BleBatteryWatcher _ble = new();
     private readonly BluetoothClassicWatcher _classic = new();
+    private readonly SystemBatteryWatcher _system = new();
     private readonly List<IBatteryPlugin> _plugins;
     private readonly DeviceClaimRegistry _claims = new();
     private readonly ConcurrentDictionary<string, DeviceStatus> _devices = new();
@@ -55,6 +57,7 @@ public sealed class DeviceManager : IDisposable
         _plugins = DiscoverPlugins();
         _ble.DeviceUpdated += d => Upsert(d);
         _classic.DeviceUpdated += Upsert;
+        _system.DeviceUpdated += Upsert;
         // 罗技等插件的 HID++ 自发通知（插拔电）不走 60 秒轮询，直接推送
         foreach (var p in _plugins)
             p.StatusPushed += Upsert;
@@ -96,6 +99,7 @@ public sealed class DeviceManager : IDisposable
     {
         _ble.Start();
         _classic.Start();
+        if (_settings.MonitorSystemBattery) _system.Start();
         RestoreOfflineTombstones();
         StartTimers();
         Log.Info("DeviceManager 已启动");
@@ -134,6 +138,9 @@ public sealed class DeviceManager : IDisposable
                 var owner = OwnerOf(stat.DeviceId);
                 if (owner.Length > 0 && !IsPluginEnabledByName(owner, defaultOn: true)) continue;
 
+                // 本机电量同理：开关关着时，历史里的系统电量记录不该把它复活成离线占位。
+                if (stat.DeviceId == SystemBatteryWatcher.DeviceId && !_settings.MonitorSystemBattery) continue;
+
                 Upsert(new DeviceStatus
                 {
                     Id = stat.DeviceId,
@@ -161,6 +168,7 @@ public sealed class DeviceManager : IDisposable
     private static DeviceSource SourceFromId(string id) =>
         id.StartsWith("btc:", StringComparison.Ordinal) ? DeviceSource.BluetoothClassic
         : id.StartsWith("ble:", StringComparison.Ordinal) ? DeviceSource.Ble
+        : id.StartsWith("sys:", StringComparison.Ordinal) ? DeviceSource.System
         : DeviceSource.Hid24G;
 
     /// <summary>剔除超期的离线占位。真实设备（哪怕离线）不在此列——它们由插件继续维护。</summary>
@@ -207,10 +215,35 @@ public sealed class DeviceManager : IDisposable
     /// <summary>设置变化后调用（阈值/采样间隔/插件开关）。</summary>
     public void ApplySettings()
     {
+        ApplySystemBatterySetting();
         StartTimers();
         // 立刻跑一轮：否则"关掉插件"要等最多 60 秒的下一个轮询才撤掉设备，
         // 期间列表/托盘仍显示着它，用户会以为开关没生效。
         _ = RequestPollAsync();
+    }
+
+    /// <summary>
+    /// 同步"监控本机电量"开关的运行时状态。
+    ///
+    /// 关掉时不只是停止读取，还要**撤掉设备条目**——理由和插件禁用一致（见 <see cref="DropDevicesOf"/>）：
+    /// 条目留着就会带着最后一帧的电量继续显示在列表/统计/小组件里，
+    /// 用户关了开关却像没生效。撤掉而不是标离线：用户要的是"不再监控它"。
+    /// </summary>
+    private void ApplySystemBatterySetting()
+    {
+        if (_settings.MonitorSystemBattery)
+        {
+            _system.Start();
+            return;
+        }
+
+        _system.Stop();
+        if (_devices.TryRemove(SystemBatteryWatcher.DeviceId, out _))
+        {
+            _tombstoneIds.Remove(SystemBatteryWatcher.DeviceId);
+            Log.Info("已关闭本机电量监控，移除系统电量条目");
+            DevicesChanged?.Invoke();
+        }
     }
 
     /// <summary>
@@ -386,6 +419,7 @@ public sealed class DeviceManager : IDisposable
             // 必须 await：以前 fire-and-forget 会让"刷新"在 BLE 侧还没跑完就返回，用户看到的列表纹丝不动
             await _ble.PollConnectedAsync();
             _classic.RefreshBattery();
+            if (_settings.MonitorSystemBattery) _system.Refresh();
             DevicesChanged?.Invoke();
         }
         catch (Exception ex)
@@ -502,6 +536,7 @@ public sealed class DeviceManager : IDisposable
         }
         _ble.Dispose();
         _classic.Dispose();
+        _system.Dispose();
         _passGate.Dispose();
     }
 }

@@ -52,7 +52,12 @@ public sealed class DeviceRowModel
             Name = d.DisplayName,
             PercentText = percent.HasValue ? $"{percent}%" : "--",
             Progress = percent ?? 0,
-            SourceText = d.Source is DeviceSource.Ble or DeviceSource.BluetoothClassic ? "蓝牙" : "2.4G",
+            SourceText = d.Source switch
+            {
+                DeviceSource.Ble or DeviceSource.BluetoothClassic => "蓝牙",
+                DeviceSource.System => "本机",
+                _ => "2.4G",
+            },
             SubText = $"{d.Protocol}{state} · 更新于 {d.LastUpdated:HH:mm:ss}",
             IsCharging = charging,
             ProgressBrush = UiPalette.Brush(progressColor),
@@ -77,6 +82,7 @@ public sealed class DeviceRowModel
             DeviceKind.Keyboard => "\uE765",  // KeyboardClassic
             DeviceKind.Headset => "\uE7F6",   // Headphone
             DeviceKind.Speaker => "\uE7F5",   // Speakers
+            DeviceKind.Computer => "\uE7F8",  // Devices2（显示器造型，代表本机）
             _ => "\uE702",                    // Bluetooth（兜底）
         };
     }

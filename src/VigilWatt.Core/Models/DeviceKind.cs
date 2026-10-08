@@ -16,4 +16,7 @@ public enum DeviceKind
     Headset,
     Speaker,
     Gamepad,
+
+    /// <summary>本机（笔记本电池 / 系统电源）。</summary>
+    Computer,
 }

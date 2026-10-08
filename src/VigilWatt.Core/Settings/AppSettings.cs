@@ -66,6 +66,15 @@ public class AppSettings
     /// （cmd=0x5，不碰写配置/固件/灯效），风险低，默认开启；关掉即完全静默（不认领、不写入）。</summary>
     public bool BetopProbingEnabled { get; set; } = true;
 
+    /// <summary>
+    /// 是否把本机（笔记本）电池也纳入监控。默认关闭——它是"另一类设备"，
+    /// 不像外设那样需要盯着，用户明确要时才开（见设置页「监控本机电量」）。
+    ///
+    /// 注意：这是个纯 bool，老 settings.json 里没有该字段时反序列化直接用属性默认值 false，
+    /// 不需要像 <see cref="PluginEnabled"/> 那样手动补键。
+    /// </summary>
+    public bool MonitorSystemBattery { get; set; } = false;
+
     [JsonIgnore]
     private static readonly string SettingsPath = Path.Combine(AppPaths.RootDir, "settings.json");
 

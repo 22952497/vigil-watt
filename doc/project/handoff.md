@@ -1,13 +1,13 @@
 # 会话交接（给下一个 AI / 未来的自己）
 
-> 快照时间：2026-10-06 傍晚。**先读本文，再按需查其他文档**；内容冲突时以其他文档为准（本文是快照）。
+> 快照时间：2026-10-08。**先读本文，再按需查其他文档**；内容冲突时以其他文档为准（本文是快照）。
 
 ## 1. 当前状态一句话
 
-应用运行中（`src\publish\`，2026-10-06 傍晚发布）。本机三台 2.4G 设备**已全部打通且首次发现均在 6 秒内**：
+应用运行中。本机三台 2.4G 设备**已全部打通且首次发现均在 6 秒内**：
 北通 T9 手柄 73%（T9 被动状态流）、迈从 G87 键盘 65%（0x13 会话协议）、雷柏 VT3 二代鼠标 98%（status-report7 被动）；
 经典蓝牙耳机 EDIFIER W820NB 走 HFP 网关节点 `DEVPKEY_Device_BatteryLevel`（与 Windows 设置页一致）；
-插件架构完成二演化。**本轮（第九轮）修掉"北通手柄关了还显示在线"——T9 的 `byte23==0x50` 是 dongle 的"手柄未连接"占位帧，旧实现当成 67% 采信了，见下。**
+插件架构完成二演化。**本轮（第十轮）新增「本机电量监控」——可选监控笔记本电池（默认关），见下。**
 
 ## 2. 用户设备清单（勿对号入座错）
 
@@ -20,6 +20,7 @@
 | Elan dongle (04F3:026F) | feature 通道 | ❌ 与弱水时砂无关（旧记录已修正），纯观察模式 |
 | EDIFIER W820NB 双金标版（经典蓝牙 A2DP/AVRCP/HFP） | 系统蓝牙 AEP watcher（BluetoothClassicWatcher）+ HFP 设备节点电量 | ✅ **连接状态 + 电量均已打通**（2026-10-06）；电量读 HFP 网关节点 `DEVPKEY_Device_BatteryLevel`，实测与设置页一致（60%） |
 | 华硕 AURA LED (0B05:19AF)、Virtual Multitouch (00FF:BACC)、ROSE FIRST ANGEL (38FF:0001)、lifeme 音箱 | — | 与电量无关，**勿探测** |
+| **本机电池（笔记本）** | `GetSystemPowerStatus`（`Power/SystemBatteryWatcher`，Id `sys:battery`） | ✅ 已接入，**默认关闭**（设置页「本机 → 监控本机电量」）。本机实测：有电池、插电、100%/Full |
 
 未见真正的罗技（VID_046D）设备；罗技 HID++ 代码已备好未真机验证。雷柏不是 HID++，勿再让 Logitech 插件认领雷柏接口。
 
@@ -419,6 +420,52 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 > 表现为"日志里根本没有新启动记录"，很容易误判成"新代码没生效"。
 > **验证前先 `tasklist` 确认没有旧实例在跑**；要长驻请让用户双击 `src/publish/VigilWatt.App.exe`。
 
+### 2026-10-08 第十轮：新增「本机电量监控」（可选）
+
+**诉求**：把电脑（笔记本）自身的电量也纳入监控。
+
+**用户拍板的取舍**（四问四答，实现按此为准）：
+| 决策点 | 结论 |
+|---|---|
+| 列表 / 小组件 | **进** |
+| 托盘"最低电量" | **不参与**（笔记本正常放电 30% 不该染红托盘图标） |
+| 历史曲线 | **记**，进历史统计页可选 |
+| 低电量提醒 | **参与**（共用同一阈值，走原有气泡通道） |
+| 台式机 / 无电池 | **完全不显示**（不出占位行） |
+| 类型命名 | `DeviceKind.Computer`，显示名「本机电池」，来源徽标「本机」 |
+| 设置开关 | 有，`MonitorSystemBattery`，**默认关** |
+
+**实现**（全部只读，零写入，符合硬件安全红线）：
+- **新增 `Core/Power/SystemPowerReader.cs`**：P/Invoke `GetSystemPowerStatus`。**关键翻译**：
+  `BatteryFlag` 128（无电池）/ 255（未知）→ `HasBattery=false`（不显示）；
+  `BatteryLifePercent` 255（未知）→ `Percent=null` 但**仍算有电池**（笔记本不该因一次读不到就假装没电池）。
+  翻译逻辑抽成 `internal static Interpret`，纯函数可单测。
+- **新增 `Core/Power/SystemBatteryWatcher.cs`**：仿 `BluetoothClassicWatcher` 的事件式数据源（**不实现 `IBatteryPlugin`**，
+  系统电量没有接口可认领）。固定 `DeviceId = "sys:battery"`（历史曲线连续性靠它）。
+  充电推导 `DeriveCharging`：接电+100%=`Full`，接电未满=`Charging`，未接电=`Discharging`，读不到=`Unknown`。
+- **`DeviceManager`**：构造订阅 `_system.DeviceUpdated += Upsert`；`PollOnceAsync` 尾部 `if (_settings.MonitorSystemBattery) _system.Refresh();`；
+  `SourceFromId` 加 `sys:` → `DeviceSource.System`；`ApplySettings` 新增 `ApplySystemBatterySetting()`（关掉时撤条目，同 `DropDevicesOf` 理由）；
+  `RestoreOfflineTombstones` 跳过它（开关关着时历史记录不该复活它）。
+- **`DeviceSource` 加 `System`，`DeviceKind` 加 `Computer`**；`DeviceRowModel`（徽标「本机」+ 字形 `\uE7F8`）、
+  `WidgetWindow.Glyph`（显示器形状）、`SettingsPage`（「本机」分节 + 开关）配套。
+- **`TrayService.Render` 加 `if (d.Source == DeviceSource.System) continue;`** —— 这是用户明确要的取舍。
+
+**⚠️ 本轮踩的坑（已写进 architecture.md §6）**：新建的命名空间**不能叫 `VigilWatt.Core.System`**——
+它会遮蔽 BCL 的 `System`，让 `DeviceManager.cs` 里的 `System.Threading.Timer` 和 `ElanHeadsetPlugin.cs` 里的
+`System.Text.*` 全部编译失败（CS0234）。**改用 `VigilWatt.Core.Power`**（目录也改为 `Power/`）。
+
+**真机验证（本机 = 有电池笔记本，插着电）**：
+```
+17:52:20 [INFO] 系统电量已接入: 本机电池 100% Full
+17:52:19 [INFO] 托盘提示已更新: VigilWatt · Dell WK717Keyboard 76%   ← 托盘未受本机电量干扰 ✓
+```
+独立探针（Python ctypes 复核）：`ACLineStatus=1 / BatteryFlag=1 / BatteryLifePercent=100`，与上面一致 ✓。
+**未能在本机观察到历史采样落库**：应用在此环境活不过 1 分钟（见上方"环境教训"），采样定时器首跑在 1 分钟后。
+采样路径本身是既有代码（只多了一个 `IsOnline && BatteryPercent.HasValue` 都满足的条目），**建议下次长驻运行时确认 `history.db` 里 `sys:battery` 有采样**。
+
+**测试 67 → 119**（新增 `SystemPowerReaderTests` 45 个 + `SystemBatteryChargingTests` 7 个；
+前者含 `Theory` 展开 5 个）。`dotnet test` 全绿，`dotnet build VigilWatt.sln -c Debug` 0 错误。
+
 ## 4. 待办（按优先级，详见 experience.md §5）
 
 
@@ -462,6 +509,9 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 | 轮询/采样/低电量节奏 | `src/VigilWatt.Core/Devices/DeviceManager.cs`（code-flow.md §2/§5/§6） |
 | 经典蓝牙发现 + 电量 | `src/VigilWatt.Core/Ble/BluetoothClassicWatcher.cs` + `Ble/ClassicAudioBattery.cs`（code-flow.md §3、runtime-pitfalls §3） |
 | 经典蓝牙电量排查 | `scripts/probe-devnode-battery.py`（`--all` dump 节点全属性） |
+| 本机电量读数/推导 | `src/VigilWatt.Core/Power/SystemPowerReader.cs`（`GetSystemPowerStatus`）+ `Power/SystemBatteryWatcher.cs`（充电推导、稳定 Id `sys:battery`） |
+| 本机电量开关 | `AppSettings.MonitorSystemBattery` + `DeviceManager.ApplySystemBatterySetting()` + `SettingsPage`「本机」分节 |
+| 托盘为何不含本机电量 | `src/VigilWatt.App/Services/TrayService.cs` 的 `Render()`：`if (d.Source == DeviceSource.System) continue;` |
 | 托盘/小组件/设置页 | `src/VigilWatt.App/Services|Views`（code-flow.md §7/§8/§9） |
 | 程序图标 | 生成器 `scripts/make-app-icon.py`（改配色/字形改它后重跑，**别手改 .ico**）→ `src/VigilWatt.App/Assets/VigilWatt.ico`；接入 = csproj `<ApplicationIcon>` + `MainWindow.ApplyWindowIcon()`（两处都要，见 runtime-pitfalls §5.2） |
 | 托盘提示/图标刷新 | `TrayService.RequestUpdate()` + `App.AttachTray` 里挂的 `DeviceUpdated`/`DevicesChanged`（见 runtime-pitfalls §5.1） |

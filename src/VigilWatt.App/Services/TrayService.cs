@@ -149,6 +149,10 @@ public sealed class TrayService : IDisposable
         foreach (var d in _services.Manager.Devices)
         {
             if (!d.IsOnline || d.BatteryPercent is not { } p) continue;
+            // 本机电量不参与托盘的"最低电量"取值（用户 2026-10-06 明确）：
+            // 笔记本正常用到 30% 是常态，让它把托盘染红会盖掉"外设快没电了"这个真正的信号。
+            // 它仍会出现在设备列表、小组件、历史统计和低电量提醒里——只是不抢托盘那一个数字。
+            if (d.Source == DeviceSource.System) continue;
             if (lowest == null || p < lowest.BatteryPercent) lowest = d;
         }
 

@@ -11,7 +11,12 @@
 VigilWatt.sln
 ├── src/VigilWatt.Core/            # 无 UI 核心库（net8.0-windows10.0.19041.0）
 │   ├── Ble/BleBatteryWatcher          # BLE 设备发现 + GATT 电量直读
+│   ├── Ble/BluetoothClassicWatcher    # 经典蓝牙 A2DP/HFP：连接状态 + 显示名
+│   ├── Ble/ClassicAudioBattery        # 经典蓝牙电量：HFP 网关节点 PnP 属性（SetupAPI）
 │   ├── Devices/DeviceManager          # 中枢：合并 BLE+插件状态、定时器、历史、低电量
+│   ├── Power/
+│   │   ├── SystemPowerReader          # 本机电源读数（GetSystemPowerStatus，纯逻辑 Interpret 可单测）
+│   │   └── SystemBatteryWatcher       # 本机电源事件式数据源（非插件，Id = sys:battery）
 │   ├── Hid/
 │   │   ├── NativeHid                  # Win32 P/Invoke（CfgMgr32 / hid.dll / CreateFileW）
 │   │   ├── HidDeviceScanner           # 枚举在位 HID 接口 + 读元数据
@@ -94,7 +99,7 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 
 | 位置 | 内容 |
 |---|---|
-| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关/MchoseProbingEnabled） |
+| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关/MchoseProbingEnabled/MonitorSystemBattery） |
 | `%LOCALAPPDATA%\VigilWatt\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts) |
 | `%LOCALAPPDATA%\VigilWatt\logs\app.log` | 全部运行日志（协议原始报文也在） |
 
@@ -110,3 +115,16 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
     `EDIFIER W820NB 双金标版`）里一个关键字都没有，猜的结果是全退化成通用蓝牙图标。
     分不出来时才写 `Unknown`，由 `DeviceKindGuesser` 兜底。
 - UI 侧 XAML 事件处理器开头判空（dev/runtime-pitfalls.md §4）；新增 XAML 属性先确认控件真有（dev/build.md §1）。
+- **新"非插件"数据源清单**（本机电量就是这么加的）：数据源不是 HID 接口、
+  没有东西可"认领"时，不要硬塞进 `IBatteryPlugin`——照 `BluetoothClassicWatcher` /
+  `SystemBatteryWatcher` 的范式做一个事件式类：
+  1. 类里维护自己的 `DeviceStatus`，变化时 `event Action<DeviceStatus> DeviceUpdated`；
+  2. `DeviceManager` 构造函数订阅该事件 → `Upsert`；
+  3. `PollOnceAsync` 尾部挂一次主动刷新（和 `_classic.RefreshBattery()` 并排）；
+  4. **Id 前缀要在 `SourceFromId` 里映射到对应的 `DeviceSource`**（如 `sys:` → `System`）。
+  - ⚠️ **命名空间不要叫 `VigilWatt.Core.System`**：它会遮蔽 BCL 的 `System`，
+    让同文件里的 `System.Threading.Timer` / `System.Text.*` 全部解析失败（第 16 轮踩过，改用 `Power/`）。
+  - 若要给开关（如 `MonitorSystemBattery`）：bool 字段反序列化缺省即用属性默认值，无需补键；
+    但**关闭时必须把设备条目从 `_devices` 撤掉**（同 `DropDevicesOf` 的理由），且 `RestoreOfflineTombstones` 要跳过它。
+- **托盘"最低电量"要显式排除 `DeviceSource.System`**（TrayService.Render）：本机电量是"正常用到 30% 是常态"的
+  另一类设备，不该抢托盘那一个数字。列表/小组件/历史统计/低电量提醒则一视同仁。
