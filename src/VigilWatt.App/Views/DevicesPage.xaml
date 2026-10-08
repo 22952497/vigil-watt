@@ -6,8 +6,14 @@
 
     <Grid RowDefinitions="Auto,*" Padding="20,16">
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
-            <Button x:Name="RefreshButton" Click="Refresh_Click">
+        <!-- 与其它页同款"标题 + 副标题 + 右上操作"：设备页原本缺标题行，
+             刷新按钮孤零零挂在一行摘要文字左边，和统计/历史管理两页不是一个语言 -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="设备电量" Style="{StaticResource AppPageTitleStyle}" />
+                <TextBlock x:Name="SummaryText" Text="—" Style="{StaticResource AppPageSubtitleStyle}" />
+            </StackPanel>
+            <Button x:Name="RefreshButton" Grid.Column="1" Click="Refresh_Click" VerticalAlignment="Top">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <ProgressRing x:Name="RefreshRing" Width="14" Height="14"
                                   IsActive="False" Visibility="Collapsed" />
@@ -15,9 +21,7 @@
                     <TextBlock x:Name="RefreshText" Text="刷新" />
                 </StackPanel>
             </Button>
-            <TextBlock x:Name="SummaryText" VerticalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </StackPanel>
+        </Grid>
 
         <ListView x:Name="DeviceList" Grid.Row="1" Margin="0,12,0,0" SelectionMode="None">
             <ListView.ItemContainerStyle>
@@ -30,10 +34,7 @@
             </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="v:DeviceRowModel">
-                    <Border CornerRadius="8"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
+                    <Border Style="{StaticResource AppCardStyle}"
                             Padding="16,12"
                             Margin="0,0,0,8">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">

@@ -2,6 +2,7 @@ using VigilWatt.App.Services;
 using VigilWatt.Core.Models;
 using VigilWatt.Core.Plugins;
 using VigilWatt.Core.Utils;
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -29,6 +30,19 @@ public sealed partial class SettingsPage : Page
         UpdateSourceBox.Text = s.UpdateUrl;
         UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)}";
 
+        // 窗口背景：下拉框选中"用户偏好"，副标题说"这台机器上实际会生效什么"——
+        // 两者不是一回事（Win10 上选 Mica 会静默降级成 Acrylic），分开显示才不会让人困惑。
+        var pref = WindowBackdrop.Normalize(s.WindowBackdrop);
+        foreach (ComboBoxItem item in BackdropCombo.Items)
+        {
+            if (item.Tag as string == pref)
+            {
+                BackdropCombo.SelectedItem = item;
+                break;
+            }
+        }
+        UpdateBackdropHint(pref);
+
         // 插件开关动态生成：新插件（IBatteryPlugin 实现）自动出现在设置页
         bool first = true;
         foreach (var plugin in App.Services.Manager.Plugins)
@@ -36,6 +50,20 @@ public sealed partial class SettingsPage : Page
             AddPluginRow(plugin, s.PluginEnabled.TryGetValue(plugin.Name, out var on) && on, first);
             first = false;
         }
+    }
+
+    private void Backdrop_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (BackdropCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
+        UpdateBackdropHint(tag);
+    }
+
+    /// <summary>副标题按"选中的偏好在本机上实际会生效成什么"来写。</summary>
+    private void UpdateBackdropHint(string preference)
+    {
+        var mica = MicaController.IsSupported();
+        var resolved = WindowBackdrop.Resolve(preference, mica, DesktopAcrylicController.IsSupported());
+        BackdropHintText.Text = WindowBackdrop.Describe(resolved, mica);
     }
 
     /// <summary>
@@ -94,6 +122,7 @@ public sealed partial class SettingsPage : Page
         s.Autostart = AutostartToggle.IsOn;
         s.WidgetEnabled = WidgetToggle.IsOn;
         s.UpdateUrl = UpdateSourceBox.Text.Trim();
+        s.WindowBackdrop = (BackdropCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? WindowBackdrop.Auto;
         foreach (var (name, toggle) in _pluginToggles)
         {
             s.PluginEnabled[name] = toggle.IsOn;
@@ -114,6 +143,9 @@ public sealed partial class SettingsPage : Page
             App.Services.Widget.Close();
             App.Services.Widget = null;
         }
+
+        // 窗口背景即时生效：改完就想看到效果，不该逼用户重启应用
+        App.Services.MainWindow?.ApplyBackdrop();
 
         // 历史清理立即执行一次
         App.Services.Manager.CleanupHistoryNow();

@@ -4,9 +4,18 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="VigilWatt 小组件">
 
+    <!--
+      间距常量与 WidgetWindow.xaml.cs 的 PadH/PadV/RowGap 必须保持一致。
+
+      圆角分两条路（WidgetWindow.xaml.cs 运行时决定）：
+      - Win11：DWM 原生圆角（带抗锯齿）把窗口矩形裁成圆角，这里写 12 即可。
+      - Win10：没有 DWM 圆角 API，SetWindowRgn 又对 WinUI 3(DComp) 无效；
+        于是**完全依赖窗口透明 + 这个 Border 的圆角**给定轮廓。
+        代码里会把半径调成 16（大一圈）让观感更现代。
+    -->
     <Border x:Name="Root"
-            CornerRadius="10"
-            Padding="14,10"
+            CornerRadius="12"
+            Padding="16,14"
             Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
             BorderThickness="1"
@@ -19,6 +28,6 @@
                 <MenuFlyoutItem Text="打开主窗口" Click="OpenMain_Click" />
             </MenuFlyout>
         </Border.ContextFlyout>
-        <StackPanel x:Name="ChipStack" Orientation="Vertical" Spacing="8" />
+        <StackPanel x:Name="ChipStack" Orientation="Vertical" Spacing="16" />
     </Border>
 </Window>

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using VigilWatt.App.Services;
 using VigilWatt.App.Views;
 using VigilWatt.Core.Utils;
 using Microsoft.UI.Composition.SystemBackdrops;
@@ -26,13 +27,19 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(
             (int)(800 * dpiScale), (int)(600 * dpiScale)));
 
-        // 标题栏融入内容 + Mica 背景；不支持 Mica 的系统保持默认标题栏外观
-        if (MicaController.IsSupported())
-        {
-            SystemBackdrop = new MicaBackdrop();
-            ExtendsContentIntoTitleBar = true;
-            SetTitleBar(AppTitleBar);
-        }
+        // 标题栏融入内容：Win11 / Win10 都做，与背景材质无关。
+        //
+        // 旧版把这三行塞在 MicaController.IsSupported() 分支里 —— Mica 是 Win11 专属，
+        // 于是 Win10 上条件为假：系统照常画一条标准标题栏（带应用名），
+        // 而内容区第 0 行那个 48px 的 AppTitleBar 又画了一遍应用名 —— 窗口里出现两个标题，
+        // 中间还夹一条硬分隔线。这就是"Win10 上不好看"的头号原因。
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+
+        ApplyBackdrop();
+        SyncTitleBarButtonColors();
+        Root.Loaded += (_, _) => SyncTitleBarButtonColors();
+        Root.ActualThemeChanged += (_, _) => SyncTitleBarButtonColors();
 
         // 关闭按钮 = 隐藏到托盘
         AppWindow.Closing += (s, e) =>
@@ -43,6 +50,64 @@ public sealed partial class MainWindow : Window
 
         // 初次进入设备页
         ContentFrame.Navigate(typeof(DevicesPage));
+    }
+
+    /// <summary>
+    /// 按用户设置 + 本机能力应用窗口背景材质。设置页改了"窗口背景"后也会调这里即时生效。
+    /// 三级回退：Mica（Win11）→ Acrylic（Win10 1809+）→ 纯色分层底。
+    /// </summary>
+    public void ApplyBackdrop()
+    {
+        try
+        {
+            var resolved = WindowBackdrop.Resolve(
+                App.Services.Settings.WindowBackdrop,
+                MicaController.IsSupported(),
+                DesktopAcrylicController.IsSupported());
+
+            var backdrop = WindowBackdrop.Create(resolved);
+            SystemBackdrop = backdrop;
+
+            // 关键：有材质时 Root 必须透明，铺任何不透明背景都会把材质整个盖住（包括 Mica）。
+            // 纯色模式下才铺一层分层色，让白色卡片能浮起来。
+            Root.Background = backdrop == null
+                ? (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"]
+                : null;
+        }
+        catch (Exception ex)
+        {
+            // 背景不该让窗口起不来；出问题就退回纯色，窗口照常可用
+            Log.Warn($"应用窗口背景失败，回退纯色: {ex.Message}");
+            SystemBackdrop = null;
+            try
+            {
+                Root.Background = (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
+            }
+            catch { /* 连资源都拿不到就保持现状 */ }
+        }
+    }
+
+    /// <summary>
+    /// ExtendsContentIntoTitleBar 之后，右上角的系统按钮（最小化/最大化/关闭）由 DWM 绘制，
+    /// 颜色不会自动跟随 WinUI 主题 —— Win10 深色主题下会变成"黑按钮配深底"，几乎看不见。
+    /// 这里按当前主题显式刷一遍前景色。
+    /// </summary>
+    private void SyncTitleBarButtonColors()
+    {
+        try
+        {
+            var bar = AppWindow.TitleBar;
+            var dark = Root.ActualTheme == ElementTheme.Dark;
+            var fg = dark ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
+            bar.ButtonForegroundColor = fg;
+            bar.ButtonHoverForegroundColor = fg;
+            bar.ButtonPressedForegroundColor = fg;
+            bar.ButtonInactiveForegroundColor = Microsoft.UI.Colors.Gray;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"同步标题栏按钮配色失败: {ex.Message}");
+        }
     }
 
     /// <summary>

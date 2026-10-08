@@ -192,3 +192,105 @@ AppWindow.Resize(new SizeInt32((int)(widthDip * Scale), (int)(WindowHeight * Sca
 **注意**：`0` 和 `1` 都不会是真实电量——低电量阈值是 20%，正常放电到 1% 之前早就提醒过了，所以拒绝它们不会漏掉任何真实告警。
 
 **单测**：`src/tests/VigilWatt.Core.Tests/`（xUnit，18 个用例），帧解析用例全用真机原始帧，含休眠帧回归用例。改解析或过滤器后跑 `dotnet test src/tests/VigilWatt.Core.Tests`，全绿即通过。
+
+## 13. Win10 与 Win11 的显示差异：Mica 不支持 → 双标题栏（2026-10-08 实修）
+
+**症状**：Win11 上主窗口正常（Mica 半透明底 + 标题栏融入内容），同一份程序跑到 Win10 上"不好看"。
+
+**根因**：`MainWindow` 构造里把"背景材质"和"标题栏融合"绑在了同一个条件里：
+
+```csharp
+if (MicaController.IsSupported())   // Win10 → false
+{
+    SystemBackdrop = new MicaBackdrop();
+    ExtendsContentIntoTitleBar = true;
+    SetTitleBar(AppTitleBar);
+}
+```
+
+Mica 是 **Windows 11 专属**（微软文档原文："在 Windows 10 上会回退为纯色主题色"）。于是 Win10 上整个分支不执行，三条后果：
+
+1. **双标题栏**（最扎眼）：系统照常画一条标准标题栏（带应用名），而内容区第 0 行那个 48px 的
+   `AppTitleBar` 又画了一遍应用名 —— 窗口里出现两个标题，中间还夹一条硬分隔线。
+2. **背景一片死白**：没有 Mica 也没有任何背景层，卡片直接贴在纯白上，层次感全丢。
+3. **字体变宽**：Win11 自带 Segoe UI Variable（窄、有光学字号），Win10 回退 Segoe UI（宽 5~8%），
+   同一套 FontSize 在 Win10 上更容易挤出去 / 换行。
+
+**修法**：
+- `MainWindow.xaml.cs`：`ExtendsContentIntoTitleBar = true; SetTitleBar(AppTitleBar);` **无条件执行**，
+  与背景材质彻底解耦 —— 这是本次修复的核心，其它都是锦上添花。
+- 新增 `Services/WindowBackdrop.cs`：取值常量 + `Resolve(偏好, mica支持, acrylic支持)` 纯函数，
+  三级回退 **Mica（Win11）→ Acrylic（Win10 1809+）→ 纯色分层底**。
+  `MicaController.IsSupported()` / `DesktopAcrylicController.IsSupported()` 必须运行时问，不能写死。
+- `AppSettings.WindowBackdrop`（默认 `Auto`），设置页「外观」分区可切 Auto/Mica/Acrylic/Solid，
+  保存即时生效（调 `MainWindow.ApplyBackdrop()`）。下拉框显示的是**用户偏好**，副标题写的是
+  **这台机器上实际会生效什么** —— 两者在 Win10 上不一样（选 Mica 会静默降级成 Acrylic），分开显示。
+- `App.xaml` 把 `ContentControlThemeFontFamily` / `TextControlThemeFontFamily` 显式钉成 `Segoe UI`，
+  消除两个系统的排版宽度差。
+
+**两个关键坑**：
+1. **有材质时窗口根容器背景必须是 null**。铺任何不透明背景都会把 Mica 整个盖掉 ——
+   只有 Solid 模式才设 `Root.Background`（用 `SolidBackgroundFillColorBaseBrush`）。
+2. **ExtendsContentIntoTitleBar 之后系统按钮不跟随主题**。右上角的最小化/最大化/关闭由 DWM 绘制，
+   Win10 深色主题下是"黑按钮配深底"几乎看不见 —— 必须手动刷
+   `AppWindow.TitleBar.ButtonForegroundColor`，并订阅 `Root.ActualThemeChanged` 跟着改。
+
+**API 差异（WASDK 1.7）**：`MicaBackdrop` 有 `Kind`（`MicaKind.Base`），
+**`DesktopAcrylicBackdrop` 没有 `Kind`**，写了直接 CS0117（它本身就只有默认那一档）。
+
+## 14. 桌面小组件在 Win10 上"平淡、圆角不圆润"（2026-10-08 实修）
+
+**症状**：同一份小组件，Win11 上观感正常，Win10 上"平淡、圆角也不圆润"。
+
+**根因（三条叠加，都被"无边框窗口"这条设定放大）**：
+
+1. **圆角做不出来**。Win10 没有 `DWMWA_WINDOW_CORNER_PREFERENCE`（Win11 专属）；
+   而 XAML `Border.CornerRadius` 只画卡片那一层，窗口矩形背板会在四角把它糊住。
+2. **`SetWindowRgn` 裁不动 WinUI 3**（**最关键，第一版就栽在这里**）：WinUI 3 的内容走
+   **DirectComposition**，由合成器直接画到窗口表面；`SetWindowRgn` 只裁传统 GDI 绘制区域，
+   对 DComp 内容**完全无效**。实测表现 = "设了圆角区域，窗口看起来仍是直角"（用户截图确认）。
+   所以"裁窗口形状"这条路在 WinUI 3 上根本走不通。
+3. **无边框窗口没有 DWM 投影**：`SetBorderAndTitleBar(false,false)` 后 DWM 不再画投影，
+   卡片"贴死"在桌面上、毫无层次 —— 这是"平淡"的主因。
+
+**修法**（`Services/WidgetCompat.cs` 纯逻辑分流 + `WidgetWindow` 透明外壳）：
+
+- 新增 `WidgetCompat.NeedsTransparentChrome(build)` / `SupportsDwmRoundedCorner(build)`，
+  把"哪个系统走哪条路"集中到一处，并有单测（W1–W4）保护 —— **Win11 路径一个字都不动**。
+- **Win10 = 透明窗口 + XAML 自绘圆角**：窗口表面整体镂空（不画任何像素），
+  轮廓完全由 `Root` Border 的 `CornerRadius` 决定（WinUI 画圆角自带抗锯齿，干净）。
+  半径用 16 DIP（Win11 保持 12），大一圈观感更接近现代磁贴。
+- **恢复 DWM 投影**：`DWMWA_NCRENDERING_POLICY = DWMNCRP_ENABLED` + `SetWindowPos(SWP_FRAMECHANGED)`。
+  透明窗口同样能拿到投影，卡片重新有了悬浮层次。
+
+**透明从哪来 —— 两条路都试过，只有第三条能跑（别白试）**：
+
+1. ❌ XAML `<Window Background="Transparent">`：**WinUI 3 的 `Window` 根本没有 `Background`
+   属性**，XAML 编译器直接失败（且代码侧也没这个属性）。
+2. ❌ 自定义 `SystemBackdrop` 子类：**C# 里不可实现**。`OnTargetConnected` 的参数类型
+   `ICompositionSupportsSystemBackdrop` 是 **ABI 接口**，存在于 winmd 但**未投影到 C#**
+   （`ISystemBackdropOverrides` 同理），写了必然 CS0246；`SystemBackdrop` 的构造函数也是
+   `protected`、无法直接 `new`。
+3. ✅ **`SetWindowCompositionAttribute(WCA_ACCENT_POLICY=19, ACCENT_ENABLE_TRANSPARENTGRADIENT=2)`**：
+   user32 未公开导出，把窗口 accent 策略设为全透明，窗口表面不再画任何像素。
+   这是 WinUI 3 / WPF 做"异形/透明窗口"的通行做法。封装在
+   `Native.MakeWindowTransparent(hwnd)`（连同 `AccentPolicy` / `WindowCompositionAttributeData`
+   两个结构体）。
+
+**为什么内置材质（Acrylic/Mica）救不了**（中间版本试过，已废弃）：
+`DesktopAcrylicBackdrop` 只能**铺满整个窗口矩形**，没有任何 API 能把材质本身裁成圆角，
+于是四个角会留下方形材质残影 —— 比不做还难看。`DesktopAcrylicController.SetTarget()` 也
+只接受 `WindowId` / `CoreWindow` / `CompositionTarget`（**不接受 `Window`**，写
+`SetTarget(this)` 报 CS1501）。**材质与"圆角轮廓"是互斥需求，必须让 XAML 当轮廓。**
+
+**API 差异（WASDK 1.7，实测结论）**：
+- `SystemBackdrop` / `MicaBackdrop` / `DesktopAcrylicBackdrop` 都在
+  **`Microsoft.UI.Xaml.Media`**（不是 `Microsoft.UI.Composition.SystemBackdrops`）；
+  `ICompositionSupportsSystemBackdrop` 也是 ABI 接口、不可用于 C# 重写。
+- `Window` **没有** `Background` 属性（XAML 与代码侧都没有）。
+- `DesktopAcrylicController.SetTarget` 没有 `SetTarget(Window)` 重载。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误；`dotnet test` **101/101**。
+
+**环境提醒**：本机（Win10 19045）用 shell / `nohup` 拉起 `VigilWatt.App.exe` 会在几秒内被
+进程树清理带走（与 handoff.md 记的一致），**Win10 侧的外观只能由用户双击 exe 肉眼确认**。

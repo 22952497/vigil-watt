@@ -8,10 +8,8 @@
         <!-- 标题栏：页面标题 + 当前上下文副标题 + 手动刷新 -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
             <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                <TextBlock Text="历史统计" FontSize="18" FontWeight="SemiBold" />
-                <TextBlock x:Name="SubtitleText" Text="—" FontSize="12"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="历史统计" Style="{StaticResource AppPageTitleStyle}" />
+                <TextBlock x:Name="SubtitleText" Text="—" Style="{StaticResource AppPageSubtitleStyle}" />
             </StackPanel>
             <Button x:Name="RefreshButton" Grid.Column="1" Click="Refresh_Click" VerticalAlignment="Top">
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -24,21 +22,16 @@
         </Grid>
 
         <!-- 筛选卡片：设备下拉 + 时间范围按钮组 -->
-        <Border Grid.Row="1" CornerRadius="8"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1" Padding="16,12">
+        <Border Grid.Row="1" Style="{StaticResource AppCardStyle}" Padding="16,12">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
                 <StackPanel Grid.Column="0" Spacing="5">
-                    <TextBlock Text="设备" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="设备" Style="{StaticResource AppCardLabelStyle}" />
                     <ComboBox x:Name="DeviceCombo" MinWidth="240" HorizontalAlignment="Stretch"
                               DisplayMemberPath="Name"
                               SelectionChanged="Device_SelectionChanged" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Spacing="5">
-                    <TextBlock Text="时间范围" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="时间范围" Style="{StaticResource AppCardLabelStyle}" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <ToggleButton x:Name="Range24" Content="24 小时" Tag="24" IsChecked="True" Click="Range_Click" />
                         <ToggleButton x:Name="Range168" Content="7 天" Tag="168" Click="Range_Click" />
@@ -57,68 +50,41 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" CornerRadius="8" Padding="14,10"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1">
+            <Border Grid.Column="0" Style="{StaticResource AppKpiCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="当前电量" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="当前电量" Style="{StaticResource AppCardLabelStyle}" />
                     <TextBlock x:Name="KpiCurrent" Text="—" FontSize="24" FontWeight="Bold" />
-                    <TextBlock x:Name="KpiCurrentSub" Text="—" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="KpiCurrentSub" Text="—" Style="{StaticResource AppCardFootnoteStyle}" />
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="1" CornerRadius="8" Padding="14,10"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1">
+            <Border Grid.Column="1" Style="{StaticResource AppKpiCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="区间最高" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="区间最高" Style="{StaticResource AppCardLabelStyle}" />
                     <TextBlock x:Name="KpiMax" Text="—" FontSize="24" FontWeight="Bold" />
-                    <TextBlock x:Name="KpiMaxSub" Text="—" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="KpiMaxSub" Text="—" Style="{StaticResource AppCardFootnoteStyle}" />
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="2" CornerRadius="8" Padding="14,10"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1">
+            <Border Grid.Column="2" Style="{StaticResource AppKpiCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="区间最低" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="区间最低" Style="{StaticResource AppCardLabelStyle}" />
                     <TextBlock x:Name="KpiMin" Text="—" FontSize="24" FontWeight="Bold" />
-                    <TextBlock x:Name="KpiMinSub" Text="—" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="KpiMinSub" Text="—" Style="{StaticResource AppCardFootnoteStyle}" />
                 </StackPanel>
             </Border>
 
-            <Border Grid.Column="3" CornerRadius="8" Padding="14,10"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1">
+            <Border Grid.Column="3" Style="{StaticResource AppKpiCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="平均电量" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="平均电量" Style="{StaticResource AppCardLabelStyle}" />
                     <TextBlock x:Name="KpiAvg" Text="—" FontSize="24" FontWeight="Bold" />
-                    <TextBlock x:Name="KpiAvgSub" Text="—" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="KpiAvgSub" Text="—" Style="{StaticResource AppCardFootnoteStyle}" />
                 </StackPanel>
             </Border>
         </Grid>
 
         <!-- 曲线卡片 -->
-        <Border Grid.Row="3" CornerRadius="8"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1">
+        <Border Grid.Row="3" Style="{StaticResource AppCardStyle}">
             <Grid x:Name="ChartHost" />
         </Border>
     </Grid>
