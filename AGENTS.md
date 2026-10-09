@@ -23,6 +23,7 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 ## 3. 动代码前
 
 - 先读 `doc/project/handoff.md`（会话快照）+ 相关专题文档；冲突时以专题文档为准。
+- 逐轮历史在 `doc/project/changelog.md`：**本轮做了什么、为什么这么改，收工后追加到那里**，不要把流水账写回 handoff（那里只放当前状态）。
 - **UI 改版：先出方案，用户确认后再改代码。**
 - 硬件写入类改动：先读 `doc/hardware/safety.md`（零写入原则、写入闸门）。
 - 改读数过滤器 / 帧解析 / 历史库后，**必须重跑单测**。
@@ -34,7 +35,7 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 - 运行：从 `src\VigilWatt.App\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\` 启动。
   必须用 **sln** 构建（产物在 `bin\x64\...`），直接构建 csproj 的产物在 `bin\...`，不要混用。
 - 测试：`dotnet test src/tests/VigilWatt.Core.Tests`
-- 发布：`dotnet publish src/VigilWatt.App -c Release -p:Platform=x64 -o src/publish`
+- 发布：`dotnet publish src/VigilWatt.App -c Release -p:Platform=x64 -o publish`
   发布前确认没有实例在运行——exe 被占用会导致 `MSB3027` 构建失败。
 
 ## 5. 不要碰

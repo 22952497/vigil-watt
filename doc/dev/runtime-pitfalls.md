@@ -330,7 +330,7 @@ Mica 是 **Windows 11 专属**（微软文档原文："在 Windows 10 上会回�
 **验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误；`dotnet test` **101/101**。
 
 **环境提醒**：本机（Win10 19045）用 shell / `nohup` 拉起 `VigilWatt.App.exe` 会在几秒内被
-进程树清理带走（与 handoff.md 记的一致），**Win10 侧的外观只能由用户双击 exe 肉眼确认**。
+进程树清理带走（与 changelog.md 记的一致），**Win10 侧的外观只能由用户双击 exe 肉眼确认**。
 
 ## 15. 小组件"钉在桌面"只能靠 SetWindowPos(HWND_BOTTOM)，不能靠 IsAlwaysOnTop（2026-10-08）
 
