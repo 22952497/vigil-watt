@@ -45,7 +45,16 @@ xUnit 项目（`net8.0`、AnyCPU），用 `<Compile Include>` 直接链接 `src/
 
 ## 5. NuGet 版本降级链
 
-引入 System.Drawing.Common 时报 NU1605：H.NotifyIcon 的依赖链要求 ≥9.0.1，显式引用 9.0.1 解决（后来 H.NotifyIcon 整个移除了，但 System.Drawing.Common 因托盘画图标仍在用）。
+引入 System.Drawing.Common 时曾报 NU1605：H.NotifyIcon 的依赖链要求 ≥9.0.1，显式引用 9.0.1 解决。
+
+**2026-10-09 修正**：H.NotifyIcon 早已整个移除（托盘改纯 Win32，见 runtime-pitfalls §5），这条约束不复存在。
+而 9.0.x 是 .NET 9 代的包，会带入 `System.Private.Windows.Core`，后者要求 `System.Collections.Immutable` /
+`System.Reflection.Metadata` 的 **9.0.0.0**，与 .NET 8 ref pack 的 **8.0.0.0** 冲突 → 每次构建报 MSB3277 ×2。
+已改为 **8.0.7**（与 net8.0 同代，依赖只有 `Microsoft.Win32.SystemEvents`）。托盘图标只用 GDI+ 基础 API，8.0 完全够。
+
+**查这类"版本冲突"警告别等完整构建**：WinUI 全量构建本机要 8–10 分钟，而 MSB3277 源于依赖图——
+直接看 `src/VigilWatt.App/obj/project.assets.json` 里该包的版本，以及根因包（如 `System.Private.Windows.Core`）
+是否还在，几秒就能定性。
 
 ## 6. 输出目录里的 88 个语言文件夹（.mui 语言包）
 

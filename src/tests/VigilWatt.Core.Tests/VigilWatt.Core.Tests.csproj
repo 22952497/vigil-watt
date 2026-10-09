@@ -40,6 +40,7 @@
     <Compile Include="..\..\VigilWatt.Core\Ble\ClassicDeviceName.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceKind.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceKindGuesser.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Models\ClassicDeviceKindResolver.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceSourceInfo.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceStatus.cs" />
     <Compile Include="..\..\VigilWatt.Core\Devices\DeviceStatusMerger.cs" />

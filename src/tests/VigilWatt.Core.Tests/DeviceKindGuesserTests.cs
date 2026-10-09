@@ -54,4 +54,15 @@ namespace VigilWatt.Core.Tests;
         Assert.Equal(DeviceKind.Unknown, DeviceKindGuesser.Guess("   "));
         Assert.Equal(DeviceKind.Unknown, DeviceKindGuesser.Guess("某不认识的设备"));
     }
+
+    [Fact]
+    public void K6_过宽的head关键字不再误判()
+    {
+        // 旧版耳机关键字里有裸 "head"，"Ahead"/"Headway" 这类会被认成耳机
+        Assert.Equal(DeviceKind.Unknown, DeviceKindGuesser.Guess("Ahead Workstation"));
+        Assert.Equal(DeviceKind.Unknown, DeviceKindGuesser.Guess("Headway HUB"));
+        // 真耳机名仍然认得出
+        Assert.Equal(DeviceKind.Headset, DeviceKindGuesser.Guess("Sony WH-1000XM5 Headphones"));
+        Assert.Equal(DeviceKind.Headset, DeviceKindGuesser.Guess("Soundcore Earbuds"));
+    }
 }

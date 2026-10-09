@@ -144,6 +144,10 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
   4. **Id 前缀要在 `SourceFromId` 里映射到对应的 `DeviceSource`**（如 `sys:` → `System`）。
   - ⚠️ **命名空间不要叫 `VigilWatt.Core.System`**：它会遮蔽 BCL 的 `System`，
     让同文件里的 `System.Threading.Timer` / `System.Text.*` 全部解析失败（第 16 轮踩过，改用 `Power/`）。
+  - ⚠️ **设备类型别预设**：一个 watcher 可能收到多种设备——经典蓝牙 selector 就同时含耳机、鼠标、键盘、手机，
+    把 `Kind` 写死成 `Headset` 会让蓝牙鼠标显示成耳机（真机 RAPOO BT3.0 踩过）。
+    要按设备自身的信号判定（`Models/ClassicDeviceKindResolver`：设备类别 → 服务 UUID → 显示名），
+    见 dev/runtime-pitfalls.md §3.1。
   - 若要给开关（如 `MonitorSystemBattery`）：bool 字段反序列化缺省即用属性默认值，无需补键；
     但**关闭时必须把设备条目从 `_devices` 撤掉**（同 `DropDevicesOf` 的理由），且 `RestoreOfflineTombstones` 要跳过它。
 - **托盘"最低电量"要显式排除 `DeviceSource.System`**（TrayService.Render）：本机电量是"正常用到 30% 是常态"的

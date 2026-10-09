@@ -6,7 +6,9 @@ using Windows.Devices.Enumeration;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>经典蓝牙（BR/EDR）监视器：用 BluetoothDevice selector 单开一路 watcher（BLE watcher 覆盖不到音频设备），提供连接状态 + 电量（HFP 网关节点 PnP 属性）。详见 doc/project/code-flow.md §3。</summary>
+/// <summary>经典蓝牙（BR/EDR）监视器：单开一路 watcher（BLE watcher 覆盖不到音频设备），提供连接状态 + 电量 + 设备类型。
+/// ⚠️ 该 selector 匹配**所有已配对经典蓝牙设备**（含鼠标/键盘/手机），类型不能预设成耳机，要按类别/服务 UUID 判定。
+/// 详见 doc/project/code-flow.md §3、doc/dev/runtime-pitfalls.md §3.1。</summary>
 public sealed class BluetoothClassicWatcher : IDisposable
 {
     private DeviceWatcher? _watcher;
@@ -70,23 +72,6 @@ public sealed class BluetoothClassicWatcher : IDisposable
         // Updated 事件只带变化的属性：IsConnected 缺失时沿用现状，不能当成断开
         bool? connected = ReadConnected(props);
 
-        int? percent = null;
-        if (_batteryProp != null && props.TryGetValue(_batteryProp, out var batteryObj))
-        {
-            try
-            {
-                int v = Convert.ToInt32(batteryObj);
-                if (v is > 0 and <= 100) percent = v;
-            }
-            catch { /* 类型不对就忽略 */ }
-        }
-
-        // AEP 属性拿不到时，走 HFP 网关设备节点的 DEVPKEY_Device_BatteryLevel
-        if (!percent.HasValue && TryGetDevNodeBattery(id, out var devNodePercent))
-        {
-            percent = devNodePercent;
-        }
-
         if (connected == false)
         {
             if (_devices.TryGetValue(id, out var tracked) && tracked.IsOnline)
@@ -108,25 +93,44 @@ public sealed class BluetoothClassicWatcher : IDisposable
             return;
         }
 
-        if (isNew)
+        // 设备节点信息一次取全：电量 + Windows 设备类别 + 服务 UUID（类型判定要用；整表 5 秒缓存）
+        var nodeInfo = TryGetDevNodeInfo(id);
+
+        int? percent = null;
+        if (_batteryProp != null && props.TryGetValue(_batteryProp, out var batteryObj))
+        {
+            try
+            {
+                int v = Convert.ToInt32(batteryObj);
+                if (v is > 0 and <= 100) percent = v;
+            }
+            catch { /* 类型不对就忽略 */ }
+        }
+
+        // AEP 属性拿不到时，走 HFP 网关设备节点的 DEVPKEY_Device_BatteryLevel
+        percent ??= nodeInfo?.BatteryPercent;
+
+        if (status == null)
         {
             status = new DeviceStatus
             {
                 Id = $"btc:{id}",
                 Name = "",
                 Source = DeviceSource.BluetoothClassic,
-                Kind = DeviceKind.Headset,   // A2DP/HFP 音频设备，基本都是耳机/音箱
-                Protocol = "经典蓝牙 A2DP/HFP",
+                // ⚠️ 不预设成 Headset（本 watcher 也收鼠标/键盘/手机），类型交给 ApplyKindAndProtocol
+                Kind = DeviceKind.Unknown,
+                Protocol = "经典蓝牙",
             };
             _devices[id] = status;
         }
 
         ApplyName(status, id, name, props);
+        bool kindChanged = ApplyKindAndProtocol(status, nodeInfo);
 
-        // 只在有意义的变化时通知：新上线 / 从离线恢复 / 电量数值变化
+        // 只在有意义的变化时通知：新上线 / 从离线恢复 / 电量数值变化 / 类型刚解析出来
         bool wasOffline = !status.IsOnline;
         bool batteryChanged = percent.HasValue && status.BatteryPercent != percent;
-        bool shouldNotify = isNew || wasOffline || batteryChanged;
+        bool shouldNotify = isNew || wasOffline || batteryChanged || kindChanged;
 
         status.IsOnline = true;
         status.LastUpdated = DateTimeOffset.Now;
@@ -202,7 +206,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
         // 已经解析出真名了就别覆盖（Updated 事件会反复进来）
         if (!ClassicDeviceName.IsPlaceholder(status.Name)) return;
 
-        string? mac = ClassicAudioBattery.MacFromAepId(aepId);
+        string? mac = ClassicDevNodeReader.MacFromAepId(aepId);
         var paired = ClassicPairedNames.TryGet(mac);
         status.Name = string.IsNullOrEmpty(paired) ? ClassicDeviceName.FallbackName(mac) : paired!;
     }
@@ -219,15 +223,25 @@ public sealed class BluetoothClassicWatcher : IDisposable
         }
     }
 
-    /// <summary>按 AEP ID 里的设备 MAC 去 HFP 网关节点上取电量。</summary>
-    private static bool TryGetDevNodeBattery(string aepId, out int percent)
+    /// <summary>按 AEP ID 里的设备 MAC 取该设备的经典蓝牙节点信息（电量 / 设备类别 / 服务 UUID）；查不到返回 null。</summary>
+    private static ClassicDevNodeInfo? TryGetDevNodeInfo(string aepId)
     {
-        percent = 0;
-        var mac = ClassicAudioBattery.MacFromAepId(aepId);
-        if (mac == null) return false;
-        if (!ClassicAudioBattery.ReadBatteryByMac().TryGetValue(mac, out var p)) return false;
-        if (p is <= 0 or > 100) return false;
-        percent = p;
+        var mac = ClassicDevNodeReader.MacFromAepId(aepId);
+        if (mac == null) return null;
+        return ClassicDevNodeReader.ReadByMac().TryGetValue(mac, out var info) ? info : null;
+    }
+
+    /// <summary>解析设备类型与协议描述，返回是否有变化。名字/类别常后到，所以只在 Unknown 时重试，非 Unknown 即锁定。</summary>
+    private static bool ApplyKindAndProtocol(DeviceStatus status, ClassicDevNodeInfo? info)
+    {
+        if (status.Kind != DeviceKind.Unknown) return false;
+
+        var kind = ClassicDeviceKindResolver.Resolve(status.Name, info?.Categories, info?.ServiceUuids);
+        if (kind == DeviceKind.Unknown) return false;
+
+        status.Kind = kind;
+        status.Protocol = ClassicDeviceKindResolver.DescribeProtocol(info?.ServiceUuids);
+        Log.Info($"经典蓝牙设备类型: {status.DisplayName} → {kind}（{status.Protocol}）");
         return true;
     }
 
@@ -242,7 +256,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
             // 名字可能是后来才解析出来的（WinRT 首次 Added 常常只给设备 ID），每轮补一次
             if (ClassicDeviceName.IsPlaceholder(status.Name))
             {
-                var mac = ClassicAudioBattery.MacFromAepId(id);
+                var mac = ClassicDevNodeReader.MacFromAepId(id);
                 var paired = ClassicPairedNames.TryGet(mac);
                 if (!string.IsNullOrEmpty(paired))
                 {
@@ -253,12 +267,19 @@ public sealed class BluetoothClassicWatcher : IDisposable
                 }
             }
 
-            if (!TryGetDevNodeBattery(id, out var percent)) continue;
-            if (status.BatteryPercent == percent) continue;
+            var nodeInfo = TryGetDevNodeInfo(id);
+            bool changed = ApplyKindAndProtocol(status, nodeInfo);
 
-            status.BatteryPercent = percent;
+            if (nodeInfo?.BatteryPercent is { } percent && status.BatteryPercent != percent)
+            {
+                status.BatteryPercent = percent;
+                Log.Info($"经典蓝牙电量(HFP 节点): {status.DisplayName} {percent}%");
+                changed = true;
+            }
+
+            if (!changed) continue;
+
             status.LastUpdated = DateTimeOffset.Now;
-            Log.Info($"经典蓝牙电量(HFP 节点): {status.DisplayName} {percent}%");
             DeviceUpdated?.Invoke(status);
         }
     }

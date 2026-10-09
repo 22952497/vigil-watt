@@ -53,7 +53,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
-    <PackageReference Include="System.Drawing.Common" Version="9.0.1" />
+    <!-- 必须与 net8.0 同代：9.0.x 会带入 System.Private.Windows.Core，它要求 Immutable/Metadata 9.0.0.0，
+         与 .NET 8 ref pack 的 8.0.0.0 冲突（MSB3277 ×2）。托盘图标只用 GDI+ 基础 API，8.0 足够 -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.7" />
     <!-- Velopack 运行时：VelopackApp（安装/更新/卸载钩子）+ UpdateManager（自动更新） -->
     <PackageReference Include="Velopack" Version="1.2.161" />
   </ItemGroup>

@@ -696,6 +696,40 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 **验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误；`dotnet test` 全绿（新增 N3/N4/InfoOnChange/InfoThrottled 用例）。
 **提交**：阶段 1 = `d68b6d5 日志分级与管控改造`；阶段 2/3 见本轮提交。
 
+### 2026-10-09 第十二轮：经典蓝牙设备类型判定 —— 蓝牙鼠标不再被认成耳机
+
+**症状**（用户报）：`RAPOO BT3.0 Mouse`（经典蓝牙 BT3.0 鼠标）在列表里显示成**耳机**（耳机图标 + 协议"经典蓝牙 A2DP/HFP"）。
+
+**根因**：`BluetoothClassicWatcher` 新建条目时把 `Kind` 硬编码成 `DeviceKind.Headset`，假设"A2DP/HFP 音频设备基本都是耳机/音箱"。
+但 `BluetoothDevice.GetDeviceSelector()` 匹配的是**所有已配对经典蓝牙设备**（code-flow §3 里"含手机"那句就是证据），
+蓝牙鼠标/键盘同样会进来；而 `DeviceStatusMerger` 是"声明覆盖猜测"（非 `Unknown` 才覆盖），
+这个错误类型会被**冻结**在进程内——用户重启多少次都不会自愈。
+
+**修法（不预设，按三级信号判定）**：新增 `Models/ClassicDeviceKindResolver.cs`（纯逻辑，可单测）；
+`Ble/ClassicAudioBattery.cs` → **重命名并扩展**为 `Ble/ClassicDevNodeReader.cs`（一次枚举同时给出电量 + 类别 + 服务 UUID）。
+
+| 优先级 | 信号 | 来源 | 真机取值 |
+|---|---|---|---|
+| ① | Windows 设备功能类别 | `DEVPKEY_DeviceDisplay_Category` = `{78C34FC8-…}, 90`（STRING_LIST），挂在**父节点** `BTHENUM\DEV_<MAC>` | `Input.Mouse` / `Audio.Headphone` |
+| ② | 经典蓝牙服务 UUID | **子节点**实例 ID 前缀 `BTHENUM\{00001124-…}` | `00001124`=HIDP；`0000111e`+`0000110b`=HFP+A2DP |
+| ③ | 显示名兜底 | `DeviceKindGuesser` | `RAPOO BT3.0 Mouse` → Mouse |
+
+- `Resolve`：类别命中即返回；否则**有音频服务 = 耳机/音箱**（名字含"音箱"则 Speaker）；都没有再按名字猜，
+  **猜不出就 `Unknown`，绝不退回 Headset**（那正是本次 bug 的根因）。
+- 类型**只在还没解析出来时重算**（名字/类别常常后到），非 `Unknown` 即锁定；`Protocol` 一并按服务 UUID 给出（鼠标不再是 "A2DP/HFP"）。
+- `DeviceKindGuesser` 顺手去掉过宽的裸 `"head"` 关键字（会命中 `Ahead`/`Headway`），换成 `headset`/`headphone`/`earbud` 等精确词。
+- 新增排查脚本 `scripts/probe-classic-kind.py`（枚举 BTHENUM 节点 + 服务 UUID + 设备类别）。
+
+**实测（本机）**：`BTHENUM` 3 个节点全属同一台设备（MAC `B4EE25E54627`，VID_0002AE24 雷柏）——
+父节点类别 `Input.Mouse`；子节点服务 `{00001200}`（设备标识服务）+ `{00001124}`（HIDP）。
+两个关键坑：**设备类别只在父节点、服务 UUID 只在子节点**（必须按 MAC 归并）；
+实例 ID 取 MAC 不能用"全局找 12 位十六进制"（服务 UUID 里的 `00805F9B34FB` 会被先匹配上）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误；`dotnet test` 相关用例 **37/37 通过**
+（`ClassicDeviceKindResolverTests` C1–C9 含"雷柏 BT3.0 鼠标不再被认成耳机"回归 + `DeviceKindGuesserTests` K6
++ `DeviceStatusMergerTests`/`DeviceSourceInfoTests`/`ClassicDeviceNameTests`）。
+⚠️ 全量 `dotnet test` 会卡在 `LogTests`（既有环境问题，见 §5 注意事项；与本次改动无关，单跑 LogTests 即复现）。
+
 ## 4. 待办（按优先级，详见 experience.md §5）
 
 

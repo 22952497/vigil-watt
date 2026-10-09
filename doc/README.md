@@ -57,6 +57,7 @@
 | 配对但没连接的耳机出现在列表里（还显示着上次的电量） | `Added` 首帧的 `Aep.IsConnected` 可能缺失，旧代码拿"读到电量"当在线依据——而 HFP 节点的电量**断开后仍在**。现已改为查"已连接"集合 | project/handoff.md「第二轮真机复测」 |
 | 北通图标像键盘 / 显示名带 `For Keyboard & Mouse` | 显示名是 USB product string；图标按名字匹配时 keyboard/mouse 排在手柄前面被先命中 | project/handoff.md「第二轮真机复测」 |
 | 键盘/鼠标/耳机图标全是通用蓝牙图标 | 真机显示名（`Rapoo Gaming Device`/`MCHOSE 2.4G Wireless`/`EDIFIER W820NB 双金标版`）里没有任何关键字，按名字猜必然失败；已改为插件显式声明 `DeviceKind` | project/handoff.md「第三轮：改显式声明设备类型」 |
+| 蓝牙鼠标/键盘被显示成**耳机**（图标 + 协议"经典蓝牙 A2DP/HFP"） | 经典蓝牙 watcher 收得到所有已配对设备，旧代码把 `Kind` 硬编码成 `Headset`（"A2DP/HFP = 耳机"）；现按 Windows 设备类别（`Input.Mouse`）→ 服务 UUID → 名字三级判定 | dev/runtime-pitfalls.md §3.1 |
 | 主界面"刷新"按钮点了像没反应 | 三个原因叠加：① `Refresh()` 自己把按钮 `IsEnabled` 设回 true，禁用状态同帧被抹掉、零视觉反馈；② `PollConnectedAsync` 是 fire-and-forget，`RequestPoll` 同步返回时 BLE 侧还没跑；③ `SafePoll` 用 `Interlocked` 标志重入即静默 `return`，撞上自动轮询就什么都不做。已改为可 await 的 `RequestPollAsync` + 转圈/文案反馈 + 复用进行中那一轮 | project/handoff.md「第四轮：刷新按钮」 |
 | 本机电量不显示（开了开关也没有） | ① 台式机 / 电池被禁用（`BatteryFlag=128/255`，设计上不显示）；② 设置的「监控本机电量」没开（默认关）；③ 开关刚打开但还没到下一轮轮询 | project/code-flow.md §本机电量 |
 | 本机电量显示"已充满"而不是"充电中" | 接电且读到 100% 时按 `Full` 处理（与 Windows 电池图标一致），不是 bug | project/code-flow.md §本机电量 |

@@ -423,6 +423,7 @@ public sealed class DeviceManager : IDisposable
 
         // 覆盖前记下上一次已知电量，供低电量提醒做骤降保护（同一对象的情况也成立）
         int? previousPercent = isNew ? null : status.BatteryPercent;
+        var previousKind = status.Kind;
 
         // 充电标志必须参与变化判定：设备改口 充电中↔放电 时电量往往不变（如拔线瞬间停在 99%），
         // 漏判会让 UI/托盘/小组件一直显示"充电中"，直到下一次电量跳动才自愈（2026-10-06 用户复报）。
@@ -440,6 +441,11 @@ public sealed class DeviceManager : IDisposable
             // 电量变化立即写一条历史（含从离线恢复）
             if (status.BatteryPercent.HasValue)
                 _history.Insert(status);
+            DeviceUpdated?.Invoke(status);
+        }
+        else if (status.Kind != previousKind)
+        {
+            // 类型后解析出来（Unknown → Mouse）：电量没变也要换图标，但不写历史
             DeviceUpdated?.Invoke(status);
         }
 

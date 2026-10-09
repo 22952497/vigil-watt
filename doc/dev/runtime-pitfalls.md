@@ -52,6 +52,43 @@ Windows 11 26200 上 `System.Devices.AepBattery_Level` 和 `System.Devices.Aep.B
 - 属性名别再造新词（`System.Devices.BatteryLevel` 之类在 WinRT 侧同样取不到），P/Invoke SetupAPI 是可靠路径。
 - 排查脚本：`scripts/probe-devnode-battery.py`（纯 ctypes，`--all` 可 dump 任意节点全属性）。
 
+### 3.1 经典蓝牙设备类型：不能假设"经典蓝牙 = 耳机"（2026-10-09 实修）
+
+**症状**：`RAPOO BT3.0 Mouse`（经典蓝牙 BT3.0 鼠标）在列表里被显示成**耳机**（耳机图标 + 协议"经典蓝牙 A2DP/HFP"）。
+
+**根因**：`BluetoothClassicWatcher` 新建条目时把 `Kind` 硬编码成 `DeviceKind.Headset`，理由是"A2DP/HFP 音频设备基本都是耳机/音箱"。
+但 `BluetoothDevice.GetDeviceSelector()` 匹配的是**所有已配对经典蓝牙设备**（§3 自己也写了"含手机"），蓝牙鼠标/键盘同样会进来。
+更糟的是 `DeviceStatusMerger` 是"声明覆盖猜测"（非 `Unknown` 才覆盖），这个错误类型会被**冻结**在进程内，永远改不回来。
+
+**修法**：不再预设，按三级信号判定（`Models/ClassicDeviceKindResolver`，纯逻辑可单测）：
+
+| 优先级 | 信号 | 来源 | 真机取值 |
+|---|---|---|---|
+| ① | **Windows 设备功能类别** | `DEVPKEY_DeviceDisplay_Category` = `{78C34FC8-104A-4ACA-9EA4-524D52996E57}, 90`（STRING_LIST），挂在**父节点** `BTHENUM\DEV_<MAC>` | `Input.Mouse` / `Audio.Headphone` |
+| ② | **经典蓝牙服务 UUID** | **子节点**实例 ID 前缀 `BTHENUM\{00001124-…}_…` | `00001124`=HIDP；`0000111e`+`0000110b`=HFP+A2DP |
+| ③ | 显示名兜底 | `DeviceKindGuesser` | `RAPOO BT3.0 Mouse` → Mouse |
+
+判定顺序：类别命中即返回；否则**有音频服务（HSP/HFP/A2DP/AVRCP）= 耳机/音箱**（名字含"音箱"则 Speaker）；
+都没有再按名字猜，**猜不出就 `Unknown`，绝不退回 Headset**（那正是本次 bug 的根因）。
+
+**实测确认（本机）**：`BTHENUM` 共 3 个节点，全属同一台设备（MAC `B4EE25E54627`，VID_0002AE24 雷柏）：
+
+```
+BTHENUM\DEV_B4EE25E54627\…      ← 父节点：类别 = ["Input.Mouse"]
+BTHENUM\{00001200-…}\…          ← 设备标识服务（SDP）
+BTHENUM\{00001124-…}\…          ← HIDP（HID Profile）
+```
+
+关键细节（改代码时别踩）：
+
+- **设备类别只在父节点上，服务 UUID 只在子节点上** → 必须按 MAC 归并两类节点（`ClassicDevNodeReader.ReadByMac`）。
+- **实例 ID 里的 MAC 不能用"全局找 12 位十六进制"**：服务 UUID 段里的 `00805F9B34FB` 会先被匹配上。
+  用 `&(?:BLUETOOTHDEVICE_)?([0-9A-Fa-f]{12})` 才能同时覆盖子节点末段 `<MAC>_C…` 与父节点的 `DEV_<MAC>` / `&BLUETOOTHDEVICE_<MAC>`。
+- **设备类别依赖设备元数据包**，廉价设备可能没有（属性缺失），必须靠 ②③ 兜底。
+- 类型**只在还没解析出来时重算**（名字与类别常常后到：WinRT 首次 `Added` 常只给设备 ID），一旦非 `Unknown` 就锁定。
+- 类别取值是厂商可自定义的字符串（XSD 允许任意值），按关键字匹配而不是穷举枚举。
+- 排查脚本：`scripts/probe-classic-kind.py`（`--all` dump 节点全属性）。
+
 ## 4. XAML 事件在解析期间就会触发
 
 ComboBox 设 `SelectedIndex="0"` → `SelectionChanged` 在 `InitializeComponent()` 内部、x:Name 字段尚未赋值时就会触发。**事件处理器开头必须判空**（StatsPage.RenderChart 的 NRE 即此因）。
