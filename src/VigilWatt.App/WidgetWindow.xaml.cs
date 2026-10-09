@@ -35,6 +35,7 @@ public sealed partial class WidgetWindow : Window
     private const double LineHeight = IconSize; // 名称行行高由图标方块决定，行高确定就不需要运行时 Measure
     private const double RowHeight = IconSize + RowInnerGap + BarHeight;
     private const double NameMaxWidth = 200;    // 名称列上限（超出省略号），正常设备名都能放下
+    private const double ChargeMarkWidth = 14;  // 充电标识 ⚡ 列宽度（13 号字近似，与列表页同款字符）
 
     /// <summary>n 行内容（含行间距）的总高度。</summary>
     private static double RowsHeight(int rows) => rows <= 0 ? 0 : rows * RowHeight + (rows - 1) * RowGap;
@@ -180,7 +181,9 @@ public sealed partial class WidgetWindow : Window
         }
         foreach (var d in devices)
         {
-            double w = IconSize + IconGap + nameW + 10 + PercentWidth(d);
+            // 充电行比放电行多一列 ⚡（列宽 + 该列两侧间距）；放电行的 ⚡ 列放空串，只占列间距
+            double chargeW = d.Charging == ChargingState.Charging ? ChargeMarkWidth : 0;
+            double w = IconSize + IconGap + nameW + 10 + chargeW + 10 + PercentWidth(d);
             if (w > rowW) rowW = w;
         }
 
@@ -272,10 +275,12 @@ public sealed partial class WidgetWindow : Window
 
         var row = new StackPanel { Spacing = RowInnerGap, Width = width };
 
-        // 图标 Auto 列、名称 * 列自适应收缩（超长省略号）、百分比 Auto 列，互不挤占
+        // 图标 Auto 列、名称 * 列自适应收缩（超长省略号）、充电标识 Auto 列、百分比 Auto 列，互不挤占。
+        // 充电列在所有行恒定存在（不充电时放空串），四列结构一致，名称列宽与百分比右缘因此对得齐
         var line = new Grid { ColumnSpacing = 8 };
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         line.Children.Add(BuildIcon(d.Kind, skin));
@@ -292,6 +297,19 @@ public sealed partial class WidgetWindow : Window
         Grid.SetColumn(name, 1);
         line.Children.Add(name);
 
+        // 充电标识：与设备列表页同款 ⚡（列表页由 Visibility 绑定 IsCharging 控制显隐；
+        // 这里用空串占位，既保持四列结构对齐，又让 ⚡ 用与百分比/进度条相同的充电蓝色）
+        var chargeMark = new TextBlock
+        {
+            Text = charging ? "⚡" : "",
+            FontSize = 13,
+            Height = LineHeight,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = new SolidColorBrush(stateColor),
+        };
+        Grid.SetColumn(chargeMark, 2);
+        line.Children.Add(chargeMark);
+
         var percentText = new TextBlock
         {
             Text = percent.HasValue ? $"{percent}%" : "--",
@@ -300,7 +318,7 @@ public sealed partial class WidgetWindow : Window
             Foreground = new SolidColorBrush(stateColor),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Grid.SetColumn(percentText, 2);
+        Grid.SetColumn(percentText, 3);
         line.Children.Add(percentText);
         row.Children.Add(line);
 
