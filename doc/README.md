@@ -60,7 +60,7 @@
 | 本机电量显示"已充满"而不是"充电中" | 接电且读到 100% 时按 `Full` 处理（与 Windows 电池图标一致），不是 bug | project/code-flow.md §本机电量 |
 | 托盘图标为什么不显示笔记本电量 | 设计如此：托盘"最低电量"只统计无线外设，本机电量不参与（否则笔记本正常放电就染红图标）。本机电量仍进列表/小组件/历史统计/低电量提醒 | project/code-flow.md §托盘 |
 
-数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log）。
+数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log；历史日志 `app.1.log` / `app.2.log`，写入异常兜底 `logs\log-error.txt`）。日志分级 `LogLevel`（默认 `Info`，可选 关闭/详细/信息/警告/错误）在设置页下拉框调整，**改后需重启**，完整设计见 [dev/logging.md](dev/logging.md)。
 
 ## 🔧 scripts/ — 临时调试脚本
 

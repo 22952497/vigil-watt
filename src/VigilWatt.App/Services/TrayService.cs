@@ -27,8 +27,6 @@ public sealed class TrayService : IDisposable
     private uint _taskbarCreatedMessage;
     /// <summary>刷新请求是否已排队（1 = 已排）。设备事件每轮会连打好几次，靠它合并成一次。</summary>
     private int _updateQueued;
-    /// <summary>上一次写进托盘的提示文字，用于"变了才记日志"。</summary>
-    private string? _lastTip;
 
     private readonly AppServices _services;
 
@@ -223,11 +221,8 @@ public sealed class TrayService : IDisposable
                 if (oldIcon != IntPtr.Zero) Native.DestroyIcon(oldIcon);
                 // 只在提示真正变化时打日志：轮询期间会频繁刷新，全打会把日志冲爆，
                 // 但"提示变了没有"正是排查托盘状态问题最想知道的一条信息。
-                if (_lastTip != tip)
-                {
-                    _lastTip = tip;
-                    Log.Info($"托盘提示已更新: {tip}");
-                }
+                // 去重状态由 Log.InfoOnChange 按 key 维护（不再自己留 _lastTip 字段）。
+                Log.InfoOnChange("tray-tip", tip, $"托盘提示已更新: {tip}");
             }
             else
             {
@@ -297,9 +292,9 @@ public sealed class TrayService : IDisposable
     {
         Log.Info("用户退出应用");
         _instance?.Dispose();
-        // 退出收尾：刷盘并释放 app.log 句柄。挂在真实退出路径上
+        // 退出收尾：释放单实例互斥量 + 刷盘并释放 app.log 句柄。挂在真实退出路径上
         // （AppServices.Dispose 全仓无人调用，钩子挂那儿永远不会触发）。
-        Log.Shutdown();
+        App.ShutdownLogging();
         Environment.Exit(0);
     }
 

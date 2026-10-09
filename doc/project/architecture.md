@@ -34,7 +34,8 @@ VigilWatt.sln
 │   ├── Models/DeviceStatus            # 统一设备状态快照（Id/电量/充电/在线）
 │   ├── Settings/AppSettings           # settings.json 读写
 │   ├── Storage/HistoryStore           # SQLite（Microsoft.Data.Sqlite）：写入/查询/按设备删除/VACUUM
-│   └── Utils/Log                      # 文本日志 %LOCALAPPDATA%\VigilWatt\logs\app.log
+│   ├── Utils/LogLevel                 # 日志级别枚举（Debug<Info<Warn<Error + Off 哨兵）与名称解析
+│   └── Utils/Log                      # 分级文本日志：%LOCALAPPDATA%\VigilWatt\logs\app.log（按大小滚动，详见 dev/logging.md）
 └── src/VigilWatt.App/             # WinUI 3 前端（net8.0-windows10.0.19041.0，非打包）
     ├── App.xaml.cs                    # AppServices 容器 + 启动序列 + 全局异常兜底
     ├── MainWindow(.xaml)              # NavigationView 三页导航；关窗=隐藏到托盘
@@ -49,6 +50,7 @@ VigilWatt.sln
     └── Services/
         ├── TrayService                # 托盘（纯 Win32 Shell_NotifyIcon）+ 全应用唯一退出通道
         ├── WidgetDisplayMode          # 小组件层级取值（Topmost/Normal/Desktop）+ 条数上限范围
+        ├── LogLevelOptions            # 设置页日志级别下拉框的档位（关闭/详细/信息/警告/错误）
         ├── Native                     # App 侧 Win32 声明（托盘/菜单/光标/窗口属性/Z 序）
         └── AutostartService           # HKCU\...\Run 注册表自启
 ```
@@ -99,13 +101,25 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 
 | 位置 | 内容 |
 |---|---|
-| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关/MchoseProbingEnabled/MonitorSystemBattery） |
-| `%LOCALAPPDATA%\VigilWatt\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts) |
-| `%LOCALAPPDATA%\VigilWatt\logs\app.log` | 全部运行日志（协议原始报文也在） |
+| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关/MchoseProbingEnabled/MonitorSystemBattery/**LogLevel**） |
+| `%LOCALAPPDATA%\VigilWatt\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts)。**ts = UTC 毫秒**（`DateTimeOffset.ToUnixTimeMilliseconds`） |
+| `%LOCALAPPDATA%\VigilWatt\logs\app.log` | 当前运行日志（协议原始报文也在）。行首为**本地时间**；文件首行是"时间基准"声明，用于与 history.db 的 UTC 时间对齐 |
+| `%LOCALAPPDATA%\VigilWatt\logs\app.1.log` / `app.2.log` | 滚动保留的历史日志（单文件超 2MB 触发，保留 2 份历史 + 当前 `app.log`） |
+| `%LOCALAPPDATA%\VigilWatt\logs\log-error.txt` | 兜底文件：连续写 `app.log` 失败时记录（带节流与上限），正常运行时不产生 |
+
+> 日志分级：`Debug < Info < Warn < Error`，外加 `Off`（全关）；默认 `Info`，在设置页用下拉框选，**改后需重启应用生效**。
+> 完整设计见 [dev/logging.md](../dev/logging.md)。
 
 ## 6. 约定（改代码前先看）
 
 - Core 里的日志用中文描述 + 原始报文 hex（`Log.Hex`），协议排错全靠它——**新协议解析代码必须打原始帧日志**。
+- **日志分级约定**（完整设计见 [dev/logging.md](../dev/logging.md)）：
+  - `Log.Debug` 打"读了但没解析出东西"的逐帧报文 / 探测明细（高频，默认不输出，调协议时在设置页切到"详细"）；
+  - `Log.Info` 只留**状态变化**与**协议解析结果**（行尾带 `原始=<HEX>`，这是默认档下仍能排障的前提）；
+  - `Log.Warn` / `Log.Error` 照旧。
+  - 热路径先 `Log.IsEnabled(level)` 短路，省掉 `$"..."` 插值开销。
+  - 轮询型重复日志用 `Log.InfoOnChange(key, state, message)`（状态变了才记，返回"是否变化"）或
+    `Log.InfoThrottled(key, message, interval)` 降噪，**不要在各调用点自己攒去重字段**。
 - 插件所有硬件写入必须能被熔断/开关控制：继承 `BatteryPluginBase` 时覆盖 `WritesEnabled`（如迈从的 MchoseProbingEnabled、北通的 BetopProbingEnabled），发帧前检查 `CanWrite(dev)`；熔断（连续 3 次失败停写）由基类自动执行，见 safety.md §3。
 - 新插件清单：加一个 `IBatteryPlugin` 实现类（最简：继承 `BatteryPluginBase`，实现 IsCandidate/Probe/PollDevice）→ 设置页自动出现开关，注册/发现/熔断/认领全自动。
   - ⚠️ **别忘了在 `AppSettings.PluginEnabled` 默认表里加该插件的键**（`AppSettings.Load` 会给老 settings.json 补缺失键，但默认表是唯一来源）。

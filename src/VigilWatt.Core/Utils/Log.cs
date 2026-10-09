@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 
 namespace VigilWatt.Core.Utils;
@@ -6,10 +7,14 @@ namespace VigilWatt.Core.Utils;
 /// 极简文件日志，写到 %LOCALAPPDATA%\VigilWatt\logs\app.log，供协议探测与排障。
 ///
 /// 关键约定（doc/dev/logging.md §3.4 的"格式契约"，改动会破坏 doc/ 里的 grep 考古命令）：
-/// - 行首固定 <c>yyyy-MM-dd HH:mm:ss.fff</c>；级别标签宽度 6（<c>[DBG ]</c>/<c>[INFO]</c>/<c>[WARN]</c>/<c>[ERR ]</c>）
-/// - 一个逻辑事件 = 一行：message 里的换行会被转义；异常堆栈的后续行统一加缩进前缀
+/// - 行首固定 <c>yyyy-MM-dd HH:mm:ss.fff</c>（**本地时间**）；级别标签宽度 6（<c>[DBG ]</c>/<c>[INFO]</c>/<c>[WARN]</c>/<c>[ERR ]</c>）
+/// - 一个逻辑事件 = 一行：message 里的换行/控制符会被转义；异常堆栈的后续行统一加缩进前缀
 /// - 编码 UTF-8 **无 BOM**
 /// - <c>app.log</c> 永远是"当前"文件，滚动出的历史依次是 <c>app.1.log</c> / <c>app.2.log</c>（默认留 3 份）
+///
+/// 时间口径：行首是**本地时间**（人读友好、grep 习惯不变），而 <c>history.db</c> 的 <c>ts</c> 是
+/// **UTC 毫秒**。为了让两者能对齐，每个日志文件新建时会在首行写一条"时间基准"声明（含本机时区与
+/// UTC offset），见 <see cref="WriteTimeBasis"/>。
 ///
 /// 分级：低于 <see cref="MinLevel"/> 的调用零 IO、零分配直接返回；热路径可用
 /// <see cref="IsEnabled"/> 提前短路，省掉 <c>$"..."</c> 插值开销。
@@ -70,6 +75,47 @@ public static class Log
     public static void Info(string message) => Write(LogLevel.Info, "INFO", message);
     public static void Warn(string message) => Write(LogLevel.Warn, "WARN", message);
 
+    // ---------- 降噪：状态变化才记 / 节流 ----------
+    //
+    // 轮询型代码（每 15 秒 / 每分钟重跑）经常在同一状态上重复打日志，把 app.log 冲爆。
+    // 下面两个入口把"什么时候才值得记"从各调用点收拢到这里：
+    //   - InfoOnChange：状态变了才记（如托盘提示文字、HID 设备集合指纹）
+    //   - InfoThrottled：同一 key 在给定间隔内最多记一条
+    // 它们是 MchosePlugin.ShouldLogOnce/ResetLogOnce 的通用版；那里同时承担业务语义的
+    // 状态判断保持原样不动（见 doc/dev/logging.md §4 阶段 3）。
+
+    private static readonly ConcurrentDictionary<string, string> InfoStateByKey = new();
+    private static readonly ConcurrentDictionary<string, long> InfoLastTicksByKey = new();
+
+    /// <summary>
+    /// 只有 <paramref name="state"/> 与上次不同时才打一条 Info，并返回"是否发生变化"。
+    /// 调用点可用返回值决定是否顺带 dump 一批 Debug 明细（HidDeviceScanner 就是这么用的）。
+    ///
+    /// 当前级别高于 Info 时**不更新状态**，这样用户切回 Info 档还能看到最新状态（不丢信息）。
+    /// 并发下最坏情况是同一状态多打一条——日志去重不是正确性关键，不值得为它上锁。
+    /// </summary>
+    public static bool InfoOnChange(string key, string state, string message)
+    {
+        if (!IsEnabled(LogLevel.Info)) return false;
+        if (InfoStateByKey.TryGetValue(key, out var prev) && prev == state) return false;
+        InfoStateByKey[key] = state;
+        Info(message);
+        return true;
+    }
+
+    /// <summary><paramref name="message"/> 自身即状态：变了才打，并返回是否变化。</summary>
+    public static bool InfoOnChange(string key, string message) => InfoOnChange(key, message, message);
+
+    /// <summary>同一 <paramref name="key"/> 在 <paramref name="interval"/> 内最多打一条 Info。</summary>
+    public static void InfoThrottled(string key, string message, TimeSpan interval)
+    {
+        if (!IsEnabled(LogLevel.Info)) return;
+        var now = DateTime.UtcNow.Ticks;
+        if (InfoLastTicksByKey.TryGetValue(key, out var last) && now - last < interval.Ticks) return;
+        InfoLastTicksByKey[key] = now;
+        Info(message);
+    }
+
     /// <summary>错误日志。带异常时把堆栈拆成多行、每行加缩进前缀，保证"一行一条"不被破坏。</summary>
     public static void Error(string message, Exception? ex = null)
     {
@@ -97,7 +143,7 @@ public static class Log
         return sb.ToString().TrimEnd();
     }
 
-    /// <summary>把日志重定向到指定目录，并立即释放旧文件句柄、复位失败状态。
+    /// <summary>把日志重定向到指定目录，并立即释放旧文件句柄、复位失败状态与去重表。
     /// 单测用：不重定向的话测试会往真实的 %LOCALAPPDATA% app.log 里写脏数据。</summary>
     public static void RedirectTo(string logDir)
     {
@@ -111,6 +157,8 @@ public static class Log
             _disabled = false;
             _logDir = logDir;
             _logPath = Path.Combine(logDir, "app.log");
+            InfoStateByKey.Clear();
+            InfoLastTicksByKey.Clear();
         }
     }
 
@@ -130,10 +178,49 @@ public static class Log
         Emit(tag, Sanitize(message));
     }
 
-    /// <summary>保证"一个逻辑事件 = 一行"：message 内的换行/回车转义成可见形式，
-    /// 避免设备名等外部字符串（HID 产品字符串/BLE 名称）伪造出无时间戳的假日志行。</summary>
-    private static string Sanitize(string message) =>
-        message.Replace("\r\n", "\\n").Replace('\r', ' ').Replace("\n", "\\n");
+    /// <summary>保证"一个逻辑事件 = 一行"：message 内的换行/回车/控制符转义成可见形式，
+    /// 避免设备名等外部字符串（HID 产品字符串/BLE 名称）伪造出无时间戳的假日志行。
+    ///
+    /// 绝大多数消息不含控制符，走快路径零分配；含控制符才逐字符转义。</summary>
+    private static string Sanitize(string message)
+    {
+        if (!HasControlChar(message)) return message;
+
+        var sb = new StringBuilder(message.Length + 8);
+        for (int i = 0; i < message.Length; i++)
+        {
+            char c = message[i];
+            switch (c)
+            {
+                case '\r':
+                    // CRLF 视作一个换行；孤立的 CR 也按换行处理（同样是行分隔语义）
+                    if (i + 1 < message.Length && message[i + 1] == '\n') i++;
+                    sb.Append("\\n");
+                    break;
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\t':
+                    sb.Append(c);   // 制表符不破坏"一行"，原样保留
+                    break;
+                default:
+                    // 只有真正的控制符才转义；普通字符（含中文）必须原样保留
+                    if (c < ' ' || c == '\u007F')
+                        sb.Append("\\x").Append(((int)c).ToString("X2"));
+                    else
+                        sb.Append(c);
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static bool HasControlChar(string s)
+    {
+        foreach (var c in s)
+            if (c < ' ' || c == '\u007F') return true;
+        return false;
+    }
 
     private static void Emit(string tag, string message)
     {
@@ -173,13 +260,15 @@ public static class Log
             if (File.Exists(_logPath) && new FileInfo(_logPath).Length > MaxBytes)
                 RotateFiles();
 
+            bool isNew = !File.Exists(_logPath) || new FileInfo(_logPath).Length == 0;
             _writer = new StreamWriter(
                 new FileStream(_logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite),
                 Utf8NoBom)
             {
                 AutoFlush = true,
             };
-            _bytesWritten = File.Exists(_logPath) ? new FileInfo(_logPath).Length : 0;
+            _bytesWritten = isNew ? 0 : new FileInfo(_logPath).Length;
+            if (isNew) WriteTimeBasis();
             _consecutiveFailures = 0;
             _nextRetryUtc = DateTime.MinValue;
             return true;
@@ -190,6 +279,21 @@ public static class Log
             _nextRetryUtc = DateTime.UtcNow + RetryBackoff;
             return false;   // 由调用方记一次 OnFailure（退避中被丢弃的行也会计数）
         }
+    }
+
+    /// <summary>
+    /// 每个日志文件新建时写一行"时间基准"：声明行首是**本地时间**、附上本机时区与 UTC offset，
+    /// 并说明 <c>history.db</c> 的 <c>ts</c> 是 UTC 毫秒 —— 这样拿到日志的人能把日志时间与数据库时间对齐（N4）。
+    /// 该行带完整时间戳前缀，不破坏 <c>grep -a "^20"</c> 之类的既有考古命令；仅在文件为空时出现一次。
+    /// </summary>
+    private static void WriteTimeBasis()
+    {
+        var offset = TimeZoneInfo.Local.GetUtcOffset(DateTime.Now);
+        var sign = offset < TimeSpan.Zero ? "-" : "+";
+        var text = $"本地时间 {TimeZoneInfo.Local.Id} (UTC{sign}{offset.Duration():hh\\:mm})；history.db 的 ts 为 UTC 毫秒";
+        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [INFO] 时间基准: {text}{Environment.NewLine}";
+        _writer!.Write(line);
+        _bytesWritten += Utf8NoBom.GetByteCount(line);
     }
 
     private static void Roll()

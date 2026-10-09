@@ -46,6 +46,10 @@ public sealed class LogTests : IDisposable
         ReadLog().Replace("\r\n", "\n").Replace('\r', '\n')
             .Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
+    /// <summary>去掉每个日志文件首行的"时间基准"声明（N4），只留真正的日志事件行。</summary>
+    private string[] ReadEventLines() =>
+        ReadLogLines().Where(l => !l.Contains("时间基准")).ToArray();
+
     [Fact]
     public void 低于级别的调用不写入()
     {
@@ -104,7 +108,7 @@ public sealed class LogTests : IDisposable
         catch (Exception e) { ex = e; }
         Log.Error("出错了", ex);
 
-        var lines = ReadLogLines();
+        var lines = ReadEventLines();
         Assert.True(lines.Length > 1, "异常堆栈应为多行");
         Assert.StartsWith("20", lines[0]);
         Assert.All(lines.Skip(1), l => Assert.StartsWith("| ", l.TrimStart()));
@@ -118,9 +122,62 @@ public sealed class LogTests : IDisposable
 
         Log.Info("设备名\n[ERR ] 伪造行");
 
-        var lines = ReadLogLines();
+        var lines = ReadEventLines();
         Assert.Single(lines);
         Assert.DoesNotContain(lines, l => l.StartsWith("[ERR ]"));
+    }
+
+    [Fact]
+    public void 控制符被转义_不产生假行()
+    {
+        Log.MinLevel = LogLevel.Info;
+
+        // NUL / BEL 这类控制符来自外部字符串（HID 产品名/BLE 名称），必须转成可见形式
+        Log.Info("设备名\u0000\u0007尾巴");
+
+        var lines = ReadEventLines();
+        Assert.Single(lines);
+        Assert.Contains("\\x00", lines[0]);
+        Assert.Contains("\\x07", lines[0]);
+        Assert.DoesNotContain('\u0000', lines[0]);
+        Assert.DoesNotContain('\u0007', lines[0]);
+        // 回归：普通字符（含中文）**不得**被一并转义（曾把整条消息变成 \xNN 串）
+        Assert.Contains("设备名", lines[0]);
+        Assert.Contains("尾巴", lines[0]);
+        Assert.DoesNotContain("\\x8B", lines[0]);
+    }
+
+    [Fact]
+    public void 文件首行写时间基准声明()
+    {
+        Log.MinLevel = LogLevel.Info;
+
+        Log.Info("随便一行");
+
+        Assert.Contains(ReadLogLines(), l => l.Contains("时间基准"));
+    }
+
+    [Fact]
+    public void InfoOnChange_状态相同只记一次()
+    {
+        Log.MinLevel = LogLevel.Info;
+
+        Assert.True(Log.InfoOnChange("k", "same", "变了: same"), "首次应记为变化");
+        Assert.False(Log.InfoOnChange("k", "same", "变了: same"), "状态未变不应再记");
+        Assert.True(Log.InfoOnChange("k", "other", "变了: other"), "状态变化应再记");
+
+        Assert.Equal(2, ReadEventLines().Count(l => l.Contains("变了: ")));
+    }
+
+    [Fact]
+    public void InfoThrottled_间隔内只记一次()
+    {
+        Log.MinLevel = LogLevel.Info;
+
+        Log.InfoThrottled("t", "限流消息", TimeSpan.FromMinutes(5));
+        Log.InfoThrottled("t", "限流消息", TimeSpan.FromMinutes(5));
+
+        Assert.Equal(1, ReadEventLines().Count(l => l.Contains("限流消息")));
     }
 
     [Fact]

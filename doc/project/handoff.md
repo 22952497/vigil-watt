@@ -419,6 +419,10 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 > 新实例会静默退出，而它的日志也写不进去（旧实例以 `FileShare.Read` 占着 app.log）——
 > 表现为"日志里根本没有新启动记录"，很容易误判成"新代码没生效"。
 > **验证前先 `tasklist` 确认没有旧实例在跑**；要长驻请让用户双击 `src/publish/VigilWatt.App.exe`。
+>
+> > **2026-10-09 更正**：`app.log` 已改以 `FileShare.ReadWrite` 打开，新实例的日志**能**正常写入
+> > （"日志写不进去"这条已不成立）；托盘"退出"也会先 `ReleaseMutex`，正常退出后新实例能立刻启动。
+> > 只剩 `taskkill /F` 强杀会留下"互斥量被占"。详见 [hardware/debugging.md §8](../hardware/debugging.md)。
 
 ### 2026-10-08 第十轮：新增「本机电量监控」（可选）
 
@@ -653,6 +657,45 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
      恢复后清标记（再出问题会重新记一条，与北通占位帧同一记法）。
      其中"没开写入许可"那条原本是**无限刷**（关掉许可后设备永不被认领，每 15 秒一条）。
 
+### 2026-10-09 第十一轮：日志分级与管控改造（分级 + 滚动 + 兜底 + 降噪）
+
+**诉求**：日志没有正确分级和管控——噪音把 `app.log` 冲爆、写失败静默、没有滚动。
+
+**方案**：先评审+补强已有方案 `doc/dev/logging.md`（修正 3 处事实错误 + 补 7 项遗漏 N1–N7），
+用户确认后按三阶段实施。**本轮三阶段全部落地**（方案文档已改写为《日志设计》）。
+
+**阶段 1 —— 级别体系 + 配置 + P0 稳定性**
+- 新增 `Utils/LogLevel.cs`：`Debug < Info < Warn < Error` + `Off` 哨兵 + 名称解析（未知值回落 Info）。
+- `Log` 加静态 `MinLevel`（默认 `Info`）+ `IsEnabled(level)`；`Write()` 入口先比级别（低于阈值**零 IO、零分配**）。
+- `AppSettings.LogLevel` + App 启动时赋值（**重启生效**，不追求热更新）。
+- 设置页新增「日志」分区：级别**下拉框**（`Services/LogLevelOptions.cs`：关闭/详细/信息/警告/错误）+ 打开目录 + 清空日志。
+- `Error` 改多行友好：堆栈后续行统一加 `       | ` 缩进前缀（保住"一行一条"）。
+- **噪音下沉 Info→Debug**：逐帧报文 / `[探测]` / `[Elan 探测]` / Mchose 握手簇 / HID 扫描明细等；
+  协议解析**结果**仍是 Info（行尾带 `原始=<HEX>`，默认档照样能排障）。
+- **[P0]** 写失败不再静默：连续 3 次失败写 `logs/log-error.txt`（30s 节流 + 64KB 上限 + 兜底自身失败即彻底放弃、不递归）。
+- **[P0]** 失败后 30s 退避（修 N2 重试风暴）。
+- **[P0]** 滚动改**带序号保留**：`app.log` → `app.1.log` → `app.2.log`（`File.Move(overwrite)`，不整文件删）。
+- **[P0]** 按**字节**计量（`MaxBytes = 2MB`）+ `FileShare.ReadWrite` + `Log.Shutdown()` 挂**真实退出路径**。
+- `LogTests` 落地（`RedirectTo` 到临时目录）；`AssemblyInfo.cs` 加 `[assembly: CollectionBehavior(DisableTestParallelization = true)]`。
+
+**阶段 2 —— 注入 / 时间 / 测试隔离**
+- **N3 注入清洗**：`Sanitize` 统一转义换行 + 控制符（C0/DEL → `\xNN`，tab 保留），无控制符走快路径零分配。
+- **N4 时间基准**：每个日志文件**新建时写一行"时间基准"**（本机时区 + UTC offset，并声明 `history.db` 的 `ts` 是 UTC 毫秒），
+  使日志与数据库可对齐；行首仍是**本地时间**（不动 §3.4 格式契约）。
+- **N6**：测试并行禁用（阶段 1 已落地）。
+- **N7**：`App.ShutdownLogging()`（`ReleaseMutex` + `Dispose` + `Log.Shutdown`，**幂等**）——
+  托盘退出、单实例退出路径都调它，另注册 `AppDomain.ProcessExit` 兜底。
+
+**阶段 3 —— 降噪下沉 + 可测性**
+- `Log.InfoOnChange(key, state, message)`（状态变了才记，返回"是否变化"）+ `Log.InfoThrottled(key, message, interval)`
+  ——把 `MchosePlugin.ShouldLogOnce/ResetLogOnce` 的思路泛化成公共入口。
+- 迁移**纯日志用途**的两处：`TrayService._lastTip`、`HidDeviceScanner._lastSignature`（都删掉自建去重字段）；
+  Betop/Mchose 里**同时承担业务语义**的状态判断**保持不动**。
+- `LogConfig` 收敛**未做**：方案里就标"可选/可砍"，纯内部搬迁无可感知收益，徒增回归面（个人工具，克制）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误；`dotnet test` 全绿（新增 N3/N4/InfoOnChange/InfoThrottled 用例）。
+**提交**：阶段 1 = `d68b6d5 日志分级与管控改造`；阶段 2/3 见本轮提交。
+
 ## 4. 待办（按优先级，详见 experience.md §5）
 
 
@@ -684,6 +727,11 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 10. **发现节拍**（2026-10-08）：设备"在位与否"只有探测才知道，而主轮询 60 秒一拍太慢。15 秒快速发现节拍服务两类插件——`SupportsFastDiscovery`（零写入，雷柏）与 `SupportsDiscoveryProbe`（写帧但 `ProbeCooldown` 兜住写入，迈从）。**新增会写帧的插件若要吃 15 秒节拍，必须先过 safety.md 规则 4 的例外口径**，并把 `ProbeCooldown` 压到 15 秒以下（含一次探测的耗时余量）。
 11. **本机启动应用的方式**：shell / `nohup` / `cmd //c start` 拉起的进程会被进程树清理带走（约 5 秒后死，日志无退出记录）；WMI `Win32_Process Create` 被安全策略拦。**`explorer.exe "VigilWatt.App.exe"` 可用**（挂在资源管理器下，脱离工具进程树）。强杀实例会按 safety.md §2 把 dongle 会话占死，之后要重新插拔 dongle。
 12. **插件配置分三层，别混（2026-10-08 第十四轮）**：① 协议事实 ② 安全声明 —— 这两层**必须** per-brand；③ **离线判定策略**集中在 `OfflinePolicy`（`Plugins/OfflinePolicy.cs`），每插件一行。**尤其注意 `CountPollFailures` 与 `SupportsPassiveListen` 是两件事**：前者回答"轮询返回 null 算不算失联"（策略），后者只说"我起后台只读线程"（机制）。曾经合成一个布尔量复用，导致迈从键盘关机后**永远**不显示离线。新增"要被动监听、但轮询空读确实是失联"的插件时，必须把 `CountPollFailures` 置 false 并在 `PollDevice` 发过帧的分支自己调 `ReportPollFailure`，否则同样的 bug 会再犯一次。
+13. **日志（2026-10-09 第十一轮，完整设计见 dev/logging.md）**：`Log` 是**自研极简分级日志，不引 Serilog/NLog**。
+    - 默认 `Info`；`Debug` 打逐帧报文/探测明细，需要时在**设置页下拉框**切"详细"（或 `settings.json` 改 `LogLevel`）**并重启应用**。
+    - **新增日志前先定级别**：状态变化 / 协议解析结果 = `Info`（结果行尾带 `原始=<HEX>`）；逐帧 / 中间帧 / 明细 = `Debug`；热路径先 `Log.IsEnabled(level)` 短路，省掉 `$"..."` 插值。
+    - **别在各调用点自己攒去重字段**：轮询型重复日志用 `Log.InfoOnChange(key, state, message)` 或 `Log.InfoThrottled(key, message, interval)`。
+    - 排障时 `app.log` 之外还有 `app.1.log` / `app.2.log`（按大小滚动）；每个文件**首行是"时间基准"**（本地时区 + UTC offset），用来和 `history.db` 的 UTC 毫秒对齐。
 
 ## 6. 关键文件速查
 
@@ -709,4 +757,6 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 | 历史统计页（指标卡/曲线/hover） | `src/VigilWatt.App/Views/StatsPage.xaml(.cs)` + `Views/BatteryChartControl.xaml.cs` |
 | 历史删除/统计能力 | `src/VigilWatt.Core/Storage/HistoryStore.cs`（`GetStats`/`GetDeviceStats`/`DeleteDevices`/`Compact`）；页面 `Views/HistoryPage.xaml(.cs)` |
 | 历史管理页单测 | `src/tests/VigilWatt.Core.Tests/HistoryStoreTests.cs`（临时库真跑 SQLite） |
+| 日志实现/分级/滚动/兜底 | `src/VigilWatt.Core/Utils/Log.cs` + `Utils/LogLevel.cs`；App 侧档位 `Services/LogLevelOptions.cs`；设置页「日志」分区（设计见 dev/logging.md） |
+| 日志级别配置与单测 | `AppSettings.LogLevel` + `App.OnLaunched` 里 `Log.MinLevel = LogLevelNames.Parse(...)`；退出收尾 `App.ShutdownLogging()`；单测 `src/tests/VigilWatt.Core.Tests/LogTests.cs` |
 | 语言包白名单 | `VigilWatt.App.csproj` 的 `MuiLanguagesToKeep` + `_MuiKeep` 两处（build.md §6） |

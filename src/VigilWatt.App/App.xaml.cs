@@ -68,6 +68,26 @@ public partial class App : Application
             Log.Error("未观察的 Task 异常", e.Exception);
             e.SetObserved();
         };
+
+        // 退出兜底：任何退出路径（含非托盘路径、Environment.Exit）都会触发 ProcessExit，
+        // 保证单实例互斥量被释放、日志被刷盘。与 TrayService.Exit 里的显式调用互为保险。
+        AppDomain.CurrentDomain.ProcessExit += (s, e) => ShutdownLogging();
+    }
+
+    /// <summary>
+    /// 退出收尾：先放掉单实例互斥量（让新实例能立刻启动），再刷盘并释放 app.log 句柄。
+    /// **幂等**——托盘退出与 ProcessExit 兜底会各调一次，第二次是 no-op。
+    /// 挂在真实退出路径上（AppServices.Dispose 全仓无人调用，钩子挂那儿永远不会触发）。
+    /// </summary>
+    internal static void ShutdownLogging()
+    {
+        var mutex = Interlocked.Exchange(ref _singleInstanceMutex, null);
+        if (mutex != null)
+        {
+            try { mutex.ReleaseMutex(); } catch { /* 非持有线程调用会抛，忽略 */ }
+            try { mutex.Dispose(); } catch { /* 忽略 */ }
+        }
+        Log.Shutdown();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -77,7 +97,7 @@ public partial class App : Application
         if (!createdNew)
         {
             Log.Info("检测到已有实例运行，退出");
-            Log.Shutdown();
+            ShutdownLogging();
             Environment.Exit(0);
             return;
         }

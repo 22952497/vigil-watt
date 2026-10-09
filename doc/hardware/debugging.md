@@ -6,12 +6,18 @@
 
 先翻 `%LOCALAPPDATA%\VigilWatt\logs\app.log`：接口扫描清单（VID/PID/usage/长度）、历次探测的原始报文、错误都在里面。过去的探测结论可能已经回答了当前问题（2026-10-05 的"邮箱扫描无响应"结论就是这样从旧日志里直接复用的）。
 
+> **默认 `Info` 档看不到逐帧报文**（自 2026-10-09 日志分级改造起）：接口清单、逐帧原始报文、"读了但没解析出东西"的中间帧都是 `Debug`，
+> 默认不写。要考古这些内容，先去**设置页把日志级别切到"详细"**（或改 `settings.json` 的 `LogLevel=Debug`），**重启应用**后再复现。
+> 协议解析**结果**（`雷柏 状态帧` / `迈从 … 解析`）仍是 `Info`，行尾带 `原始=<HEX>`，默认档下照样能排障。
+> 历史日志按大小滚动：当前是 `app.log`，更早的是 `app.1.log` / `app.2.log`（grep 时记得一并翻）。
+
 常用 grep：
 
 ```bash
 grep -a "迈从" app.log | tail -30          # 迈从全部动作
-grep -a "HID 元数据\|usage=" app.log       # 接口清单
+grep -a "HID 元数据\|usage=" app.log       # 接口清单（需先切 Debug）
 grep -a "ERR \|WARN " app.log | tail       # 最近错误
+grep -a "时间基准" app.log                  # 文件首行：本地时区 + UTC offset（与 history.db 的 UTC 对齐）
 ```
 
 设备/设置：`%LOCALAPPDATA%\VigilWatt\settings.json`（PluginEnabled / MchoseProbingEnabled）、history.db（SQLite，samples 表）。
@@ -123,9 +129,15 @@ grep -a -E "收到报文: 04 " app.log | sed -E 's/(收到报文: 04 [0-9A-F]{2}
 
 ## 8. 验证时先确认"跑的是新代码"
 
-**踩过的大坑**：应用被强杀后**单实例互斥量仍由旧实例持有**，新实例会静默退出；
-而且它的日志也写不进 `app.log`（旧实例以 `FileShare.Read` 占着文件）→ 日志里"没有新启动记录"，
-极易误判成"新代码没生效"。
+**踩过的大坑**：应用被 `taskkill /F` 强杀后**单实例互斥量仍由旧实例持有**（强杀不触发退出收尾），
+新实例启动时会检测到并**静默退出**——日志里只会多一行 `检测到已有实例运行，退出`，
+很容易被误判成"新代码没生效"。
+
+> 自 2026-10-09 日志改造后有两处变化：
+> 1. `app.log` 改以 `FileShare.ReadWrite` 打开，新实例的日志**能**正常写入
+>    （旧版用 `FileShare.Read`，两个实例互相挡住、日志完全写不进，才造成"没有新启动记录"的假象）；
+> 2. 托盘"退出"会先 `ReleaseMutex` 再结束进程，所以**正常退出**后新实例能立刻启动；
+>    只有 `taskkill /F` 强杀才会留下"互斥量被占"的假象。
 
 ```bash
 tasklist //FI "IMAGENAME eq VigilWatt.App.exe"     # 先确认没有旧实例

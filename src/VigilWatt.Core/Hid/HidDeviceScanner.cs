@@ -6,9 +6,6 @@ namespace VigilWatt.Core.Hid;
 /// <summary>枚举当前在位的所有 HID 接口，收集元数据供插件匹配。</summary>
 public static class HidDeviceScanner
 {
-    /// <summary>上一次 dump 过的设备集合指纹：集合没变就不再重复 dump 明细。</summary>
-    private static string _lastSignature = "";
-
     public static List<HidDeviceInfo> Scan()
     {
         var list = new List<HidDeviceInfo>();
@@ -43,13 +40,13 @@ public static class HidDeviceScanner
         // 每次扫描 24 个接口 = 约 50 行日志，而扫描现在每分钟 1 次 + 快速发现每 15 秒 1 次，
         // 无脑全打会把 app.log 冲爆（旧日志 725KB 里绝大部分就是这些重复行）。
         // 插拔设备/首次枚举时集合变了，明细照样会完整落盘，排错信息不丢。
+        // 指纹与去重状态交给 Log.InfoOnChange 维护（key 固定，返回"是否变化"）。
         var signature = string.Join("|", list
             .Select(d => $"{d.VendorId:X4}:{d.ProductId:X4}:{d.UsagePage:X4}:{d.Usage:X4}:{d.InputReportLength}:{d.OutputReportLength}:{d.FeatureReportLength}")
             .OrderBy(s => s, StringComparer.Ordinal));
-        if (signature != _lastSignature)
+        if (Log.InfoOnChange("hid-scan-signature", signature,
+                $"HID 扫描完成，共 {list.Count} 个接口（设备集合有变化，明细见 Debug 档）"))
         {
-            _lastSignature = signature;
-            Log.Info($"HID 扫描完成，共 {list.Count} 个接口（设备集合有变化，明细见 Debug 档）");
             foreach (var m in meta) Log.Debug(m);
             foreach (var d in list) Log.Debug("  " + d);
         }
