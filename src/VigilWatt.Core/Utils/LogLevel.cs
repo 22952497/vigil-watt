@@ -1,10 +1,6 @@
 namespace VigilWatt.Core.Utils;
 
-/// <summary>
-/// 日志级别。数值越大越严重。
-/// <see cref="Off"/> 是"全关"哨兵，刻意排在 <see cref="Error"/> 之后，
-/// 使"level &gt;= MinLevel"在 MinLevel=Off 时恒为 false —— 即连错误也一并关掉。
-/// </summary>
+/// <summary>日志级别，数值越大越严重。<see cref="Off"/> 是"全关"哨兵，刻意排在 <see cref="Error"/> 之后，使"level &gt;= MinLevel"在 Off 时恒为 false（连错误也一并关掉）。</summary>
 public enum LogLevel
 {
     Debug = 0,
@@ -14,11 +10,7 @@ public enum LogLevel
     Off = 4,
 }
 
-/// <summary>
-/// 级别取值的字符串表示与解析（**单一来源**）。
-/// settings.json 里存字符串（可读、可手改），未知取值一律回落 <see cref="Default"/>，
-/// 与 WidgetDisplayMode / WindowBackdrop 的"未知按默认"惯例保持一致。
-/// </summary>
+/// <summary>级别取值的字符串表示与解析（**单一来源**）。settings.json 存字符串，未知取值回落 <see cref="Default"/>（与 WidgetDisplayMode / WindowBackdrop 的"未知按默认"惯例一致）。</summary>
 public static class LogLevelNames
 {
     public const string Off = "Off";
@@ -27,7 +19,6 @@ public static class LogLevelNames
     public const string Warn = "Warn";
     public const string Error = "Error";
 
-    /// <summary>默认级别。</summary>
     public const string Default = Info;
 
     /// <summary>全部合法取值，顺序与设置页下拉框展示顺序一致（关闭 → 详细 → 信息 → 警告 → 错误）。</summary>

@@ -10,11 +10,7 @@ using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Devices;
 
-/// <summary>
-/// 统一设备管理：合并 BLE + 经典蓝牙 + 2.4G 插件的设备状态，写历史、发变更事件。
-/// 插件通过反射自动发现（Core 程序集里所有 IBatteryPlugin 实现类），
-/// 接口认领经 DeviceClaimRegistry 防止两个插件抢同一设备。
-/// </summary>
+/// <summary>统一设备管理（中枢）：合并 BLE + 经典蓝牙 + 2.4G 插件状态，写历史、发变更事件；插件反射自动发现，接口认领经 DeviceClaimRegistry 防抢。详见 doc/project/architecture.md §1。</summary>
 public sealed class DeviceManager : IDisposable
 {
     private readonly AppSettings _settings;
@@ -26,8 +22,7 @@ public sealed class DeviceManager : IDisposable
     private readonly DeviceClaimRegistry _claims = new();
     private readonly ConcurrentDictionary<string, DeviceStatus> _devices = new();
     private readonly ConcurrentDictionary<string, int> _lastNotifiedPercent = new();
-    /// <summary>由历史记录补出来的离线占位条目（见 <see cref="RestoreOfflineTombstones"/>），
-    /// 需要单独记住：过期剔除时只能删这些，不能误删"在位但读不到"的真实设备。</summary>
+    /// <summary>由历史记录补出的离线占位条目（见 <see cref="RestoreOfflineTombstones"/>）；过期剔除时只能删这些，不能误删"在位但读不到"的真实设备。</summary>
     private readonly HashSet<string> _tombstoneIds = new();
     private System.Threading.Timer? _pollTimer;
     private System.Threading.Timer? _sampleTimer;
@@ -105,23 +100,10 @@ public sealed class DeviceManager : IDisposable
         Log.Info("DeviceManager 已启动");
     }
 
-    /// <summary>
-    /// 离线占位（墓碑）的保留时长。
-    ///
-    /// 为什么需要：设备"消失"有两条完全不同的路径——
-    /// ① 2.4G 设备拔掉/关机：插件把它标离线，条目留在 <c>_devices</c> 里（字典从不移除）；
-    /// ② 蓝牙设备或整个 dongle 不被枚举：它**从来没有进过列表**。
-    /// 北通就是 ②：手柄关机后接收器可能连 HID 枚举都退出（实测 19:02 之后扫描里再无 VID_20BC），
-    /// 此时没有任何数据源，界面上它等于"从未存在过"——「共 N 台」也就永远等于「N 台在线」，
-    /// 这个总数恒等、没有信息量。
-    /// 用历史库里最近见过的记录补一个离线条目，既让总数有意义，又不凭空造设备（有真实历史为凭）。
-    /// </summary>
+    /// <summary>离线占位（墓碑）保留时长。存在的理由（蓝牙设备消失时从没进过列表、总数恒等无信息量）见 doc/project/code-flow.md §5.1。</summary>
     private static readonly TimeSpan TombstoneWindow = TimeSpan.FromHours(24);
 
-    /// <summary>
-    /// 把"最近 <see cref="TombstoneWindow"/> 内有历史记录、但当前不在位"的设备补成离线条目。
-    /// 只在启动后跑一次：进程中设备一旦被认领就常驻 <c>_devices</c>，不需要反复补。
-    /// </summary>
+    /// <summary>把"最近 <see cref="TombstoneWindow"/> 内有历史、当前不在位"的设备补成离线条目；只在启动后跑一次。</summary>
     private void RestoreOfflineTombstones()
     {
         try
@@ -201,19 +183,14 @@ public sealed class DeviceManager : IDisposable
         // 首扫尽快跑（探测已是并行/短路，不再需要 2 秒缓冲）
         _pollTimer = new Timer(_ => _ = RequestPollAsync(), null,
             TimeSpan.FromMilliseconds(300), TimeSpan.FromMinutes(1));
-        // 快速发现节拍：见 RequestDiscoveryAsync。服务零写入插件（雷柏鼠标）与写入受
-        // ProbeCooldown 约束的插件（迈从键盘），目的 = 设备一醒/一开机就能在十几秒内进列表，
-        // 而不是苦等下一个 60 秒主轮询。
+        // 快速发现节拍：见 RequestDiscoveryAsync（设备一醒/开机就十几秒内进列表，而非苦等 60 秒主轮询）
         _discoveryTimer = new Timer(_ => _ = RequestDiscoveryAsync(), null,
             FastDiscoveryInterval, FastDiscoveryInterval);
         _sampleTimer = new Timer(_ => SafeSample(), null,
             TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(Math.Max(1, _settings.SampleIntervalMinutes)));
     }
 
-    /// <summary>
-    /// 快速发现节拍。15 秒 = 雷柏心跳(3.04s)的约 5 倍，发现时延上界 ~15s；
-    /// 也是迈从键盘的发现节拍（其 ProbeCooldown 必须 &lt; 15s 才能每拍都重探）。
-    /// </summary>
+    /// <summary>快速发现节拍。15 秒 = 雷柏心跳(3.04s)的约 5 倍（发现时延上界 ~15s）；迈从 ProbeCooldown 必须 &lt; 15s 才能每拍重探。</summary>
     private static readonly TimeSpan FastDiscoveryInterval = TimeSpan.FromSeconds(15);
 
     /// <summary>设置变化后调用（阈值/采样间隔/插件开关）。</summary>
@@ -226,13 +203,7 @@ public sealed class DeviceManager : IDisposable
         _ = RequestPollAsync();
     }
 
-    /// <summary>
-    /// 同步"监控本机电量"开关的运行时状态。
-    ///
-    /// 关掉时不只是停止读取，还要**撤掉设备条目**——理由和插件禁用一致（见 <see cref="DropDevicesOf"/>）：
-    /// 条目留着就会带着最后一帧的电量继续显示在列表/统计/小组件里，
-    /// 用户关了开关却像没生效。撤掉而不是标离线：用户要的是"不再监控它"。
-    /// </summary>
+    /// <summary>同步"监控本机电量"开关：关掉时不只是停止读取，还要撤掉设备条目（理由同 <see cref="DropDevicesOf"/>：留条目会带着旧电量继续显示）。</summary>
     private void ApplySystemBatterySetting()
     {
         if (_settings.MonitorSystemBattery)
@@ -250,12 +221,7 @@ public sealed class DeviceManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// 手动触发一轮立即轮询（UI 刷新按钮）。返回的 Task 在整轮结束后完成——包括 BLE 的异步补读，
-    /// 调用方据此显示"刷新中"状态。
-    /// 若已有一轮在跑（例如正好撞上每分钟的自动轮询），直接复用那一轮的 Task 让调用方等待，
-    /// 不再像以前那样静默丢弃——否则手动刷新会毫无反应。
-    /// </summary>
+    /// <summary>手动触发一轮立即轮询（UI 刷新按钮）。返回的 Task 在整轮结束后完成（含 BLE 异步补读）；已有轮次在跑时复用其 Task，不静默丢弃。</summary>
     public Task RequestPollAsync()
     {
         lock (_pollSync)
@@ -267,16 +233,9 @@ public sealed class DeviceManager : IDisposable
     }
 
     /// <summary>
-    /// 快速发现：让两类插件跑一遍**只认领、不轮询电量**的发现探测，不碰 BLE / 经典蓝牙：
-    /// - <see cref="IBatteryPlugin.SupportsFastDiscovery"/> = 纯被动零写入插件（雷柏鼠标），完全免费；
-    /// - <see cref="IBatteryPlugin.SupportsDiscoveryProbe"/> = 探测要写帧、但写入频率由插件自己的
-    ///   `ProbeCooldown` 兜住的插件（迈从键盘）。已认领的设备在 `Attach` 里直接返回，**零写入**。
-    ///
-    /// 存在的理由：这类设备"在位"与否只有探测才知道。60 秒的主轮询常常正好落在它睡着的窗口里，
-    /// 探测落空后又要等整整一轮；首扫时更是必然落空（用户刚启动应用、设备还没醒）。
-    /// 15 秒节拍把这个"发现"时延从 ~60s 压到 ~15s。
-    ///
-    /// 主轮询正在跑时直接返回它——那一轮本来就包含完整探测，不必重复。
+    /// 快速发现：让两类插件跑一遍**只认领、不轮询电量**的发现探测（不碰 BLE / 经典蓝牙）：
+    /// SupportsFastDiscovery = 纯被动零写入（雷柏）；SupportsDiscoveryProbe = 要写帧但由 ProbeCooldown 兜住（迈从）。
+    /// 把这类设备的发现时延从 ~60s 压到 ~15s；主轮询在跑时直接返回它。详见 doc/project/code-flow.md §2.1。
     /// </summary>
     public Task RequestDiscoveryAsync()
     {
@@ -289,10 +248,7 @@ public sealed class DeviceManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// 把一段 pass 放到线程池上并**串行**执行（闸门保证同一时刻只有一段 pass 在动插件）。
-    /// 用 Task.Run 而不是直接调用：调用方可能是 UI 线程（刷新按钮），HID 探测是阻塞 I/O。
-    /// </summary>
+    /// <summary>把一段 pass 放到线程池并**串行**执行（闸门保证同一时刻只有一段 pass 在动插件）；用 Task.Run 因调用方可能是 UI 线程而 HID 探测是阻塞 I/O。</summary>
     private Task RunExclusiveAsync(Func<Task> body) => Task.Run(async () =>
     {
         try
@@ -317,11 +273,7 @@ public sealed class DeviceManager : IDisposable
     private bool IsPluginEnabled(IBatteryPlugin plugin)
         => IsPluginEnabledByName(plugin.Name, defaultOn: false);
 
-    /// <summary>
-    /// 按插件名查开关（大小写不敏感）。
-    /// <paramref name="defaultOn"/> 是"没有这个开关时"的兜底：插件必须有显式开关（缺 = 关），
-    /// 而蓝牙监视器（Id 前缀 ble: / btc:）根本没有对应插件开关，必须放行，否则墓碑恢复会把蓝牙设备全挡掉。
-    /// </summary>
+    /// <summary>按插件名查开关（大小写不敏感）。<paramref name="defaultOn"/> = 没有该开关时的兜底：插件缺 = 关；蓝牙监视器（ble:/btc:）无开关必须放行，否则墓碑恢复会把蓝牙设备全挡掉。</summary>
     private bool IsPluginEnabledByName(string pluginName, bool defaultOn)
     {
         foreach (var kv in _settings.PluginEnabled)
@@ -329,23 +281,14 @@ public sealed class DeviceManager : IDisposable
         return defaultOn;
     }
 
-    /// <summary>设备 Id 的归属前缀（<c>{插件名小写}:</c>）。用它判断条目属于哪个插件，
-    /// 省掉一套额外的归属账本。</summary>
+    /// <summary>设备 Id 的归属前缀（<c>{插件名小写}:</c>），用来判断条目属于哪个插件，省一套归属账本。</summary>
     private static string OwnerOf(string deviceId)
     {
         int i = deviceId.IndexOf(':');
         return i <= 0 ? "" : deviceId[..i];
     }
 
-    /// <summary>
-    /// 插件被禁用后，把它此前认领的设备从列表里撤掉。
-    ///
-    /// 为什么必须显式做：`_devices` 从不移除条目（历史/统计还要用），而 <c>Detach()</c>
-    /// 只释放句柄与认领、并不上报状态——于是设备带着"最后一帧的电量"继续显示在设备列表、
-    /// 托盘和小组件里，用户关了开关却像没生效（2026-10-06 用户复报）。
-    /// 撤掉而不是标离线：用户关的是"不再监听这台设备"，列表里就不该再留着它。
-    /// 重新启用后插件会重新认领，设备自然回来。
-    /// </summary>
+    /// <summary>插件被禁用后，把它此前认领的设备从列表里撤掉。`_devices` 从不移除条目、`Detach()` 又不上报状态，不显式撤就会带着旧电量继续显示（2026-10-06 用户复报）。</summary>
     private void DropDevicesOf(string pluginName)
     {
         var prefix = pluginName.ToLowerInvariant() + ":";
@@ -411,9 +354,8 @@ public sealed class DeviceManager : IDisposable
                         DropDevicesOf(plugin.Name);
                         continue;
                     }
-                    // Attach 的返回值 = 本轮认领的设备（含探测时已读到的电量）。
-                    // 必须立即 Upsert：新设备即时进 UI（不再等整轮扫描结束），也避免紧接着的 Poll 白重读一遍
-                    // （基类已把本轮新认领的设备标记 FreshlyClaimed、Poll 会跳过）。
+                    // Attach 的返回值 = 本轮认领的设备（含探测时已读到的电量），必须立即 Upsert：新设备即时进 UI，
+                    // 且避免紧接着的 Poll 白重读一遍（基类已把本轮新认领设备标记 FreshlyClaimed、Poll 会跳过）。
                     foreach (var d in plugin.Attach(hidDevices, _claims))
                         Upsert(d);
                     foreach (var d in plugin.Poll())

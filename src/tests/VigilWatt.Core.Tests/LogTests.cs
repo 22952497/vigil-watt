@@ -3,10 +3,10 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-/// <summary>
-/// Log 核心行为回归测试（doc/dev/logging.md §4 阶段 1 第 12 条）。
-/// Log 是全局静态，本类每个用例都在独立临时目录里跑，并在 Dispose 时复位级别/阈值。
-/// </summary>
+    /// <summary>
+    /// Log 核心行为回归测试（见 doc/dev/logging.md §7）。Log 是全局静态，
+    /// 本类每个用例都在独立临时目录里跑，并在 Dispose 时复位级别/阈值。
+    /// </summary>
 public sealed class LogTests : IDisposable
 {
     private readonly string _dir;

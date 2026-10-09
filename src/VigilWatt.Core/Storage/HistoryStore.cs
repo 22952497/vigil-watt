@@ -201,11 +201,8 @@ public class HistoryStore : IDisposable
         }
     }
 
-    /// <summary>
-    /// VACUUM 收缩库文件。**DELETE 只把页标成空闲、不缩小文件**——
-    /// 删完不 VACUUM 的话用户看到文件大小没变，会以为删除没生效。
-    /// VACUUM 不能在事务里跑，这里也没有活动事务，直接执行。
-    /// </summary>
+    /// <summary>VACUUM 收缩库文件。**DELETE 只把页标成空闲、不缩小文件**——删完不 VACUUM 用户看到大小没变，会以为删除没生效。
+    /// VACUUM 不能在事务里跑，这里也没有活动事务，直接执行。</summary>
     public void Compact()
     {
         lock (_writeGate)

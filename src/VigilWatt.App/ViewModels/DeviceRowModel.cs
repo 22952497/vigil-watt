@@ -66,11 +66,10 @@ public sealed class DeviceRowModel
     }
 
     /// <summary>
-    /// 设备类型 → 图标字形。**优先用插件声明的 <see cref="DeviceStatus.Kind"/>**，
-    /// 没声明时才按显示名猜（<see cref="DeviceKindGuesser"/>）——靠名字猜是不可靠的：
-    /// 雷柏鼠标叫 "Rapoo Gaming Device"、迈从键盘叫 "MCHOSE 2.4G Wireless"、耳机叫
-    /// "EDIFIER W820NB 双金标版"，名字里一个关键字都没有，全都会退化成通用蓝牙图标（真机踩过）。
-    /// 字形取自 Segoe MDL2 Assets / Segoe Fluent Icons。
+    /// 设备类型 → 图标字形（Segoe MDL2 Assets / Segoe Fluent Icons）。
+    /// **优先用插件声明的 <see cref="DeviceStatus.Kind"/>**，没声明时才按显示名猜——
+    /// 真机显示名里一个关键字都没有（"Rapoo Gaming Device"/"MCHOSE 2.4G Wireless"/"EDIFIER W820NB"），
+    /// 靠名字猜必然退化成通用蓝牙图标。见 doc/project/handoff.md「第三轮：改显式声明设备类型」。
     /// </summary>
     private static string GlyphFor(DeviceKind kind, string displayName)
     {

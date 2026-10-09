@@ -2,19 +2,10 @@ using VigilWatt.Core.Models;
 
 namespace VigilWatt.Core.Plugins.Logitech;
 
-/// <summary>
-/// HID++ 响应解析（纯逻辑，零 I/O，可单测）。
-///
-/// <see cref="HidppIO.Request"/> 返回的缓冲从 feature 字节开始：
-///   [0]=feature index，[1]=(func&lt;&lt;4)|swId，[2..]=参数。
-/// 电量/GetFeature 的有效载荷一律从下标 2 起读，勿把 feature 下标当成百分比。
-/// </summary>
 /// <summary>毫伏→百分比锚点（降序）。</summary>
 internal readonly record struct VoltagePoint(int Millivolts, int Percent);
 
-/// <summary>
-/// 短/长 HID++ 接口偏好。Bolt 必须走长；Unifying 常只在短接口应答。
-/// </summary>
+/// <summary>短/长 HID++ 接口偏好。Bolt 必须走长；Unifying 常只在短接口应答。</summary>
 internal enum HidppReportPreference
 {
     /// <summary>有长接口时跳过同 PID 短接口（Bolt / Lightspeed 默认）。</summary>
@@ -27,6 +18,10 @@ internal enum HidppReportPreference
     Both,
 }
 
+/// <summary>
+/// HID++ 响应解析（纯逻辑，零 I/O，可单测）。<see cref="HidppIO.Request"/> 返回的缓冲从 feature 字节开始：[0]=feature index，[1]=(func&lt;&lt;4)|swId，[2..]=参数——电量/GetFeature 的有效载荷一律从下标 2 起读，勿把 feature 下标当成百分比。
+/// 报文层与各特征编码见 doc/hardware/protocols.md §3。
+/// </summary>
 internal static class HidppCodec
 {
     /// <summary>短报文 report ID（7 字节接口）。</summary>
@@ -44,10 +39,7 @@ internal static class HidppCodec
     /// <summary>HID++ 2.0 ADC Measurement 特征（G 系耳机等）。</summary>
     public const ushort FeatureAdcMeasurement = 0x1F20;
 
-    /// <summary>
-    /// 按接口元数据选出要发的 report ID。
-    /// caps 给出非 0 的 OutputReportId 时优先用它；否则按输出长度推断（≥20 → 0x11，否则 0x10）。
-    /// </summary>
+    /// <summary>按接口元数据选 report ID：caps 的非 0 OutputReportId 优先；否则按输出长度推断（≥20 → 0x11，否则 0x10）。</summary>
     public static byte SelectReportId(ushort outputReportLength, byte? outputReportId)
     {
         if (outputReportId is > 0) return outputReportId.Value;
@@ -58,25 +50,18 @@ internal static class HidppCodec
     public static bool IsLongMessage(byte reportId) => reportId == LongReportId;
 
     /// <summary>
-    /// 组装 HID++ 2.0 的 featureIdAndFunc：高字节=feature 下标，低字节高 4 位=func。
-    /// <c>HidppIO.Request</c> 会再把低 4 位换成 SwId。
-    /// ⚠️ 切勿写成 <c>(feature&lt;&lt;8)|func</c>——func=1 会被 patchSw 抹成 func 0
-    /// （真机：Unified Battery 一直读到 Capabilities 的 15%，读不到 GetStatus 的 90%/充电）。
+    /// 组装 HID++ 2.0 的 featureIdAndFunc：高字节=feature 下标，低字节高 4 位=func（<c>HidppIO.Request</c> 再把低 4 位换成 SwId）。
+    /// ⚠️ 切勿写成 <c>(feature&lt;&lt;8)|func</c>——func=1 会被 patchSw 抹成 func 0（真机：Unified Battery 一直读到 Capabilities 的 15%，读不到 GetStatus 的 90%/充电）。
     /// </summary>
     public static ushort FeatureFunc(byte featureIndex, byte func)
         => (ushort)((featureIndex << 8) | ((func & 0x0F) << 4));
 
-    /// <summary>
-    /// Root.GetFeature 响应里的 feature 下标。参数字节 [2]；长度为 0 或不存在 → 0（不支持）。
-    /// 旧 bug：误读 resp[0]（恒为 Root feature=0），导致 0x1004/0x1000 永远"不支持"。
-    /// </summary>
+    /// <summary>Root.GetFeature 响应里的 feature 下标（参数字节 [2]）；长度不足 → 0（不支持）。
+    /// 旧 bug：误读 resp[0]（恒为 Root feature=0），导致 0x1004/0x1000 永远"不支持"。</summary>
     public static byte ParseFeatureIndex(ReadOnlySpan<byte> resp)
         => resp.Length >= 3 ? resp[2] : (byte)0;
 
-    /// <summary>
-    /// Unified Battery (0x1004) / Battery Status (0x1000) 响应：
-    /// 参数 [0]=百分比，[2]=充电状态字节（相对 feature 缓冲即 resp[2]/resp[4]）。
-    /// </summary>
+    /// <summary>Unified Battery (0x1004) / Battery Status (0x1000) 响应：参数 [0]=百分比，[2]=充电状态字节（相对 feature 缓冲即 resp[2]/resp[4]）。</summary>
     public static bool TryParseBattery20(ReadOnlySpan<byte> resp, out int percent, out ChargingState charging)
     {
         percent = 0;
@@ -91,10 +76,7 @@ internal static class HidppCodec
         return true;
     }
 
-    /// <summary>
-    /// Battery Voltage (0x1001) 参数：大端毫伏 + flags。
-    /// flags bit7=充电中；低 3 位 1=充满；bit5=危急。
-    /// </summary>
+    /// <summary>Battery Voltage (0x1001) 参数：大端毫伏 + flags（bit7=充电中；低 3 位 1=充满；bit5=危急）。</summary>
     public static bool TryParseBatteryVoltage(
         ReadOnlySpan<byte> resp,
         IReadOnlyList<VoltagePoint> curve,
@@ -125,9 +107,7 @@ internal static class HidppCodec
         return percent > 0 || millivolts <= curveFloor(curve);
     }
 
-    /// <summary>
-    /// ADC Measurement (0x1F20) 参数：大端毫伏 + flags（0x01 放电 / 0x03 充电 / 0x07 充满）。
-    /// </summary>
+    /// <summary>ADC Measurement (0x1F20) 参数：大端毫伏 + flags（0x01 放电 / 0x03 充电 / 0x07 充满）。</summary>
     public static bool TryParseAdcMeasurement(
         ReadOnlySpan<byte> resp,
         IReadOnlyList<VoltagePoint> curve,
@@ -154,9 +134,7 @@ internal static class HidppCodec
         return percent > 0 || millivolts <= curveFloor(curve);
     }
 
-    /// <summary>
-    /// 毫伏→百分比：按降序锚点线性插值。曲线为空时返回 0。
-    /// </summary>
+    /// <summary>毫伏→百分比：按降序锚点线性插值；曲线为空返回 0。</summary>
     public static int PercentFromMillivolts(int millivolts, IReadOnlyList<VoltagePoint> curve)
     {
         if (curve == null || curve.Count == 0) return 0;
@@ -179,10 +157,7 @@ internal static class HidppCodec
         return 0;
     }
 
-    /// <summary>
-    /// HID++ 2.0 统一充电状态：1/2/4 = 充电中，3 = 充满，其余 = 放电。
-    /// （Unified Battery 与 Battery Status 对常见档位编码一致，合用一张表即可。）
-    /// </summary>
+    /// <summary>HID++ 2.0 统一充电状态：1/2/4 = 充电中，3 = 充满，其余 = 放电（Unified Battery 与 Battery Status 档位编码一致，合用一张表）。</summary>
     public static ChargingState MapChargingState(byte state) => state switch
     {
         1 or 2 or 4 => ChargingState.Charging,
@@ -190,10 +165,7 @@ internal static class HidppCodec
         _ => ChargingState.Discharging,
     };
 
-    /// <summary>
-    /// 配对信息里的设备类型字节（低 4 位）→ UI 用的 <see cref="DeviceKind"/>。
-    /// 协议常量，不按产品名增长。
-    /// </summary>
+    /// <summary>配对信息里的设备类型字节（低 4 位）→ UI 用的 <see cref="DeviceKind"/>（协议常量，不按产品名增长）。</summary>
     public static DeviceKind MapPairingDeviceKind(byte kindByte) => (kindByte & 0x0F) switch
     {
         0x01 => DeviceKind.Keyboard,   // keyboard
@@ -210,10 +182,7 @@ internal static class HidppCodec
         _ => DeviceKind.Unknown,
     };
 
-    /// <summary>
-    /// Unifying 风格配对信息（RECEIVER_INFO 0x2N）：参数区 [3..4]=WPID，[7]=kind。
-    /// 相对 feature 缓冲即 resp[5..6]、resp[9]。
-    /// </summary>
+    /// <summary>Unifying 风格配对信息（RECEIVER_INFO 0x2N）：参数区 [3..4]=WPID，[7]=kind（相对 feature 缓冲即 resp[5..6]、resp[9]）。</summary>
     public static bool TryParseUnifyingPairing(
         ReadOnlySpan<byte> resp, out ushort wirelessPid, out DeviceKind kind)
     {
@@ -225,10 +194,7 @@ internal static class HidppCodec
         return wirelessPid != 0 || kind != DeviceKind.Unknown;
     }
 
-    /// <summary>
-    /// Bolt 风格配对信息（RECEIVER_INFO 0x5N）：参数区 [1]=kind，[2..3]=WPID（小端序字节）。
-    /// 相对 feature 缓冲即 resp[3]、resp[4..5]（交换后成大端 WPID）。
-    /// </summary>
+    /// <summary>Bolt 风格配对信息（RECEIVER_INFO 0x5N）：参数区 [1]=kind，[2..3]=WPID（小端序）；相对 feature 缓冲即 resp[3]、resp[4..5]（交换后成大端 WPID）。</summary>
     public static bool TryParseBoltPairing(
         ReadOnlySpan<byte> resp, out ushort wirelessPid, out DeviceKind kind)
     {
@@ -240,12 +206,7 @@ internal static class HidppCodec
         return wirelessPid != 0 || kind != DeviceKind.Unknown;
     }
 
-    /// <summary>
-    /// 按目录报文偏好决定是否跳过当前接口。
-    /// PreferLong（默认/未知 PID）：有长同伴则跳短——Bolt 行为。
-    /// PreferShort：有短同伴则跳长——Unifying 常只在短通道应答。
-    /// Both：不跳过。
-    /// </summary>
+    /// <summary>按报文偏好决定是否跳过当前接口。PreferLong（默认/未知 PID）：有长同伴则跳短（Bolt）；PreferShort：有短同伴则跳长（Unifying 常只在短通道应答）；Both：不跳过。</summary>
     public static bool ShouldSkipInterface(
         ushort vendorId, ushort productId, ushort outputReportLength,
         IEnumerable<(ushort Vid, ushort Pid, ushort OutLen)> peers,

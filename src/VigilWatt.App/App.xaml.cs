@@ -32,9 +32,9 @@ public sealed class AppServices : IDisposable
         Manager.LowBatteryDetected += device => MainWindow?.DispatcherQueue.TryEnqueue(
             () => Tray.ShowLowBattery(device));
 
-        // 设备状态变化时刷新托盘图标/提示。以前只在启动时渲染一次，启动那会儿设备还没扫出来，
-        // 于是托盘永远显示"暂无在线设备"——最小化到托盘后就只能看到这个过期提示。
-        // DeviceUpdated 覆盖电量/在线状态变化，DevicesChanged 覆盖设备增删，两个都要订。
+            // 设备状态变化时刷新托盘图标/提示。以前只在启动时渲染一次，而启动那会儿设备还没扫出来，
+            // 于是托盘永远显示"暂无在线设备"。两个事件都要订：DeviceUpdated 覆盖电量/在线变化，
+            // DevicesChanged 覆盖设备增删。
         Manager.DeviceUpdated += _ => tray.RequestUpdate();
         Manager.DevicesChanged += tray.RequestUpdate;
     }
@@ -74,11 +74,11 @@ public partial class App : Application
         AppDomain.CurrentDomain.ProcessExit += (s, e) => ShutdownLogging();
     }
 
-    /// <summary>
-    /// 退出收尾：先放掉单实例互斥量（让新实例能立刻启动），再刷盘并释放 app.log 句柄。
-    /// **幂等**——托盘退出与 ProcessExit 兜底会各调一次，第二次是 no-op。
-    /// 挂在真实退出路径上（AppServices.Dispose 全仓无人调用，钩子挂那儿永远不会触发）。
-    /// </summary>
+        /// <summary>
+        /// 退出收尾：先放掉单实例互斥量（让新实例能立刻启动），再刷盘并释放 app.log 句柄。
+        /// **幂等**——托盘退出与 ProcessExit 兜底会各调一次。必须挂在真实退出路径上
+        /// （AppServices.Dispose 全仓无人调用）。
+        /// </summary>
     internal static void ShutdownLogging()
     {
         var mutex = Interlocked.Exchange(ref _singleInstanceMutex, null);

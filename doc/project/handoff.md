@@ -681,7 +681,7 @@ XAML 合法性由构建背书（`obj/.../Views/StatsPage.g.cs` 已生成 `Range2
 **阶段 2 —— 注入 / 时间 / 测试隔离**
 - **N3 注入清洗**：`Sanitize` 统一转义换行 + 控制符（C0/DEL → `\xNN`，tab 保留），无控制符走快路径零分配。
 - **N4 时间基准**：每个日志文件**新建时写一行"时间基准"**（本机时区 + UTC offset，并声明 `history.db` 的 `ts` 是 UTC 毫秒），
-  使日志与数据库可对齐；行首仍是**本地时间**（不动 §3.4 格式契约）。
+  使日志与数据库可对齐；行首仍是**本地时间**（不动 logging.md §4「格式契约」）。
 - **N6**：测试并行禁用（阶段 1 已落地）。
 - **N7**：`App.ShutdownLogging()`（`ReleaseMutex` + `Dispose` + `Log.Shutdown`，**幂等**）——
   托盘退出、单实例退出路径都调它，另注册 `AppDomain.ProcessExit` 兜底。

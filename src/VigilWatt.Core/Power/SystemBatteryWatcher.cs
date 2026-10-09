@@ -3,19 +3,7 @@ using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Power;
 
-/// <summary>
-/// 本机电源（系统电池）监视器，仿 <see cref="Ble.BluetoothClassicWatcher"/> 的事件式数据源范式：
-/// 不实现 <see cref="Plugins.IBatteryPlugin"/>（那套是为"认领 HID 接口"设计的，
-/// 系统电量没有接口可认领、也不需要探测），由 <see cref="Devices.DeviceManager"/> 直接订阅。
-///
-/// 设备 Id 固定为 <see cref="DeviceId"/>，**永不变化**——历史曲线、托盘记账、
-/// 低电量提醒的"每档只提醒一次"都靠它做键。
-///
-/// 充电状态（<see cref="ChargingState"/>）的推导是这里唯一的"逻辑"：
-/// <c>GetSystemPowerStatus</c> 只告诉我们"是否接着交流电"，不告诉我们"是否正在充电"。
-/// 于是用 <see cref="IsPluggedIn"/> 区分"在充电"和"已充满"：
-/// 接电且未充满 = Charging，接电且已满 = Full，未接电 = Discharging。
-/// </summary>
+/// <summary>本机电源（系统电池）监视器：仿 <see cref="Ble.BluetoothClassicWatcher"/> 的事件式数据源（不实现 <see cref="Plugins.IBatteryPlugin"/>——系统电量无接口可认领），由 <see cref="Devices.DeviceManager"/> 直接订阅。Id 固定 <see cref="DeviceId"/> 永不变化。详见 doc/project/code-flow.md §3.1。</summary>
 public sealed class SystemBatteryWatcher : IDisposable
 {
     /// <summary>本机电源在设备体系里的稳定 Id。</summary>
@@ -41,10 +29,7 @@ public sealed class SystemBatteryWatcher : IDisposable
         Log.Info("系统电量监视器已启动");
     }
 
-    /// <summary>
-    /// 读一次并推送变化。由 DeviceManager 的轮询尾部调用（和 <c>_classic.RefreshBattery()</c> 并排）。
-    /// 冷却由外部轮询周期保证，这里不做节流。
-    /// </summary>
+    /// <summary>读一次并推送变化（轮询尾部调用，与 <c>_classic.RefreshBattery()</c> 并排）；冷却由外部轮询周期保证，不做节流。</summary>
     public void Refresh()
     {
         lock (_sync)
@@ -56,14 +41,7 @@ public sealed class SystemBatteryWatcher : IDisposable
         Apply(snapshot);
     }
 
-    /// <summary>
-    /// 停止监控并撤下设备条目（用户在设置里关掉开关时调用）。
-    ///
-    /// 落点说明：DeviceManager 的插件禁用路径靠 <c>DropDevicesOf(插件名)</c> 按 Id 前缀撤条目，
-    /// 系统电量不是插件、Id 前缀是 <c>sys:</c>，所以由 DeviceManager 直接按
-    /// <see cref="DeviceId"/> 撤除。这里只负责把自己标记为"不再推送"，
-    /// 否则 Refresh 会在关掉开关后把条目又加回来。
-    /// </summary>
+    /// <summary>停止监控并撤下设备条目（用户关掉开关时调用）：DeviceManager 按 <see cref="DeviceId"/> 撤除条目，这里只把自己标记为"不再推送"，否则 Refresh 会把条目加回来。</summary>
     public void Stop()
     {
         lock (_sync)
@@ -122,9 +100,7 @@ public sealed class SystemBatteryWatcher : IDisposable
         }
     }
 
-    /// <summary>接电 + 满电 = 已充满；接电未满 = 充电中；未接电 = 放电中。
-    /// 抽成 internal 纯函数是为了可单测——它是本类唯一的推导逻辑，
-    /// 而真机上没法随时切换"接电/断电/充满"这些组合。</summary>
+    /// <summary>接电+满电=已充满；接电未满=充电中；未接电=放电中。抽成 internal 纯函数以便单测（真机没法随时切这些组合）。</summary>
     internal static ChargingState DeriveCharging(SystemPowerSnapshot snapshot)
     {
         if (!snapshot.AcOnline)

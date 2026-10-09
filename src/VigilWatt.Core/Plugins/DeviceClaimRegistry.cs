@@ -2,11 +2,7 @@ using System.Collections.Concurrent;
 
 namespace VigilWatt.Core.Plugins;
 
-/// <summary>
-/// HID 接口认领注册表：同一物理接口同一时刻只归一个插件，防止两个插件同时开句柄/抢会话。
-/// 由 DeviceManager 持有并传给各插件（DeviceManager.SafePoll）。TryClaim 幂等：同一插件重复认领返回 true。
-/// 插件在设备消失/探测失败/被禁用（Detach）时负责 Release，注册表只记账不做超时回收。
-/// </summary>
+/// <summary>HID 接口认领注册表：同一物理接口同一时刻只归一个插件，防止两个插件同时开句柄/抢会话。由 DeviceManager 持有并传给各插件（轮询入口 RequestPollAsync / PollOnceAsync）。TryClaim 幂等（同一插件重复认领返回 true）；插件在设备消失/探测失败/被禁用（Detach）时负责 Release，注册表只记账不做超时回收。</summary>
 public sealed class DeviceClaimRegistry
 {
     private readonly ConcurrentDictionary<string, string> _ownerByPath = new();

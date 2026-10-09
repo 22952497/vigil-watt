@@ -5,7 +5,7 @@
 
     <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="20,16" RowSpacing="12">
 
-        <!-- 标题栏：页面标题 + 当前上下文副标题 + 手动刷新 -->
+        <!-- 标题栏：标题 + 当前上下文副标题 + 刷新 -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
             <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                 <TextBlock Text="历史统计" Style="{StaticResource AppPageTitleStyle}" />
@@ -41,7 +41,7 @@
             </Grid>
         </Border>
 
-        <!-- 指标摘要卡片行：把"用眼睛从曲线上读数值"变成一眼可见 -->
+        <!-- 指标摘要卡片行 -->
         <Grid Grid.Row="2" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />

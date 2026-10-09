@@ -6,20 +6,16 @@ namespace VigilWatt.Core.Utils;
 /// <summary>
 /// 极简文件日志，写到 %LOCALAPPDATA%\VigilWatt\logs\app.log，供协议探测与排障。
 ///
-/// 关键约定（doc/dev/logging.md §3.4 的"格式契约"，改动会破坏 doc/ 里的 grep 考古命令）：
-/// - 行首固定 <c>yyyy-MM-dd HH:mm:ss.fff</c>（**本地时间**）；级别标签宽度 6（<c>[DBG ]</c>/<c>[INFO]</c>/<c>[WARN]</c>/<c>[ERR ]</c>）
-/// - 一个逻辑事件 = 一行：message 里的换行/控制符会被转义；异常堆栈的后续行统一加缩进前缀
-/// - 编码 UTF-8 **无 BOM**
-/// - <c>app.log</c> 永远是"当前"文件，滚动出的历史依次是 <c>app.1.log</c> / <c>app.2.log</c>（默认留 3 份）
+/// **格式契约**（改动会破坏 doc/ 里的 grep 考古命令，详见 doc/dev/logging.md 格式契约一节）：
+/// 行首固定 <c>yyyy-MM-dd HH:mm:ss.fff</c> 本地时间；级别标签宽度 6（<c>[DBG ]</c>…）；
+/// 一个逻辑事件 = 一行（换行/控制符转义、堆栈续行加缩进前缀）；编码 UTF-8 无 BOM；
+/// <c>app.log</c> 是当前文件，历史滚动为 <c>app.1.log</c>…。
+/// 行首用本地时间、而 <c>history.db</c> 的 <c>ts</c> 用 UTC 毫秒，两者靠每个文件首行的
+/// "时间基准"声明对齐（见 <see cref="WriteTimeBasis"/>）。
 ///
-/// 时间口径：行首是**本地时间**（人读友好、grep 习惯不变），而 <c>history.db</c> 的 <c>ts</c> 是
-/// **UTC 毫秒**。为了让两者能对齐，每个日志文件新建时会在首行写一条"时间基准"声明（含本机时区与
-/// UTC offset），见 <see cref="WriteTimeBasis"/>。
-///
-/// 分级：低于 <see cref="MinLevel"/> 的调用零 IO、零分配直接返回；热路径可用
-/// <see cref="IsEnabled"/> 提前短路，省掉 <c>$"..."</c> 插值开销。
-/// 注意：Debug 是**运行期过滤档位**，发布版同样编译进去——**不要**用 <c>[Conditional("DEBUG")]</c>，
-/// 否则 Release 编译时调用点会被整段删掉，用户在 settings.json 里配 Debug 也没用。
+/// 低于 <see cref="MinLevel"/> 的调用零 IO、零分配返回；热路径可用 <see cref="IsEnabled"/> 短路。
+/// 注意 Debug 是**运行期过滤档位**，发布版同样编译进去——**不要**加 <c>[Conditional("DEBUG")]</c>，
+/// 否则 Release 下调用点被整段删掉，用户在 settings.json 里配 Debug 也没用。
 /// </summary>
 public static class Log
 {
@@ -62,10 +58,7 @@ public static class Log
     private static DateTime _lastFallbackUtc = DateTime.MinValue;
     private static bool _disabled;   // 连兜底都写不进去 → 彻底放弃，不递归
 
-    /// <summary>
-    /// 最低输出级别（默认 <see cref="LogLevel.Info"/>）。启动时由 AppSettings.LogLevel 赋值；
-    /// **重启生效**，不追求热更新（避免跨线程读静态字段）。
-    /// </summary>
+    /// <summary>最低输出级别（默认 <see cref="LogLevel.Info"/>）。启动时由 AppSettings.LogLevel 赋值；**重启生效**，不追求热更新（避免跨线程读静态字段）。</summary>
     public static LogLevel MinLevel { get; set; } = LogLevel.Info;
 
     /// <summary>热路径短路用：低于当前级别的调用可以跳过 <c>$"..."</c> 插值开销。</summary>
@@ -76,23 +69,18 @@ public static class Log
     public static void Warn(string message) => Write(LogLevel.Warn, "WARN", message);
 
     // ---------- 降噪：状态变化才记 / 节流 ----------
-    //
-    // 轮询型代码（每 15 秒 / 每分钟重跑）经常在同一状态上重复打日志，把 app.log 冲爆。
-    // 下面两个入口把"什么时候才值得记"从各调用点收拢到这里：
-    //   - InfoOnChange：状态变了才记（如托盘提示文字、HID 设备集合指纹）
+    // 轮询型代码（每 15 秒 / 每分钟重跑）常在同一状态上重复打日志把 app.log 冲爆。
+    // 两个入口把"什么时候才值得记"从各调用点收拢到这里：
+    //   - InfoOnChange：状态变了才记（托盘提示文字、HID 设备集合指纹）
     //   - InfoThrottled：同一 key 在给定间隔内最多记一条
-    // 它们是 MchosePlugin.ShouldLogOnce/ResetLogOnce 的通用版；那里同时承担业务语义的
-    // 状态判断保持原样不动（见 doc/dev/logging.md §4 阶段 3）。
+    // 是 MchosePlugin.ShouldLogOnce/ResetLogOnce 的通用版（见 doc/dev/logging.md §4 阶段 3）。
 
     private static readonly ConcurrentDictionary<string, string> InfoStateByKey = new();
     private static readonly ConcurrentDictionary<string, long> InfoLastTicksByKey = new();
 
     /// <summary>
-    /// 只有 <paramref name="state"/> 与上次不同时才打一条 Info，并返回"是否发生变化"。
-    /// 调用点可用返回值决定是否顺带 dump 一批 Debug 明细（HidDeviceScanner 就是这么用的）。
-    ///
-    /// 当前级别高于 Info 时**不更新状态**，这样用户切回 Info 档还能看到最新状态（不丢信息）。
-    /// 并发下最坏情况是同一状态多打一条——日志去重不是正确性关键，不值得为它上锁。
+    /// 只有 <paramref name="state"/> 与上次不同时才打一条 Info，并返回"是否发生变化"（调用点据此决定是否顺带 dump 一批 Debug 明细，HidDeviceScanner 就这么用）。
+    /// 当前级别高于 Info 时**不更新状态**（用户切回 Info 档仍能看到最新状态）；并发下最坏多打一条——去重非正确性关键，不值得为它上锁。
     /// </summary>
     public static bool InfoOnChange(string key, string state, string message)
     {
@@ -178,9 +166,7 @@ public static class Log
         Emit(tag, Sanitize(message));
     }
 
-    /// <summary>保证"一个逻辑事件 = 一行"：message 内的换行/回车/控制符转义成可见形式，
-    /// 避免设备名等外部字符串（HID 产品字符串/BLE 名称）伪造出无时间戳的假日志行。
-    ///
+    /// <summary>保证"一个逻辑事件 = 一行"：把换行/回车/控制符转义成可见形式，避免设备名等外部字符串（HID 产品字符串/BLE 名称）伪造出无时间戳的假日志行。
     /// 绝大多数消息不含控制符，走快路径零分配；含控制符才逐字符转义。</summary>
     private static string Sanitize(string message)
     {
@@ -281,11 +267,8 @@ public static class Log
         }
     }
 
-    /// <summary>
-    /// 每个日志文件新建时写一行"时间基准"：声明行首是**本地时间**、附上本机时区与 UTC offset，
-    /// 并说明 <c>history.db</c> 的 <c>ts</c> 是 UTC 毫秒 —— 这样拿到日志的人能把日志时间与数据库时间对齐（N4）。
-    /// 该行带完整时间戳前缀，不破坏 <c>grep -a "^20"</c> 之类的既有考古命令；仅在文件为空时出现一次。
-    /// </summary>
+    /// <summary>每个日志文件新建时写一行"时间基准"：声明行首是**本地时间**、附上本机时区与 UTC offset，并说明 history.db 的 ts 是 UTC 毫秒（N4）。
+    /// 该行带完整时间戳前缀，不破坏 grep -a "^20" 之类的既有考古命令；仅在文件为空时出现一次。</summary>
     private static void WriteTimeBasis()
     {
         var offset = TimeZoneInfo.Local.GetUtcOffset(DateTime.Now);

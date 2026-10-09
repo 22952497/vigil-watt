@@ -27,12 +27,9 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(
             (int)(800 * dpiScale), (int)(600 * dpiScale)));
 
-        // 标题栏融入内容：Win11 / Win10 都做，与背景材质无关。
-        //
-        // 旧版把这三行塞在 MicaController.IsSupported() 分支里 —— Mica 是 Win11 专属，
-        // 于是 Win10 上条件为假：系统照常画一条标准标题栏（带应用名），
-        // 而内容区第 0 行那个 48px 的 AppTitleBar 又画了一遍应用名 —— 窗口里出现两个标题，
-        // 中间还夹一条硬分隔线。这就是"Win10 上不好看"的头号原因。
+            // 标题栏融入内容：Win11 / Win10 都做，与背景材质无关。
+            // 旧版塞在 MicaController.IsSupported() 分支里，于是 Win10 上系统照常画标准标题栏，
+            // 而内容区的 AppTitleBar 又画一遍应用名 —— 窗口里出现两个标题（"Win10 不好看"的头号原因）。
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
@@ -52,10 +49,10 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(DevicesPage));
     }
 
-    /// <summary>
-    /// 按用户设置 + 本机能力应用窗口背景材质。设置页改了"窗口背景"后也会调这里即时生效。
-    /// 三级回退：Mica（Win11）→ Acrylic（Win10 1809+）→ 纯色分层底。
-    /// </summary>
+        /// <summary>
+        /// 按用户设置 + 本机能力应用窗口背景材质（设置页改完也会调这里即时生效）。
+        /// 三级回退：Mica（Win11）→ Acrylic（Win10 1809+）→ 纯色分层底。
+        /// </summary>
     public void ApplyBackdrop()
     {
         try
@@ -87,11 +84,10 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// ExtendsContentIntoTitleBar 之后，右上角的系统按钮（最小化/最大化/关闭）由 DWM 绘制，
-    /// 颜色不会自动跟随 WinUI 主题 —— Win10 深色主题下会变成"黑按钮配深底"，几乎看不见。
-    /// 这里按当前主题显式刷一遍前景色。
-    /// </summary>
+        /// <summary>
+        /// ExtendsContentIntoTitleBar 之后，右上角系统按钮由 DWM 绘制、颜色不自动跟随主题
+        /// （Win10 深色下会变成"黑按钮配深底"，几乎看不见），这里按当前主题显式刷一遍前景色。
+        /// </summary>
     private void SyncTitleBarButtonColors()
     {
         try
@@ -110,11 +106,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// 运行时再设一次窗口图标。非打包 WinUI 3 有时不自动继承 exe 的 Win32 图标资源，
-    /// 任务栏 / Alt-Tab 会显示成空白方块；显式从输出目录读 ico 设进去最稳。
-    /// 注意：本方法在窗口构造期调用，异常必须自己吞掉（构造期抛出会让应用起不来）。
-    /// </summary>
+        /// <summary>
+        /// 运行时再设一次窗口图标：非打包 WinUI 3 有时不继承 exe 的 Win32 图标资源，
+        /// 任务栏 / Alt-Tab 会显示成空白方块。
+        /// ⚠ 本方法在窗口构造期调用，异常必须自己吞掉（构造期抛出会让应用起不来）。
+        /// </summary>
     private void ApplyWindowIcon()
     {
         try

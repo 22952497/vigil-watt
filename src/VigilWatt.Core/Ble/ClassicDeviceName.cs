@@ -2,15 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>
-/// 经典蓝牙设备显示名的**纯逻辑**（可单测，见 src/tests/VigilWatt.Core.Tests/）。
-///
-/// 背景（真机 2026-10-06 实测）：WinRT 的 <c>DeviceInformation.Name</c> /
-/// <c>System.ItemNameDisplay</c> 在系统还没解析出设备友好名时，会**直接把 AEP 的设备 ID 当名字返回**，
-/// 形如 <c>Bluetooth#Bluetooth1c:ce:51:23:28:7b-0c:ae:bd:c6:cd:a7</c>。
-/// 旧代码照单全收，于是列表里那台耳机就显示成一长串 ID。
-/// 这里负责识别这种"假名字"，让调用方有机会降级到注册表配对名 / 格式化 MAC。
-/// </summary>
+/// <summary>经典蓝牙显示名的纯逻辑：识别"占位名"（WinRT 在友好名未解析时会拿 AEP 设备 ID 当名字，真机实测）。详见 doc/project/handoff.md「经典蓝牙设备显示名修成原始 ID」。</summary>
 internal static class ClassicDeviceName
 {
     /// <summary>裸 MAC 形态：<c>0c:ae:bd:c6:cd:a7</c> 或 <c>0C-AE-BD-C6-CD-A7</c>。</summary>

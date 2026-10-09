@@ -21,13 +21,14 @@ VigilWatt.sln
 │   │   ├── NativeHid                  # Win32 P/Invoke（CfgMgr32 / hid.dll / CreateFileW）
 │   │   ├── HidDeviceScanner           # 枚举在位 HID 接口 + 读元数据
 │   │   ├── HidDeviceInfo              # 元数据 + HidDeviceHandle（读写通道，单悬空读）
-│   │   └── HidWriteProbe              # 【已退役】旧探测矩阵，仅存档勿调用
+│   │   └── HidWriteProbe              # 探测矩阵：多数变体已无调用方，仅 Elan 观察模式仍用 FeatureSweep 做只读扫描
 │   ├── Plugins/
 │   │   ├── IBatteryPlugin             # 插件契约：Attach / Poll / Detach
 │   │   ├── BatteryPluginBase          # "接口认领"型基类：冷却/熔断/生命周期/稳定Id/被动实时监听(StatusPushed)
 │   │   ├── DeviceClaimRegistry        # 中央认领注册表（同一接口同时只归一个插件）
 │   │   ├── PluginUtils                # 共享工具（路径 FNV-1a 稳定哈希）
-│   │   ├── Logitech/                  # HID++ 1.0/2.0（接收器会话型，含雷柏实验支持）
+│   │   ├── Logitech/                  # HID++ 1.0/2.0（接收器会话型）
+│   │   ├── Rapoo/RapooPlugin          # 雷柏 status-report7（纯被动零写入）
 │   │   ├── Mchose/MchosePlugin        # 0x13 会话协议（在用）+ QHW 0x4D（备用）
 │   │   ├── Betop/BetopPlugin          # 北通手柄：厂商接口 0x15 状态报告 + T9 被动流 + BetopCodec（纯逻辑）
 │   │   └── Elan/ElanHeadsetPlugin     # 纯观察模式（不认领设备）
@@ -92,8 +93,9 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 
 ## 4. 线程模型
 
-- **定时器线程**（System.Threading.Timer ×2）：轮询 1 分钟（SafePoll，`Interlocked` 防重入）、采样 SampleIntervalMinutes。全部硬件 I/O 在这两个线程上。
-- **UI 线程**：只收事件（DispatcherQueue.TryEnqueue）和发起手动刷新（RequestPoll 也走 SafePoll 防重入）。
+- **定时器线程**（`System.Threading.Timer` ×3）：主轮询 1 分钟（首扫 300ms 起跑）、快速发现 15 秒（`FastDiscoveryInterval`）、采样 `SampleIntervalMinutes`（首拍 1 分钟）。全部硬件 I/O 都在这几个线程上。
+- **轮次不并发、也不静默丢弃**：`RequestPollAsync()` / `RequestDiscoveryAsync()` 在 `_pollSync` 下复用进行中的 Task（`_currentPoll` / `_currentDiscovery`）；所有 pass 由 `SemaphoreSlim _passGate` 串行执行（插件内部字典不是线程安全的）。
+- **UI 线程**：只收事件（DispatcherQueue.TryEnqueue）和发起手动刷新（`await RequestPollAsync()`，返回的 Task 在整轮结束后完成，含 BLE 异步补读）。
 - **BLE**：DeviceWatcher 回调线程 + GATT 异步（SemaphoreSlim 限流，8 秒超时）。
 - **托盘**：Shell 消息窗口线程回调 → 显示气泡前切 UI 线程。
 
@@ -128,6 +130,10 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
     **不要靠显示名猜类型**——真机显示名（`Rapoo Gaming Device` / `MCHOSE 2.4G Wireless` /
     `EDIFIER W820NB 双金标版`）里一个关键字都没有，猜的结果是全退化成通用蓝牙图标。
     分不出来时才写 `Unknown`，由 `DeviceKindGuesser` 兜底。
+- **状态合并的"声明覆盖猜测"规则**（`Devices/DeviceStatusMerger.cs`，`Upsert` 与"墓碑接管"都走它）：
+  离线墓碑先于插件建条目，`Kind` 只能按历史名猜（真机名一个关键字都没有 → 全 `Unknown`）；
+  设备真正上线后插件声明的 `Kind`/`Protocol` **必须能覆盖**墓碑的猜测，否则图标在进程内**冻结**到永远。
+  反向不成立——`Unknown` / 空串视为"本次未声明"，不得把已知类型洗掉。
 - UI 侧 XAML 事件处理器开头判空（dev/runtime-pitfalls.md §4）；新增 XAML 属性先确认控件真有（dev/build.md §1）。
 - **新"非插件"数据源清单**（本机电量就是这么加的）：数据源不是 HID 接口、
   没有东西可"认领"时，不要硬塞进 `IBatteryPlugin`——照 `BluetoothClassicWatcher` /

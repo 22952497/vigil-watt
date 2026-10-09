@@ -3,12 +3,11 @@ using Velopack.Sources;
 
 namespace VigilWatt.App.Services;
 
-/// <summary>
-/// 自动更新：包一层 Velopack 的 UpdateManager。更新源来自 settings.json 的 UpdateUrl：
-/// 本地文件夹路径、网络共享（SimpleFileSource/SimpleWebSource）或 GitHub 仓库 URL（GithubSource），
-/// 空 = 未配置不检查。只有通过安装包装的实例才能自更新（IsInstalled），
-/// 开发时从 bin/publish 直接跑返回 false。
-/// </summary>
+    /// <summary>
+    /// 自动更新：包一层 Velopack 的 UpdateManager。更新源来自 settings.json 的 UpdateUrl
+    /// （本地文件夹 / 网络共享 / GitHub 仓库 URL），空 = 未配置不检查。
+    /// 只有通过安装包装的实例才能自更新（IsInstalled），开发时从 bin/publish 直接跑返回 false。
+    /// </summary>
 public sealed class UpdateService
 {
     private readonly UpdateManager _mgr;

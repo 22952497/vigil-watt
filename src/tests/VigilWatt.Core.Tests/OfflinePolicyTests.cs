@@ -3,20 +3,18 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-/// <summary>
-/// OfflinePolicy —— 插件第③层"离线判定策略"参数的集中载体。
-/// 覆盖两件事：① 默认值（不按沉默、不延迟确认、轮询空读算失败）；
-/// ② 延迟确认窗口的边界语义（对应雷柏 RF 断链位：标记候选后要等满窗口才判离线，
-///    期间任何恢复证据都能撤销它）。
-/// </summary>
+    /// <summary>
+    /// OfflinePolicy —— 插件第③层"离线判定策略"参数的集中载体。覆盖默认值（不按沉默、
+    /// 不延迟确认、轮询空读算失败），以及延迟确认窗口的边界语义（标记候选后要等满窗口才判离线，
+    /// 期间任何恢复证据都能撤销它）。
+    /// </summary>
 public class OfflinePolicyTests
 {
     private static readonly DateTimeOffset T0 = new(2026, 10, 8, 21, 38, 38, TimeSpan.FromHours(8));
 
     /// <summary>
-    /// 雷柏当前取值（RapooPlugin.Offline.Confirm = 6s）。
-    /// RapooPlugin 带 WinRT 依赖、进不了本测试项目，所以这里按同一数值验语义——
-    /// 改了插件里的窗口这条用例不会自动跟着变，是个已知的松动点（改窗口时记得同步）。
+    /// 雷柏当前取值（`RapooPlugin.Offline.Confirm = 6s`）。RapooPlugin 带 WinRT 依赖、进不了本测试
+    /// 项目，所以这里按同一数值验语义——改了插件里的窗口这条用例**不会自动跟着变**，是已知松动点。
     /// </summary>
     private static readonly OfflinePolicy Rapoo = new() { Confirm = TimeSpan.FromSeconds(6) };
 
@@ -32,9 +30,9 @@ public class OfflinePolicyTests
     [Fact]
     public void O2_默认把轮询空读算失败且阈值为3()
     {
-        // 默认面向"传统查询型插件"（如 Elan）：轮询发了帧却没读数就是失联。
-        // 雷柏 / 迈从 / 北通必须显式置 false —— 这正是把"轮询空读算不算失败"从
-        // SupportsPassiveListen 里拆出来的目的（曾经合成一个布尔量，导致迈从键盘关机后永不显示离线）。
+    // 默认面向"传统查询型插件"（如 Elan）：轮询发了帧却没读数就是失联。
+    // 雷柏 / 迈从 / 北通必须显式置 false —— 这正是把"轮询空读算不算失败"从 SupportsPassiveListen
+    // 里拆出来的目的（曾经合成一个布尔量，导致迈从键盘关机后永不显示离线）。
         Assert.True(OfflinePolicy.Default.CountPollFailures);
         Assert.Equal(3, OfflinePolicy.Default.MaxFailures);
     }

@@ -6,8 +6,7 @@
 
     <Grid RowDefinitions="Auto,*" Padding="20,16">
 
-        <!-- 与其它页同款"标题 + 副标题 + 右上操作"：设备页原本缺标题行，
-             刷新按钮孤零零挂在一行摘要文字左边，和统计/历史管理两页不是一个语言 -->
+        <!-- 标题 + 副标题 + 右上操作（与统计 / 历史管理页同款） -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
             <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                 <TextBlock Text="设备电量" Style="{StaticResource AppPageTitleStyle}" />

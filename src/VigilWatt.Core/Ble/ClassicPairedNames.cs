@@ -3,15 +3,7 @@ using Microsoft.Win32;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>
-/// 从 Windows 的经典蓝牙**配对记录**里读设备友好名。
-///
-/// 位置：<c>HKLM\SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices\&lt;mac12&gt;\Name</c>
-/// （REG_BINARY，UTF-8 字节、尾部带 <c>\0</c>）。真机实测能拿到 "EDIFIER W820NB 双金标版"，
-/// 而同一时刻 WinRT 的 AEP 属性只返回设备 ID —— 所以这是最可靠的兜底来源。
-///
-/// 纯读、零写入、不建立任何连接；整表缓存 30 秒，避免 watcher 事件密集时反复读注册表。
-/// </summary>
+/// <summary>从经典蓝牙配对记录（注册表 <c>BTHPORT\...\Devices\&lt;mac12&gt;\Name</c>，REG_BINARY UTF-8）读友好名——WinRT AEP 只返回设备 ID 时的可靠兜底。纯读零写入，整表缓存 30 秒。详见 doc/project/handoff.md「经典蓝牙设备显示名修成原始 ID」。</summary>
 internal static class ClassicPairedNames
 {
     private const string DevicesKey = @"SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices";

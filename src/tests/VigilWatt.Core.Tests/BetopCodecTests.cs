@@ -3,12 +3,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-/// <summary>
-/// BetopCodec —— 北通 (BETOP) 手柄状态报告（report 0x02 / header 0x15）帧编解码。
-/// 用例使用开源实现 oitsukiii/betop-battery 记录的鲲鹏20 真机原始帧
-/// （见其 docs/protocol.md §4：`02 15 64 00 51 …` = 100% 充电、`02 15 5D 00 50 …` = 93% 放电）。
-/// 该协议无校验和字段，因此这里只校验帧头与字段语义。
-/// </summary>
+    /// <summary>
+    /// BetopCodec —— 北通 (BETOP) 手柄状态报告（report 0x02 / header 0x15）帧编解码。
+    /// 用例使用鲲鹏20 真机原始帧（出自开源实现 oitsukiii/betop-battery）；该协议无校验和字段，
+    /// 因此只校验帧头与字段语义。帧结构见 doc/hardware/protocols.md §4。
+    /// </summary>
 public class BetopCodecTests
 {
     private static byte[] Hex(string s) => Convert.FromHexString(s.Replace(" ", ""));
@@ -114,8 +113,8 @@ public class BetopCodecTests
         Hex("04 02 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 58");
 
     /// <summary>
-    /// 手柄**没连上**时 dongle 推的占位帧：byte23 = 0x50 = 80。
-    /// 该值不是电量 —— 见 T9 用例组与 BetopCodec 上方对照表。
+    /// 手柄**没连上**时 dongle 推的占位帧：byte23 = 0x50 = 80。该值不是电量。
+    /// 真机对照见 doc/hardware/protocols.md §4.4.1。
     /// </summary>
     private static readonly byte[] T9StreamNotLinked =
         Hex("04 02 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50");
@@ -125,8 +124,8 @@ public class BetopCodecTests
         Hex("04 02 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 78");
 
     /// <summary>
-    /// 同一天下午的真机帧：**byte[1] 变成了 0x0C**（上午是 0x02），其余完全一致。
-    /// 旧实现把 byte[1] == 0x02 当帧头 → 这帧解析全落空 → 手柄从列表消失、每次轮询白等 6 秒。
+    /// 同一天下午的真机帧：**byte[1] 变成 0x0C**（上午是 0x02），其余完全一致。
+    /// 旧实现把 byte[1] 当帧头 → 这帧解析全落空 → 手柄从列表消失。
     /// </summary>
     private static readonly byte[] T9StreamWakeTag0C =
         Hex("04 0C 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 58");
@@ -136,8 +135,8 @@ public class BetopCodecTests
         Hex("04 0C 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50");
 
     /// <summary>
-    /// **用户报"我设备已经关闭了 只有连接器还在电脑上"那一刻的真机帧**（2026-10-06 17:03 起，
-    /// 手柄关机后 dongle 改推这帧，一直推到 17:12+ 没停）：byte[1] = 0x04、byte23 = 0x50。
+    /// **用户报"我设备已经关闭了 只有连接器还在电脑上"那一刻的真机帧**（2026-10-06 17:03 起）：
+    /// byte[1] = 0x04、byte23 = 0x50。
     /// </summary>
     private static readonly byte[] T9StreamNotLinkedTag04 =
         Hex("04 04 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50");
@@ -222,9 +221,8 @@ public class BetopCodecTests
     [Fact]
     public void T6_T9电量换算覆盖各级别()
     {
-        // raw = 等级(0~15) × 8，满值 120 = 100%
-        // 注意：0x50(80) 虽然换算得出 67%，但在状态流里它是"未连接占位值"、不参与换算
-        // （见 T2/T9/T10），这里只验纯换算函数本身。
+    // raw = 等级(0~15) × 8，满值 120 = 100%。
+    // 注意 0x50(80) 虽换算得出 67%，但在状态流里它是"未连接占位值"、不参与换算，这里只验纯换算函数。
         Assert.Equal(0, BetopCodec.T9ToPercent(0));
         Assert.Equal(50, BetopCodec.T9ToPercent(60));    // 0x3C
         Assert.Equal(67, BetopCodec.T9ToPercent(80));    // 0x50

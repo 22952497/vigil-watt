@@ -5,11 +5,9 @@ internal enum V1PushKind
 {
     /// <summary>不是 0A 推送帧。</summary>
     NotPush,
-    /// <summary>电量推送，Percent / ChargeFlag 有效。</summary>
     Battery,
-    /// <summary>电量帧但电量值无效（占位/越界），Percent 不可用。</summary>
     BatteryInvalid,
-    /// <summary>设备状态通知（实测=键盘休眠/关机），**下标 6 不是电量**。</summary>
+    /// <summary>设备状态通知，**下标 6 不是电量**。</summary>
     StateNotify,
     /// <summary>其他类型的 0A 帧，忽略但值得记日志校准。</summary>
     Other,
@@ -20,9 +18,7 @@ internal enum V1ResponseKind
 {
     /// <summary>不是 4A 响应。</summary>
     NotResponse,
-    /// <summary>正常电量响应。</summary>
     Battery,
-    /// <summary>是 4A 响应但电量值无效（占位/越界）。</summary>
     InvalidBattery,
 }
 
@@ -30,19 +26,11 @@ internal enum V1ResponseKind
 internal readonly record struct V1Push(V1PushKind Kind, byte Type, byte Payload, int Percent, byte ChargeFlag);
 
 /// <summary>
-/// 迈从键盘 V1 协议（report 0x13）的**纯帧编解码**，不碰句柄、不写日志——便于单测
-/// （见 src/tests/VigilWatt.Core.Tests/，用真机抓到的原始帧跑）。
+/// 迈从键盘 V1 协议（report 0x13）的**纯帧编解码**，不碰句柄、不写日志，便于单测。
+/// 帧布局（全部 20 字节，校验 = 前 19 字节之和 mod 256）见 doc/hardware/protocols.md §1。
 ///
-/// 帧布局（全部 20 字节，校验 = 前 19 字节之和 mod 256）：
-/// <code>
-/// 开会话  [13 05 01 00×16 sum]
-/// 查电量  [13 4A 01 00×16 sum]
-/// 电量响应 [13 4A 01 00 02 电量% 充电标志 00×11 sum]
-/// 推送    [13 0A 01 00 04 类型 …payload… sum]
-/// </code>
-/// **推送帧的类型位（下标 5）是关键**：0x05 = 电量（payload [6]=电量% [7]=标志），
-/// 0x02 = 设备状态通知（实测键盘休眠时发 `13 0A 01 00 04 02 01 …`，payload [6]=0x01）。
-/// 旧代码不看类型位、直接读下标 6 当电量，于是把休眠帧的 0x01 显示成 1%，误报低电量。
+/// **推送帧的类型位（下标 5）是关键**：旧代码不看类型位、直接读下标 6 当电量，
+/// 于是把休眠状态帧的 0x01 显示成 1%，误报低电量。
 /// </summary>
 internal static class MchoseV1Codec
 {
@@ -51,7 +39,6 @@ internal static class MchoseV1Codec
     public const byte BatteryQueryCmd = 0x4A;
     public const byte PushCmd = 0x0A;
 
-    /// <summary>推送帧类型位：电量。</summary>
     public const byte PushTypeBattery = 0x05;
 
     /// <summary>推送帧类型位：设备状态通知（实测=休眠/关机）。</summary>
@@ -59,19 +46,18 @@ internal static class MchoseV1Codec
 
     /// <summary>
     /// 状态通知 payload 的实测取值之一（与 <see cref="StatePayloadOne"/> 全天交替出现）。
-    /// **语义未定论**，所以只当"值得立刻核实一下"的触发器用（见 MchosePlugin 的被动解析），
-    /// 绝不作为离线证据——每次通知后 1 分钟内设备都能正常应答电量查询。
+    /// **语义未定论**，只当"值得立刻核实一下"的触发器用（见 MchosePlugin 的被动解析），
+    /// 绝不作为离线证据。
     /// </summary>
     public const byte StatePayloadZero = 0x00;
 
-    /// <summary>状态通知 payload 的另一个实测取值。语义同样未定论，当前不做任何处理，仅记录。</summary>
+    /// <summary>状态通知 payload 的另一个实测取值。语义同样未定论，当前不做处理，仅记录。</summary>
     public const byte StatePayloadOne = 0x01;
 
     /// <summary>无效电量下界：≤1 一律无效（真机休眠帧 payload 就是 0x01）。低电量阈值 20%，
     /// 正常放电到 1% 之前早就提醒过了，所以拒绝它不会漏掉任何真实告警。</summary>
     public const byte InvalidPercentFloor = 1;
 
-    /// <summary>帧总长度。</summary>
     public const int FrameLength = 20;
 
     /// <summary>构造 V1 帧（补零到 20 字节，末字节 = 前 19 字节之和）。</summary>

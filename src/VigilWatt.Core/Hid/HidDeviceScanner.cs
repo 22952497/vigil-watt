@@ -36,11 +36,9 @@ public static class HidDeviceScanner
             }
         }
 
-        // 明细（每接口一行元数据 + 一行摘要）只在**设备集合变化时**打。
-        // 每次扫描 24 个接口 = 约 50 行日志，而扫描现在每分钟 1 次 + 快速发现每 15 秒 1 次，
-        // 无脑全打会把 app.log 冲爆（旧日志 725KB 里绝大部分就是这些重复行）。
-        // 插拔设备/首次枚举时集合变了，明细照样会完整落盘，排错信息不丢。
-        // 指纹与去重状态交给 Log.InfoOnChange 维护（key 固定，返回"是否变化"）。
+        // 明细（每接口一行元数据 + 一行摘要）只在**设备集合变化时**打：每次扫描 24 接口≈50 行，
+        // 而扫描每分钟 1 次 + 快速发现每 15 秒 1 次，全打会把 app.log 冲爆（旧日志 725KB 绝大部分是重复行）。
+        // 插拔/首次枚举时集合变了，明细照样完整落盘，排错信息不丢。去重交给 Log.InfoOnChange。
         var signature = string.Join("|", list
             .Select(d => $"{d.VendorId:X4}:{d.ProductId:X4}:{d.UsagePage:X4}:{d.Usage:X4}:{d.InputReportLength}:{d.OutputReportLength}:{d.FeatureReportLength}")
             .OrderBy(s => s, StringComparer.Ordinal));

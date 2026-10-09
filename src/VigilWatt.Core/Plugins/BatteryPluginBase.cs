@@ -6,16 +6,11 @@ namespace VigilWatt.Core.Plugins;
 
 /// <summary>
 /// "接口认领"型插件的基类：一台设备 = 一个长持有的 HID 接口句柄。
-/// 沉淀通用机制（新插件只实现协议本身，安全机制由基类统一保证）：
-/// - 探测失败冷却 / 写入熔断 / 中央认领 / 设备生命周期 / 读数异常过滤 / 稳定 Id / 首扫提速；
-/// - 快速发现：纯被动零写入插件可把 SupportsFastDiscovery 置 true；
-/// - <b>被动实时监听</b>：SupportsPassiveListen 的插件认领后后台只读不写，
-///   收到心跳/推送立即 StatusPushed（与罗技 HID++ 通知同思路，插拔电不必等 60 秒轮询）；
-/// - <b>离线判定策略</b>：三条判据（沉默兜底 / 延迟确认 / 查询失败熔断）的参数集中在
-///   <see cref="Offline"/>（<see cref="OfflinePolicy"/>）里，与协议事实、安全声明分开；
-///   延迟确认与"立刻核实"的检查点都在被动监听的空闲 tick（约 500ms），不走 60 秒轮询。
-/// 协议差异由子类实现 IsCandidate / Probe / PollDevice（及可选 TryParsePassiveInput）。
+/// 通用机制（探测冷却 / 写入熔断 / 中央认领 / 生命周期 / 读数异常过滤 / 稳定 Id / 被动监听 /
+/// 离线判定策略）由基类统一保证，子类只实现协议本身：
+/// <see cref="IsCandidate"/> / <see cref="Probe"/> / <see cref="PollDevice"/>（及可选 <see cref="TryParsePassiveInput"/>）。
 /// 会话型插件（罗技）直接实现 IBatteryPlugin，自建通知泵。
+/// 链路全貌见 doc/project/code-flow.md §4。
 /// </summary>
 public abstract class BatteryPluginBase : IBatteryPlugin
 {
@@ -33,8 +28,8 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
     /// <summary>
     /// 见 <see cref="IBatteryPlugin.SupportsDiscoveryProbe"/>：探测要写帧、但仍要参与 15 秒发现节拍。
-    /// 覆盖成 true 时**必须同时把 <see cref="ProbeCooldown"/> 压到 15 秒以下**（并留出一次探测本身的
-    /// 耗时余量），否则冷却会让实际重试间隔翻倍——每两拍才轮到一次探测。
+    /// 覆盖成 true 时**必须同时把 <see cref="ProbeCooldown"/> 压到 15 秒以下**，否则冷却会让实际
+    /// 重试间隔翻倍（每两拍才轮到一次探测）。
     /// </summary>
     public virtual bool SupportsDiscoveryProbe => false;
 
@@ -48,23 +43,19 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// 认领成功后是否启动后台被动监听（只读不写）。
     /// 雷柏心跳 / 迈从 0A 推送 / 北通 T9 流 等覆盖为 true，并实现 <see cref="TryParsePassiveInput"/>。
     ///
-    /// 它只描述**机制事实**（我起一个后台只读线程），<b>不</b>隐含"轮询空读不算通信失败"——
-    /// 那是 <see cref="OfflinePolicy.CountPollFailures"/> 的事。曾经把两件事合成这一个布尔量，
-    /// 于是迈从（要被动监听、但轮询空读确实是失联）键盘关机后永远不显示离线（2026-10-08 用户复报）。
+    /// 它只描述**机制事实**（我起一个后台只读线程），不隐含"轮询空读不算通信失败"——
+    /// 那是 <see cref="OfflinePolicy.CountPollFailures"/> 的事，两者**必须分开**。
     /// </summary>
     protected virtual bool SupportsPassiveListen => false;
 
     /// <summary>
-    /// 本插件的离线判定策略（三条判据的参数都在里面，见 <see cref="OfflinePolicy"/>）。
-    ///
-    /// 这是插件的第③层配置——机制由基类统一实现，插件只需要填参数，**每插件一行**。
-    /// 第①层（协议事实）和第②层（安全声明）仍然必须 per-brand，不在这里。
+    /// 本插件的离线判定策略（第③层配置：机制由基类实现，插件只填参数，每插件一行）。
+    /// 第①层（协议事实）与第②层（安全声明）仍必须 per-brand，见 doc/project/code-flow.md §4.2。
     /// </summary>
     protected virtual OfflinePolicy Offline { get; } = OfflinePolicy.Default;
 
     /// <summary>
-    /// 解析一条被动 input report。
-    /// 返回 null = 不是本协议帧；Offline=true = 设备明确离线（如北通未连接占位）。
+    /// 解析一条被动 input report。返回 null = 不是本协议帧；Offline=true = 设备明确离线。
     /// <b>必须零写入</b>。
     /// </summary>
     protected virtual (int? Percent, ChargingState Charging, bool Offline)? TryParsePassiveInput(
@@ -74,9 +65,9 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// 探测失败后的冷却时间（期间不再探测该接口）。
     ///
     /// 取值必须**明显小于轮询周期（60 秒）**：失败发生在轮询开始后几秒处，若冷却等于一整轮，
-    /// 下一拍只剩 5x 秒会被判"冷却未过"而白白跳过，实际重试间隔翻倍（实测雷柏/北通都踩过这个相位坑）。
-    /// 所以默认 30 秒 = "每一轮都允许重探"，它挡的是同一轮内的重复探测，不是整轮跳过。
-    /// 只有代价真的高、且不指望短期恢复的插件才该调大（如 Elan 的 feature 全扫 = 5 分钟）。
+    /// 下一拍会被判"冷却未过"而白白跳过，实际重试间隔翻倍（雷柏/北通都踩过这个相位坑）。
+    /// 默认 30 秒 = "每一轮都允许重探"；只有代价真的高、且不指望短期恢复的插件才调大（Elan 的
+    /// feature 全扫 = 5 分钟）。
     /// </summary>
     protected virtual TimeSpan ProbeCooldown => TimeSpan.FromSeconds(30);
 
@@ -105,15 +96,11 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         /// <summary>最近一次被动监听收到**任何**报文的时间（用于沉默离线；不是"解析成功"的时间）。</summary>
         public DateTimeOffset LastPassiveAt;
         /// <summary>
-        /// 插件标记的"离线候选"起始时刻（<c>default</c> = 无候选）。
-        /// 由 <see cref="MarkOfflineCandidate"/> / <see cref="ClearOfflineCandidate"/> 维护，
-        /// 候选持续超过 <see cref="OfflinePolicy.Confirm"/> 才真正判离线。
+        /// 插件标记的"离线候选"起始时刻（<c>default</c> = 无候选）。候选持续超过
+        /// <see cref="OfflinePolicy.Confirm"/> 才真正判离线。
         /// </summary>
         public DateTimeOffset OfflineCandidateSince;
-        /// <summary>
-        /// 插件在被动帧里请求"立刻做一次核实查询"（见 <see cref="RequestConfirm"/>）。
-        /// 基类在被动监听的空闲 tick 消费它，把响应从 60 秒轮询的相位里解耦出来。
-        /// </summary>
+        /// <summary>插件在被动帧里请求"立刻做一次核实查询"（见 <see cref="RequestConfirm"/>），由空闲 tick 消费。</summary>
         public bool ConfirmRequested;
         public CancellationTokenSource? ListenCts;
         public Task? ListenTask;
@@ -125,21 +112,20 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         HidDeviceHandle? Handle,
         (string Protocol, int? Percent, ChargingState Charging)? Result);
 
-    /// <summary>熔断退避期：设备经常休眠（无线键盘/鼠标离开即睡），永久停写会让休眠唤醒后永远读不到，
-    /// 所以停写 10 分钟后允许重试一轮；仍失败则再次熔断。最坏写入频率 = 1 帧/10 分钟，安全框架内。</summary>
+    /// <summary>熔断退避期：设备常休眠，永久停写会让休眠唤醒后永远读不到，故停写 10 分钟后允许重试一轮；
+    /// 仍失败则再次熔断。最坏写入频率 = 1 帧/10 分钟，在安全框架内。</summary>
     protected static readonly TimeSpan WriteRetryBackoff = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// 单次读数的最大合理变化幅度（百分点）：涨跌超过它就先判异常、本轮不采用。
-    /// 起因：键盘休眠/关机瞬间 dongle 会推 0/1 之类的伪读数，直接采信会误报低电量。
-    /// 真掉电不会一分钟掉 20 个点，所以这个阈值只挡异常、不挡正常放电。
-    /// 判定逻辑见 <see cref="BatteryReadingFilter"/>。
+    /// 起因：键盘休眠/关机瞬间 dongle 会推 0/1 之类伪读数。真掉电不会一分钟掉 20 点，
+    /// 故该阈值只挡异常、不挡正常放电。判定逻辑见 <see cref="BatteryReadingFilter"/>。
     /// </summary>
     protected virtual int MaxPlausibleStepPercent => 20;
 
     /// <summary>
-    /// 异常读数需持续这么久才最终采信（期间读数一直偏离才算数）。
-    /// 作用：既挡住休眠瞬间的瞬时伪读数，又不会把真实的深度掉电永久锁死。
+    /// 异常读数需持续这么久才最终采信（期间读数一直偏离才算数）：既挡住休眠瞬间的伪读数，
+    /// 又不会把真实的深度掉电永久锁死。
     /// </summary>
     protected virtual TimeSpan AnomalyPersistWindow => TimeSpan.FromMinutes(5);
 
@@ -152,7 +138,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         _claims = claims;
         var claimed = new List<DeviceStatus>();
 
-        // 第一遍（快）：已有设备直接返回；筛出本轮需要新探测的接口（冷却中/被他人认领的直接跳过）
+        // 第一遍（快）：已有设备直接返回；筛出本轮需要新探测的接口（冷却中/被他人认领的跳过）
         var toProbe = new List<HidDeviceInfo>();
         foreach (var info in availableDevices)
         {
@@ -174,7 +160,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
             toProbe.Add(info);
         }
 
-        // 第二遍（慢）：逐个探测。探测期间只碰局部变量，字典改动统一放到后面（便于将来并行化）。
+        // 第二遍（慢）：逐个探测。探测期间只碰局部变量，字典改动统一放到 CommitProbes。
         if (toProbe.Count > 0)
         {
             var outcomes = new ProbeOutcome[toProbe.Count];
@@ -249,9 +235,8 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                 Protocol = protocol,
                 BatteryPercent = percent,
                 Charging = charging,
-                // 认领了却拿不到读数 = 设备在位但不可读（如北通手柄已关机、只剩 dongle 插着），
-                // 这时**必须标离线**：假装在线会让设备列表说谎（2026-10-06 用户复报的 bug）。
-                // 现有插件探测成功时都带读数，所以这条规则对它们是无操作。
+                // 认领了却拿不到读数 = 设备在位但不可读（如北通手柄已关机、只剩 dongle），
+                // 这时**必须标离线**：假装在线会让设备列表说谎。
                 IsOnline = percent.HasValue,
             };
             var dev = new TrackedDevice
@@ -286,16 +271,13 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                     if (input == null)
                     {
                         // 静音期不是无事可做：延迟离线确认与"立刻核实"靠的都是这里的节拍（约 500ms 一次）。
-                        // 放到 60 秒轮询里做的话，"6 秒确认"会退化成"6 + 最多 60 秒"。
                         CheckOfflineCandidate(dev);
                         RunPendingConfirm(dev);
                         continue;
                     }
 
-                    // 收到**任何**报文都算"设备还活着"，不只是本协议能解析出来的帧。
-                    // 起因（2026-10-08 实修）：雷柏的 0x07 状态帧是活动驱动的心跳（动鼠标 3.04s 一帧，
-                    // 一停手 dongle 就静音），而同一个 vendor 接口上还跑着大量 0x00/0x04/0x05 报文。
-                    // 旧代码只把解析成功的帧算存活，于是"沉默"判据把正常空档当成了掉线。
+                    // 收到**任何**报文都算"设备还活着"，不只是本协议能解析出来的帧（雷柏的活动心跳
+                    // 0x07 一停手就静音，同一接口上还有大量 0x00/0x04/0x05 报文）。
                     dev.LastPassiveAt = DateTimeOffset.Now;
 
                     var parsed = TryParsePassiveInput(dev, input);
@@ -304,8 +286,8 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                     var (percent, charging, offline) = parsed.Value;
                     if (offline)
                     {
-                        // 零歧义证据（如北通 T9 占位帧）：直接标离线，不必等延迟确认窗口。
-                        // RequestOffline 顺带让下一轮 Poll 清一次失败计数，避免离线期间把失败攒到熔断。
+                        // 零歧义证据（如北通 T9 占位帧）：直接标离线，不等延迟确认窗口。
+                        // RequestOffline 顺带让下一轮 Poll 清零失败计数，避免离线期间把失败攒到熔断。
                         RequestOffline(dev);
                         MarkOffline(dev, "被动帧告知离线");
                         continue;
@@ -334,9 +316,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
     /// <summary>
     /// 把设备标为离线——**所有离线路径的唯一落地点**：翻 IsOnline、盖时间戳、记日志、立即推送。
-    /// <b>幂等</b>：已经离线就什么都不做并返回 false（避免重复推送与重复日志）。
-    ///
-    /// 返回值只表示"本次真的翻转了"，供 <see cref="Poll"/> 决定要不要同时把设备放进返回值里。
+    /// <b>幂等</b>：已经离线就什么都不做并返回 false。返回值只表示"本次真的翻转了"。
     /// </summary>
     private bool MarkOffline(TrackedDevice dev, string reason)
     {
@@ -351,10 +331,8 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
     /// <summary>
     /// 被动监听空闲 tick 的延迟离线确认：候选持续超过 <see cref="OfflinePolicy.Confirm"/> 就标离线。
-    ///
-    /// 与"沉默兜底"（<see cref="OfflinePolicy.Silence"/>）是两条**独立**判据，谁先满足谁生效：
-    /// 前者靠"设备自己说断链了"，后者靠"接口彻底不说话了"。
-    /// 恢复在线不必在这里做——设备回来后 <see cref="TryApplyReading"/> 会自己把 IsOnline 翻回来。
+    /// 与"沉默兜底"（<see cref="OfflinePolicy.Silence"/>）是两条独立判据，谁先满足谁生效。
+    /// 恢复在线不必在这里做——<see cref="TryApplyReading"/> 会自己把 IsOnline 翻回来。
     /// </summary>
     private void CheckOfflineCandidate(TrackedDevice dev)
     {
@@ -363,18 +341,12 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     }
 
     /// <summary>
-    /// 消费插件在被动帧里提交的"立刻核实"请求（见 <see cref="RequestConfirm"/>）：
-    /// 空闲 tick 上跑一次与轮询同款的查询，插件照常自己报账。
+    /// 消费插件在被动帧里提交的"立刻核实"请求（见 <see cref="RequestConfirm"/>）：空闲 tick 上跑一次
+    /// 与轮询同款的查询，插件照常自己报账。
     ///
-    /// <b>为什么必须在这条路径上做</b>：只有它是秒级节拍。放进 60 秒轮询的话，"触发器"等于没加
-    /// ——核实最早也要等下一拍，离线延迟还是分钟级。
-    ///
-    /// <b>怎么知道"插件确实发了帧却没应答"</b>：看 <c>ConsecutiveFailures</c> 有没有被插件推高。
-    /// 基类不知道插件这一轮发没发帧，只有插件知道——它没发帧就不会报账，计数不动，于是这里不会误判。
-    /// 计数被推高 ⇒ 是**核实失败**（不是"没开写入 / 熔断中"）⇒ 不等 3 次，当场定性为离线。
-    ///
-    /// <b>这条路径不触发熔断停写</b>：一次核实失败的信息量不足以停写 10 分钟；真是失联的话，
-    /// 后面几轮轮询自然会把阈值攒满并熔断。
+    /// 必须在这条路径上做——只有它是秒级节拍，放进 60 秒轮询等于没加。
+    /// "插件确实发了帧却没应答"由 <c>ConsecutiveFailures</c> 被推高来判断：插件没发帧就不会报账，
+    /// 计数不动，故不会误判。核实失败的信息量不足以停写 10 分钟，所以**这条路径不触发熔断**。
     /// </summary>
     private void RunPendingConfirm(TrackedDevice dev)
     {
@@ -402,7 +374,6 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// <summary>
     /// 消费插件通过 <see cref="RequestOffline"/> 提交的"设备已休眠/关机"标记：立即标离线。
     /// 这是零歧义证据（如北通 T9 占位帧），**不计入通信失败**。
-    /// 返回本轮是否消费过，<see cref="Poll"/> 据此跳过后续判定。
     /// </summary>
     private bool ConsumeOfflineRequest(TrackedDevice dev)
     {
@@ -420,8 +391,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         {
             try
             {
-                // 本轮刚由探测建立：探测返回值就是最新读数，不再立刻重读一遍（首扫提速）。
-                // 只跳过一轮，下一轮起正常轮询。
+                // 本轮刚由探测建立：探测返回值就是最新读数，不再立刻重读一遍（首扫提速），只跳过一轮。
                 if (dev.FreshlyClaimed)
                 {
                     dev.FreshlyClaimed = false;
@@ -432,8 +402,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                 lock (dev.IoGate)
                     read = PollDevice(dev);
 
-                // 设备主动告知休眠/关机（协议层明确帧，如北通 T9 占位）：立即标离线，
-                // 不必等 3 次查询失败（那要 3 分钟）。这是设备告知，不计入通信失败。
+                // 设备主动告知休眠/关机（协议层明确帧）：立即标离线，不等 3 次查询失败（那要 3 分钟）。
                 if (ConsumeOfflineRequest(dev)) continue;
 
                 if (read.HasValue)
@@ -444,7 +413,6 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                 else
                 {
                     // 判据一：沉默兜底。心跳类协议（雷柏）接口彻底静音过久 → 离线（正常停手不算）。
-                    // 注意这一条**与 SupportsPassiveListen 无关**了：它是个策略参数，不是机制开关。
                     if (Offline.Silence > TimeSpan.Zero &&
                         dev.LastPassiveAt != default &&
                         DateTimeOffset.Now - dev.LastPassiveAt > Offline.Silence)
@@ -453,9 +421,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                             updated.Add(dev.Status);
                     }
 
-                    // 判据二：查询失败熔断。只给"轮询确实会发帧、且 null 就是失联"的插件开；
-                    // 雷柏没有查询命令、迈从/北通的 null 与"没开写入/熔断中"不可区分，
-                    // 它们把 CountPollFailures 置 false 并在 PollDevice 里自己报账。
+                    // 判据二：查询失败熔断。只给"轮询确实会发帧、且 null 就是失联"的插件开。
                     if (Offline.CountPollFailures)
                     {
                         dev.ConsecutiveFailures++;
@@ -480,8 +446,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     }
 
     /// <summary>
-    /// 统一应用读数（过滤 + 更新字段）。
-    /// <paramref name="push"/> = true 时若有变化则 RaiseStatusPushed；false 时由 Poll 收集返回值。
+    /// 统一应用读数（过滤 + 更新字段）。<paramref name="push"/> = true 时若有变化则 RaiseStatusPushed。
     /// 返回是否产生了应对外可见的状态变化。
     /// </summary>
     private bool TryApplyReading(TrackedDevice dev, int? percent, ChargingState charging, bool push)
@@ -556,27 +521,23 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// <summary>
     /// 子类在 <see cref="PollDevice"/> 里判定"设备已进入休眠/关机"时调用：基类立即把设备标离线，
     /// 不等 <see cref="OfflinePolicy.MaxFailures"/> 次查询失败（那要几分钟）。
-    /// 典型场景见 BetopPlugin 的 T9 占位帧（byte23=0x50 ⟺ 手柄未连接）。
-    /// 只认协议层"零歧义"的离线证据（宁可漏判不可误判）：迈从 0x02 状态通知帧就因语义存疑被降级为仅记录。
+    /// 只认协议层**零歧义**的离线证据（宁可漏判不可误判）：迈从 0x02 状态通知帧就因语义存疑被降级为仅记录。
     /// </summary>
     protected static void RequestOffline(TrackedDevice dev) => dev.OfflineRequested = true;
 
     /// <summary>
-    /// 插件在被动帧里发现"值得立刻核实"的信号时调用。注意它是**触发器不是证据**：
-    /// 基类不会因此标离线，只会立刻跑一次 <see cref="PollDevice"/> 去问设备——
-    /// 有应答就照常更新读数，没应答才由插件自己的失败记账定性（见 <see cref="RunPendingConfirm"/>）。
-    ///
-    /// 典型用法（迈从）：状态通知 payload=0x00 语义未定论（与 0x01 全天交替、之后设备都能正常应答查询），
-    /// 不能当离线证据，但可以用它把"键盘真关机了"的发现从分钟级压到秒级。
+    /// 插件在被动帧里发现"值得立刻核实"的信号时调用。它是**触发器不是证据**：基类不会因此标离线，
+    /// 只会立刻跑一次 <see cref="PollDevice"/> 去问设备——有应答就照常更新，没应答才由插件自己的
+    /// 失败记账定性（见 <see cref="RunPendingConfirm"/>）。
+    /// 典型用法（迈从）：状态通知 payload=0x00 语义未定论，不能当离线证据，但能把"键盘真关机了"
+    /// 的发现从分钟级压到秒级。
     /// </summary>
     protected static void RequestConfirm(TrackedDevice dev) => dev.ConfirmRequested = true;
 
     /// <summary>
     /// 标记"疑似离线"，交给 <see cref="OfflinePolicy.Confirm"/> 做延迟确认。
     /// <b>幂等</b>：候选已经开始就不刷新起始时刻——否则持续抖动会把判定无限往后推。
-    ///
-    /// 与 <see cref="RequestOffline"/> 的分工：那个是"零歧义证据，立即生效"（北通 T9 占位帧），
-    /// 这个是"有歧义的证据，等一等看它会不会自己恢复"（雷柏 RF 断链位）。
+    /// 与 <see cref="RequestOffline"/> 的分工：那个是零歧义证据立即生效，这个是有歧义的证据等一等。
     /// </summary>
     protected static void MarkOfflineCandidate(TrackedDevice dev)
     {
@@ -589,18 +550,13 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         => dev.OfflineCandidateSince = default;
 
     /// <summary>
-    /// 主动查询型插件在 <see cref="PollDevice"/> 里"**发过帧**但设备没应答"时调用：
-    /// 计入连续失败，满 <see cref="OfflinePolicy.MaxFailures"/> 次则熔断停写 + 标离线。
+    /// 主动查询型插件在 <see cref="PollDevice"/> 里"**发过帧**但设备没应答"时调用：计入连续失败，
+    /// 满 <see cref="OfflinePolicy.MaxFailures"/> 次则熔断停写 + 标离线。
     ///
-    /// <b>为什么需要这个入口</b>：基类只在 <see cref="OfflinePolicy.CountPollFailures"/> 为 true 时
-    /// 自动计轮询失败。而"轮询空读是不是失联"对有些协议根本没有答案——
-    /// 雷柏**根本没有查询命令**，PollDevice 恒返回 null 是协议形态；迈从的 null 又与
-    /// "没开写入 / 熔断中"不可区分。这些插件把 CountPollFailures 置 false 后，改由本入口自己报账，
-    /// 否则 `ConsecutiveFailures` 永远是 0，于是既不会标离线、也不会熔断 ——
-    /// 键盘关机后列表永远显示在线（2026-10-08 用户复报）。
-    ///
-    /// <b>为什么由插件自己报、而不是基类自动判</b>：只有插件知道"这一轮到底发帧了没有"。
-    /// 未开写入 / 熔断中 / 纯推送协议都没发帧，不能算失联；插件在这些分支提前 return 即可。
+    /// 需要这个入口是因为基类的自动记账（<see cref="OfflinePolicy.CountPollFailures"/>）不适用于所有协议：
+    /// 雷柏根本没有查询命令、迈从的 null 又与"没开写入 / 熔断中"不可区分。这些插件置 false 后改由本
+    /// 入口自己报账，否则失败计数永远是 0，既不标离线也不熔断。**只有插件知道这一轮到底发帧了没有**，
+    /// 未开写入 / 熔断中 / 纯推送的分支提前 return 即可。
     /// </summary>
     protected void ReportPollFailure(TrackedDevice dev)
     {

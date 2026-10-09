@@ -5,11 +5,11 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace VigilWatt.App.Views;
 
-/// <summary>
-/// 历史数据管理页：概览 + 按设备删除。
-/// 删除不可逆，所以每次删除都过二次确认对话框；删除后必须 VACUUM 收缩文件
-/// （SQLite 的 DELETE 只把页标空闲、不缩小文件，不收缩用户会以为删除没生效）。
-/// </summary>
+    /// <summary>
+    /// 历史数据管理页：概览 + 按设备删除。删除不可逆，每次都过二次确认对话框；
+    /// 删除后必须 VACUUM 收缩文件（SQLite 的 DELETE 只把页标空闲、不缩小文件，
+    /// 不收缩用户会以为删除没生效）。
+    /// </summary>
 public sealed partial class HistoryPage : Page
 {
     private List<HistoryDeviceRow> _rows = new();

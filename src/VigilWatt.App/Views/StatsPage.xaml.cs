@@ -58,9 +58,8 @@ public sealed partial class StatsPage : Page
     {
         if (DeviceCombo == null || ChartHost == null) return;
 
-        // 设备列表按历史库走：所选时间范围内有过采样的设备都在列（含已下线/换过 Id 的历史设备），
-        // 不再跟随当前在线设备——否则昨天用旧协议采的曲线永远选不到。
-        // 下拉框只显示设备名（历史设备不再附"最后记录时间"，下拉项保持干净）。
+            // 设备列表按历史库走：所选时间范围内有过采样的设备都在列（含已下线/换过 Id 的历史设备），
+            // 不跟随当前在线设备——否则昨天用旧协议采的曲线永远选不到。
         var entries = App.Services.History
             .DistinctDevices(DateTimeOffset.Now.AddHours(-GetSelectedHours()))
             .Select(d => new DeviceEntry(d.DeviceId, d.Name))

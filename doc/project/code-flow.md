@@ -72,7 +72,7 @@ DiscoverOnlyAsync
 都是这么来的）。基类默认 **30 秒** = "每一轮都允许重探"。
 
 > 曾尝试用 `Parallel.For` 并行探测多个候选接口。实测那条路不必走：把候选收敛到唯一接口后，串行本就只花 1×窗口；而 `ReadInput` 是**阻塞式**实现（内部 `Task.WhenAny(...).GetAwaiter().GetResult()`），把阻塞 I/O 塞进 `Parallel.For` 会引入线程池饥饿风险。要用并行必须先把这层改成真异步，别直接上 `Parallel.For`。
-> （排查记录：曾把一次首扫后 41 秒无日志误判为"并行卡死"，实际是**轮询正常完成、只是那一轮雷柏鼠标睡着 + 经典蓝牙电量无变化，因而没有任何日志**——下一次 SafePoll 在 +60s 准点开跑即为证据。日志"安静"≠"卡死"。）
+> （排查记录：曾把一次首扫后 41 秒无日志误判为"并行卡死"，实际是**轮询正常完成、只是那一轮雷柏鼠标睡着 + 经典蓝牙电量无变化，因而没有任何日志**——下一次轮询在 +60s 准点开跑即为证据。日志"安静"≠"卡死"。）
 
 每轮的插件结果逐个 `Upsert(d)`（见 §5）。任何插件抛异常只记日志，不影响其他插件。
 
@@ -86,7 +86,7 @@ DiscoverOnlyAsync
 
 **经典蓝牙（BluetoothClassicWatcher，2026-10-06 新增）**：`BluetoothLEDevice.GetDeviceSelector()` 只覆盖 BLE 端点（ProtocolId `{BB7BB05E-…}`），经典蓝牙音频设备（BR/EDR，ProtocolId `{E0CBF06C-…}`，如 EDIFIER W820NB）根本不进那个 watcher——这就是"蓝牙耳机已连接但列表没有"的根因。此 watcher 用 `BluetoothDevice.GetDeviceSelector()`（已配对经典设备）单开一路。**纯被动：不打开设备、零写入。** 两个修正 BLE 版的坑：Updated 只带变化属性，IsConnected 缺失时沿用现状不误判离线；Removed 发离线状态而非静默删除。已知取舍：所有已配对且已连接的经典蓝牙设备（含手机）都会显示。
 
-**经典蓝牙电量（ClassicAudioBattery，2026-10-06 打通）**：AEP 属性（`System.Devices.AepBattery_Level` 等）在本机全部无效，但 Windows 设置页显示的耳机电量另有来源——**HFP 免手操作音频网关设备节点的 PnP 属性 `DEVPKEY_Device_BatteryLevel`**（`{104EA319-6EE2-4701-BD47-8DDBF425BBE5},2`，BYTE）。`ClassicAudioBattery` 用 SetupAPI（`SetupDiGetClassDevsW` → `SetupDiEnumDeviceInfo` → `SetupDiGetDeviceInstanceIdW` → `SetupDiGetDevicePropertyW`）枚举 `BTHENUM\*` 节点读该属性，从实例 ID 末段（`…&0CAEBDC6CDA7_C00000000`）取设备 MAC；watcher 侧用 `MacFromAepId`（AEP ID 形如 `Bluetooth#Bluetooth<适配器MAC>-<设备MAC>`，取最后一段）对上号。整表结果缓存 5 秒；`RefreshBattery()` 挂在 SafePoll 上每分钟重读，有变化才通知。实测 EDIFIER W820NB 读数与设置页一致。排查手法见 scripts/probe-devnode-battery.py。
+**经典蓝牙电量（ClassicAudioBattery，2026-10-06 打通）**：AEP 属性（`System.Devices.AepBattery_Level` 等）在本机全部无效，但 Windows 设置页显示的耳机电量另有来源——**HFP 免手操作音频网关设备节点的 PnP 属性 `DEVPKEY_Device_BatteryLevel`**（`{104EA319-6EE2-4701-BD47-8DDBF425BBE5},2`，BYTE）。`ClassicAudioBattery` 用 SetupAPI（`SetupDiGetClassDevsW` → `SetupDiEnumDeviceInfo` → `SetupDiGetDeviceInstanceIdW` → `SetupDiGetDevicePropertyW`）枚举 `BTHENUM\*` 节点读该属性，从实例 ID 末段（`…&0CAEBDC6CDA7_C00000000`）取设备 MAC；watcher 侧用 `MacFromAepId`（AEP ID 形如 `Bluetooth#Bluetooth<适配器MAC>-<设备MAC>`，取最后一段）对上号。整表结果缓存 5 秒；`RefreshBattery()` 挂在轮询尾部（`PollOnceAsync` 的 `_classic.RefreshBattery()`）每分钟重读，有变化才通知。实测 EDIFIER W820NB 读数与设置页一致。排查手法见 scripts/probe-devnode-battery.py。
 
 ## 3.1 本机电量流（SystemBatteryWatcher，2026-10-08 新增）
 
@@ -220,6 +220,15 @@ SafeSample（每 SampleIntervalMinutes 分钟）:
   foreach 在线且有电量的设备 → history.Insert     # 无变化也写点，保证曲线连续
 ```
 
+### 5.1 离线占位（墓碑，`DeviceManager.RestoreOfflineTombstones`）
+
+设备"消失"有两条路径，处理不同：
+
+- **2.4G 拔掉 / 关机**：插件把它标离线，条目**留在 `_devices`**（字典从不移除）。
+- **蓝牙 / dongle 不被枚举**：它**从未进过列表**——北通关机后接收器可能连 HID 枚举都退出（实测 19:02 之后扫描里再无 `VID_20BC`），此时没有任何数据源，界面上它等于"从未存在过"，「共 N 台」恒等于「N 台在线」，这个总数没有信息量。
+
+解法：用历史库里**最近见过**的记录补一个离线条目（`TombstoneWindow` 内有历史、当前不在位），既让总数有意义，又不凭空造设备（有真实历史为凭）。**只在启动后跑一次**——进程中设备一旦被认领就常驻 `_devices`，不需要反复补。开关关着的系统电量（`sys:`）要跳过，别把它复活成离线占位。
+
 ## 6. 低电量提醒（DeviceManager.CheckLowBattery → App.AttachTray）
 
 条件：在线 && 电量 ≤ LowBatteryThreshold && 非充电/已充满。**按百分比档位去重**：`_lastNotifiedPercent[Id]` 记录上次提醒档位，只在电量进一步下降时再提醒（避免反复轰炸）。触发 → `LowBatteryDetected` 事件 → App 层 `DispatcherQueue.TryEnqueue` → `Tray.ShowLowBattery(device)`（Win32 NIF_INFO 气泡）。
@@ -230,7 +239,7 @@ SafeSample（每 SampleIntervalMinutes 分钟）:
 
 - **DevicesPage**：订阅 DevicesChanged（全量重建行）/ DeviceUpdated（单行刷新），事件都在后台线程来 → `DispatcherQueue.TryEnqueue` 切 UI 线程。行模型 DeviceRowModel 一次性 x:Bind。
 - **SettingsPage**：插件开关按 `Manager.Plugins`（反射发现结果）动态生成，保存时遍历开关写回 `PluginEnabled`——新增插件无需改设置页。
-- **StatsPage**：设备下拉 + 时间范围按钮组（24h/7d/30d ToggleButton 互斥）→ 查 `History.Query(deviceId, from, to)` → 顶部 4 张指标卡（当前/最高/最低/平均，当前值优先取实时在线读数）+ BatteryChartControl 画曲线。事件处理器开头判空（XAML 解析期会触发 SelectionChanged）。
+- **StatsPage**：设备下拉 + 时间范围按钮组（24h/7d/30d ToggleButton 互斥）→ 查 `History.Query(deviceId, from, to)` → 顶部 4 张指标卡（当前/最高/最低/平均，当前值优先取实时在线读数）+ BatteryChartControl 画曲线。事件处理器开头判空（XAML 解析期会触发 SelectionChanged）。**设备下拉按历史库取**：所选时间范围内有过采样的设备都在列（含已下线 / 换过 Id 的历史设备），**不跟随当前在线设备**——否则昨天用旧协议采的曲线永远选不到。
 - **HistoryPage**（历史管理，2026-10-06 加）：`History.GetStats()` + `GetDeviceStats()` 填概览卡与设备列表 → 勾选/单行删除 → ContentDialog 二次确认 → `DeleteDevices(ids)` → **`Compact()`（VACUUM）** → 重新 Reload。**不订阅设备事件**：后台每分钟采样会重建列表、打断用户勾选（StatsPage 踩过同款坑），数据陈旧靠手动刷新。
 - **MainWindow**：关窗被拦截 → `AppWindow.Hide()`（隐藏到托盘而不是退出）；真正退出走托盘菜单 Exit（`Environment.Exit(0)`）。
 - **WidgetWindow**：订阅同样的设备事件 → 重建芯片（颜色按电量分档/充电蓝色）→ 按芯片数重算窗口宽度（DIP×RasterizationScale 物理像素）→ ClampToWorkArea 收边。可拖动（GetCursorPos 偏移）。

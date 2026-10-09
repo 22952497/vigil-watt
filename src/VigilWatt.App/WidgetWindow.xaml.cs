@@ -14,15 +14,11 @@ namespace VigilWatt.App;
 
 /// <summary>
 /// 桌面小组件：无边框悬浮卡片，纵向显示各设备电量，可拖动，不进 Alt-Tab/任务栏。
-/// 普通窗口层级（不置顶），会被其他窗口正常遮挡。
 /// 尺寸按 DPI 缩放（AppWindow.Resize 用物理像素），位置始终夹在工作区内。
 ///
-/// 两套外壳（按 OS 分流，判定见 Services/WidgetCompat.cs）：
-/// - **Win11**：DWM 原生圆角（抗锯齿），窗口矩形即可，保持既有观感不动。
-/// - **Win10**：DWM 没有圆角 API；而 `SetWindowRgn` 对 WinUI 3 **完全无效**
-///   （见下方 ApplyWin10Chrome 注释），所以唯一的出路是**透明窗口 + 圆角交给 XAML 画**：
-///   窗口表面透明（XAML 根节点 `Background="Transparent"`）、不画任何东西，
-///   WinUI 的抗锯齿圆角就是最终轮廓。另外恢复 DWM 投影以免卡片"贴死"桌面。
+/// 两套外壳按 OS 分流（判定见 <see cref="Services.WidgetCompat"/>）：Win11 用 DWM 原生圆角；
+/// Win10 没有圆角 API 且 `SetWindowRgn` 对 WinUI 3 无效，只能"透明窗口 + 圆角交给 XAML 画"，
+/// 并恢复 DWM 投影。完整论证见 doc/dev/runtime-pitfalls.md §14。
 /// </summary>
 public sealed partial class WidgetWindow : Window
 {
@@ -101,24 +97,11 @@ public sealed partial class WidgetWindow : Window
     private double Scale => Root.XamlRoot?.RasterizationScale is > 0 ? Root.XamlRoot.RasterizationScale : 1.0;
 
     /// <summary>
-    /// Win10 专用外壳：把窗口做成**完全透明的"玻璃框"**，圆角与卡片全部交给 XAML 渲染。
+    /// Win10 专用外壳：把窗口做成完全透明的"玻璃框"，圆角与卡片全部交给 XAML 渲染，
+    /// 并恢复 DWM 投影（无边框窗口在 Win10 上会连投影一起失去）。
     ///
-    /// 为什么不裁窗口形状（重要，上一版就栽在这里）：
-    /// WinUI 3 的窗口内容走 **DirectComposition**，由合成器直接画到窗口表面上；
-    /// `SetWindowRgn` 裁的是**传统 GDI 绘制区域**，对 DComp 合成的内容**完全无效** ——
-    /// 表现就是"设了圆角区域，但窗口看起来仍是直角"（实测截图确认）。
-    /// 所以 Win10 上想让卡片是圆角，只能让窗口本身透明、由 XAML 画圆角。
-    ///
-    /// 透明从哪来（两条路都试过，只有第二条能跑）：
-    /// - XAML `<Window Background="Transparent">`：**WinUI 3 的 `Window` 没有 `Background`
-    ///   属性**，XAML 编译器直接失败（`Window` 也没有对应 C# 属性，写了 CS0103）。
-    /// - 自定义 `SystemBackdrop` 子类：**不可实现** —— `OnTargetConnected` 的参数类型
-    ///   `ICompositionSupportsSystemBackdrop` 是 ABI 接口，没有投影到 C#，找不到类型。
-    /// - ✅ 最终采用 `SetWindowCompositionAttribute(WCA_ACCENT_POLICY, 透明渐变)`：
-    ///   把窗口表面整体镂空，只剩 XAML 画的内容（见 Native.MakeWindowTransparent）。
-    ///
-    /// 另外恢复 DWM 投影：无边框窗口（SetBorderAndTitleBar(false,false)）在 Win10 上会连
-    /// 投影一起失去，卡片"贴死"桌面、毫无层次 —— 这是"平淡"的主因。
+    /// 为什么不裁窗口形状、透明为什么只能用 <c>SetWindowCompositionAttribute</c>——
+    /// 三条路都试过的完整记录见 doc/dev/runtime-pitfalls.md §14，别重试。
     /// </summary>
     private void ApplyWin10Chrome()
     {
@@ -229,14 +212,9 @@ public sealed partial class WidgetWindow : Window
     }
 
     /// <summary>
-    /// 让窗口本身是圆角，只对 Win11 有效。
-    ///
-    /// Border 的 CornerRadius 只作用于卡片那一层绘制，窗口矩形背板会在四个角把它糊住，
-    /// 所以需要窗口本身也圆角。Win11 有 DWM 原生圆角（带抗锯齿），一句话搞定。
-    ///
-    /// **Win10 不能走这里**：那个系统没有圆角 API，而唯一能裁窗口形状的 `SetWindowRgn`
-    /// 对 WinUI 3（DirectComposition 渲染）**完全无效**，实测就是"设了但看着仍是直角"。
-    /// Win10 改由"透明窗口 + XAML 自绘圆角"解决，见 ApplyWin10Chrome，这里什么都不做。
+    /// 让窗口本身是圆角，只对 Win11 有效：Border 的 CornerRadius 只作用于卡片那一层，
+    /// 窗口矩形背板会在四角把它糊住，所以窗口本身也要圆角。
+    /// **Win10 不能走这里**（没有圆角 API，SetWindowRgn 对 DComp 无效），改由 XAML 自绘。
     /// </summary>
     private void ApplyRoundedCorner()
     {
@@ -569,17 +547,11 @@ public sealed partial class WidgetWindow : Window
     }
 
     /// <summary>
-    /// 应用窗口层级。可重复调用（构造期一次、设置页改完再调一次），每次都会先复位再设，
-    /// 避免从"置顶"切到"桌面"时残留 TOPMOST 标记。
+    /// 应用窗口层级。可重复调用，每次先复位再设，避免从"置顶"切到"桌面"时残留 TOPMOST 标记。
+    /// Topmost/Normal 走 `OverlappedPresenter.IsAlwaysOnTop`；Desktop 同样不置顶，再用
+    /// `SetWindowPos(HWND_BOTTOM)` 压到 Z 序最底。
     ///
-    /// 三档对应关系：
-    /// - Topmost：`OverlappedPresenter.IsAlwaysOnTop = true`，浮在其它窗口上方。
-    /// - Normal ：`IsAlwaysOnTop = false`，普通层级，被后激活的窗口遮挡。
-    /// - Desktop：同样不置顶，再用 `SetWindowPos(HWND_BOTTOM)` 把窗口压到 Z 序最底，
-    ///   只有桌面露出时才可见 —— 即"钉在桌面"。
-    ///
-    /// ⚠ Desktop 档不能用 `HWND_TOPMOST` 的反面来做：`IsAlwaysOnTop` 只认识"置顶/非置顶"，
-    /// 表达不了"沉到最底"，必须走 SetWindowPos。
+    /// ⚠ Desktop 档**不能**用 `IsAlwaysOnTop` 的反面做：它只认识"置顶/非置顶"，表达不了"沉到最底"。
     /// </summary>
     public void ApplyDisplayMode(string? mode)
     {

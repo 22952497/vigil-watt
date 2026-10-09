@@ -8,11 +8,7 @@ using Windows.Storage.Streams;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>
-/// BLE 电量监视器，两条数据通道：
-/// 1. DeviceWatcher 监听 System.Devices.AepBattery_Level（系统缓存的 GATT 电量，连接时自动更新）
-/// 2. 对已连接设备周期性主动走 GATT 读 0x180F/0x2A19（兜底系统属性不更新的情况）
-/// </summary>
+/// <summary>BLE 电量监视器：DeviceWatcher 监听系统缓存电量 + 主动 GATT 直读 0x180F/0x2A19 兜底（详见 doc/project/code-flow.md §3）。</summary>
 public sealed class BleBatteryWatcher : IDisposable
 {
     private DeviceWatcher? _watcher;

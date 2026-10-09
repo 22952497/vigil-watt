@@ -7,10 +7,8 @@ namespace VigilWatt.Core.Plugins.Logitech;
 
 /// <summary>
 /// 罗技 2.4G 插件：支持 Unifying / Bolt / Lightspeed / Nano 接收器、USB 直连设备（HID++ 协议）。
-/// 电量读取级联：Unified Battery 0x1004 → Battery Status 0x1000 → Battery Voltage 0x1001
-/// → ADC Measurement 0x1F20 → HID++ 1.0 寄存器 0x07/0x0D。
-/// 接收器槽位与报文偏好见嵌入的 logitech-hidpp.json（目录是补充，不是白名单）。
-/// 雷柏（VID 0x24AE）不是 HID++ 协议，已移交给 RapooPlugin（纯被动 status-report7），勿在此认领。
+/// 电量读取级联：Unified Battery 0x1004 → Battery Status 0x1000 → Battery Voltage 0x1001 → ADC Measurement 0x1F20 → HID++ 1.0 寄存器 0x07/0x0D（协议细节见 doc/hardware/protocols.md §3）。
+/// 接收器槽位与报文偏好见嵌入的 logitech-hidpp.json（目录是补充，不是白名单）。雷柏（VID 0x24AE）不是 HID++ 协议，已移交 RapooPlugin（纯被动 status-report7），勿在此认领。
 /// </summary>
 public sealed class LogitechPlugin : IBatteryPlugin
 {
@@ -20,10 +18,7 @@ public sealed class LogitechPlugin : IBatteryPlugin
     /// <summary>HID 规范的厂商自定义页（罗技 HID++ 集合实际多用这个页）。</summary>
     public const ushort VendorUsagePage = 0xFF00;
 
-    /// <summary>
-    /// 发现阶段 ping 超时。本机 Bolt 实测醒着约 1.0s 才回；400ms 会假阴性。
-    /// 睡着时 7 槽 × 1.5s ≈ 10s（旧版短接口 3s×7 ≈ 21s），可接受。
-    /// </summary>
+    /// <summary>发现阶段 ping 超时。本机 Bolt 实测醒着约 1.0s 才回（400ms 会假阴性）；睡着时 7 槽 × 1.5s ≈ 10s（旧版短接口 3s×7 ≈ 21s），可接受。</summary>
     private static readonly TimeSpan DiscoverTimeout = TimeSpan.FromMilliseconds(1500);
 
     /// <summary>已发现至少一台后，空槽快速扫过的超时。</summary>
@@ -45,9 +40,7 @@ public sealed class LogitechPlugin : IBatteryPlugin
     /// <summary>HID++ 自发电量/充电通知 → DeviceManager 即时 Upsert（对照浏览器扩展的实时更新）。</summary>
     public event Action<DeviceStatus>? StatusPushed;
 
-    /// <summary>判断接口是否为 HID++ 兼容 vendor 通道。
-    /// 注意：HIDP_CAPS 早前字段序写反过（已修），且各家把 vendor 页放在 usage_page 还是 usage 上不一，
-    /// 所以这里对 0xFF00 / 0xFF43 两个候选值在**两个字段里都查**，避免因字段序差异漏掉设备。</summary>
+    /// <summary>判断接口是否为 HID++ 兼容 vendor 通道。HIDP_CAPS 字段序早前写反过（已修），且各家把 vendor 页放在 usage_page 还是 usage 上不一，故对 0xFF00 / 0xFF43 两个候选值在**两个字段里都查**，避免因字段序差异漏掉设备。</summary>
     public static bool IsHidppInterface(HidDeviceInfo info) =>
         info.VendorId == LogitechVid &&
         (info.UsagePage == HidppUsagePage || info.Usage == HidppUsagePage ||
@@ -527,10 +520,7 @@ public sealed class LogitechPlugin : IBatteryPlugin
         }
     }
 
-    /// <summary>
-    /// 读接收器配对信息（HID++ 1.0 长寄存器 0xB5）：设备类型 + wireless PID。
-    /// Unifying：子寄存器 0x20+(n-1)；Bolt：子寄存器 0x50+n。
-    /// </summary>
+    /// <summary>读接收器配对信息（HID++ 1.0 长寄存器 0xB5）：设备类型 + wireless PID。Unifying 子寄存器 0x20+(n-1)；Bolt 子寄存器 0x50+n。</summary>
     private static bool TryReadPairingInfo(
         HidppIO io, ushort receiverPid, byte deviceIndex,
         out ushort? wirelessPid, out DeviceKind kind)

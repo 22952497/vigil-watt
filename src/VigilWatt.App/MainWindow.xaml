@@ -5,17 +5,14 @@
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     Title="VigilWatt">
 
-    <!-- Root 的背景由 MainWindow.ApplyBackdrop() 控制：
-         Mica / Acrylic 模式下必须为 null（不透明背景会把材质整个盖住），
-         只有 Solid 模式才铺一层分层色。 -->
+    <!-- Root 背景由 MainWindow.ApplyBackdrop() 控制：Mica/Acrylic 下必须为 null，只有 Solid 才铺色（见 dev/runtime-pitfalls.md §13） -->
     <Grid x:Name="Root">
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 标题栏融入区（背景透明让窗口材质透出来），SetTitleBar 挂载为拖拽区。
-             标题在左侧，不会与右上角的系统按钮抢位置。 -->
+        <!-- 标题栏融入区：背景透明让窗口材质透出，SetTitleBar 挂为拖拽区；标题靠左，不抢右上角系统按钮 -->
         <Grid x:Name="AppTitleBar" Grid.Row="0">
             <TextBlock Text="VigilWatt" Margin="16,0,0,0"
                        VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" />

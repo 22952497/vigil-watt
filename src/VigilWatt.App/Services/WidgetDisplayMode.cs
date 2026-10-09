@@ -1,25 +1,16 @@
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 桌面小组件的窗口层级：取值定义 + 收敛逻辑。
-///
-/// 三档语义（用户视角）：
-/// - <see cref="Topmost"/>：浮在其它窗口上方，任何时候都看得见。
-/// - <see cref="Normal"/>：普通窗口，会被之后激活的窗口正常遮挡（历史行为，默认值）。
-/// - <see cref="Desktop"/>：压在其它窗口下方，只有桌面露出来时才可见 —— 等同"钉在桌面"。
-///
-/// 与 WindowBackdrop 一样把"取值判定"做成纯逻辑，避免魔法字符串散落，
-/// 也便于设置页显示人话说明。
+/// 桌面小组件的窗口层级：取值定义 + 收敛逻辑。三档语义 —— 置顶（浮在其它窗口上方）、
+/// 普通（会被遮挡，默认）、钉桌面（压在其它窗口下方，只有桌面露出来时才可见）。
+/// 做成纯逻辑是为了不散落魔法字符串，也便于设置页显示人话说明。
 /// </summary>
 public static class WidgetDisplayMode
 {
-    /// <summary>浮在其它窗口上方（always on top）。</summary>
     public const string Topmost = "Topmost";
 
-    /// <summary>普通窗口层级：会被其它窗口遮挡。</summary>
     public const string Normal = "Normal";
 
-    /// <summary>压在其它窗口下方：钉在桌面。</summary>
     public const string Desktop = "Desktop";
 
     /// <summary>把任意输入（含 null / 手改坏了的配置）收敛成三个合法取值之一。</summary>

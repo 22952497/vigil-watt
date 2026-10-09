@@ -4,11 +4,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-/// <summary>
-/// DeviceStatusMerger —— Upsert 的原地合并规则。
-/// 核心场景是"墓碑被真实来源接管"：启动时墓碑按历史名字猜 Kind（真机显示名一个关键字都没有，
-/// 猜出来全是 Unknown），设备上线后插件声明的 Kind/Protocol 必须能覆盖它，否则图标冻结。
-/// </summary>
+    /// <summary>
+    /// DeviceStatusMerger —— Upsert 的原地合并规则。
+    /// 核心场景是"墓碑被真实来源接管"：墓碑按历史名字猜出的 Kind 全是 Unknown，设备上线后
+    /// 插件声明的 Kind/Protocol 必须能覆盖它，否则图标在进程内冻结。规则见 architecture.md §6。
+    /// </summary>
 public class DeviceStatusMergerTests
 {
     private static DeviceStatus Tombstone(string name = "雷柏 Rapoo Gaming Device") => new()

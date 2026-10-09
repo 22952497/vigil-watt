@@ -4,20 +4,8 @@ using System.Text.RegularExpressions;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>
-/// 经典蓝牙音频设备（A2DP/HFP 耳机、音箱）的电量读取。
-///
-/// Windows 11 设置页给耳机/音箱显示的电量，来自 PnP 设备属性
-///   DEVPKEY_Device_BatteryLevel = {104EA319-6EE2-4701-BD47-8DDBF425BBE5}, 2 （DEVPROP_TYPE_BYTE）
-/// 该属性挂在 **HFP 免手操作音频网关（Hands-Free AG）** 设备节点上，实例 ID 形如
-///   BTHENUM\{0000111E-0000-1000-8000-00805F9B34FB}_LOCALMFG&amp;005D\7&amp;1D3D8B&amp;0&amp;0CAEBDC6CDA7_C00000000
-/// 尾部 12 位十六进制就是设备 MAC（这里 0C:AE:BD:C6:CD:A7）。
-///
-/// 只能用 SetupAPI 读设备节点属性；DeviceInformation 的 AEP 属性
-/// （System.Devices.AepBattery_Level / System.Devices.Aep.Battery_Level）在本机全部无效
-/// （见 doc/dev/runtime-pitfalls.md §3）。本类**纯读**：只枚举设备节点、读系统缓存属性，
-/// 不打开设备、不建立连接、零写入，也不依赖耳机是否支持任何私有协议。
-/// </summary>
+/// <summary>经典蓝牙音频设备（A2DP/HFP）电量读取：读 HFP 免手操作网关节点的 PnP 属性
+/// <c>DEVPKEY_Device_BatteryLevel = {104EA319-6EE2-4701-BD47-8DDBF425BBE5},2</c>（SetupAPI，纯读零写入）。详见 doc/dev/runtime-pitfalls.md §3。</summary>
 internal static class ClassicAudioBattery
 {
     private const uint DIGCF_PRESENT = 0x2;
@@ -160,10 +148,7 @@ internal static class ClassicAudioBattery
         return last?.ToUpperInvariant();
     }
 
-    /// <summary>
-    /// 从 AEP 设备 ID 里取设备 MAC。经典蓝牙 AEP ID 形如
-    /// <c>Bluetooth#Bluetooth1c:ce:51:23:28:7b-0c:ae:bd:c6:cd:a7</c>（前半是适配器，后半才是设备）。
-    /// </summary>
+    /// <summary>从 AEP 设备 ID 取设备 MAC（形如 <c>Bluetooth#Bluetooth&lt;适配器&gt;-&lt;设备&gt;</c>，取最后一段）。</summary>
     public static string? MacFromAepId(string aepId)
     {
         string? last = null;

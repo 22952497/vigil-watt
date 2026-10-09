@@ -8,15 +8,11 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!--
-              字体统一：Win11 自带 Segoe UI Variable（窄，有光学字号），Win10 没有、回退 Segoe UI（宽 5~8%）。
-              WinUI 默认走 XamlAutoFontFamily，于是同一套 FontSize 在两个系统上排版宽度不同，
-              表现为 Win10 上更容易挤出去 / 换行。显式钉成 Segoe UI，两个系统完全一致。
-            -->
+            <!-- 字体钉死 Segoe UI：Win10 没有 Segoe UI Variable，用默认字体会宽 5~8% 导致排版走样（见 dev/runtime-pitfalls.md §13） -->
             <FontFamily x:Key="ContentControlThemeFontFamily">Segoe UI</FontFamily>
             <FontFamily x:Key="TextControlThemeFontFamily">Segoe UI</FontFamily>
 
-            <!-- 卡片统一语言：三个页面的卡片原本各自重复写这四条属性，抽到全局保证任何一处都不会走样 -->
+            <!-- 卡片统一语言：各页共用，避免各自重复写四条属性走样 -->
             <Style x:Key="AppCardStyle" TargetType="Border">
                 <Setter Property="CornerRadius" Value="8" />
                 <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
@@ -24,12 +20,11 @@
                 <Setter Property="BorderThickness" Value="1" />
             </Style>
 
-            <!-- 指标卡（KPI）：比通用卡片更紧凑，四张并排时字号/留白要收着 -->
+            <!-- 指标卡比通用卡片紧凑，四张并排时留白要收着 -->
             <Style x:Key="AppKpiCardStyle" TargetType="Border" BasedOn="{StaticResource AppCardStyle}">
                 <Setter Property="Padding" Value="14,10" />
             </Style>
 
-            <!-- 页面标题 + 副标题：设备/统计/历史管理/设置四页同款 -->
             <Style x:Key="AppPageTitleStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="18" />
                 <Setter Property="FontWeight" Value="SemiBold" />
@@ -40,7 +35,6 @@
                 <Setter Property="TextTrimming" Value="CharacterEllipsis" />
             </Style>
 
-            <!-- 卡片里的小标签（12px 次要色）与更小的脚注（11px 三级色） -->
             <Style x:Key="AppCardLabelStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />

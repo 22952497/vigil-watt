@@ -124,11 +124,10 @@ public sealed partial class SettingsPage : Page
         BackdropHintText.Text = WindowBackdrop.Describe(resolved, mica);
     }
 
-    /// <summary>
-    /// 按"标签左、开关右"的统一样式动态生成一行插件开关。
-    /// 复用 Page.Resources 里的 RowTitleStyle/RowDescStyle/RowDividerStyle，
-    /// 让动态生成的行与 XAML 里手写的行视觉完全一致（否则会出现两种排版风格）。
-    /// </summary>
+        /// <summary>
+        /// 按"标签左、开关右"的统一样式动态生成一行插件开关。复用 Page.Resources 里的
+        /// RowTitleStyle/RowDescStyle/RowDividerStyle，让动态行与 XAML 手写行视觉完全一致。
+        /// </summary>
     private void AddPluginRow(IBatteryPlugin plugin, bool isOn, bool first)
     {
         if (!first)

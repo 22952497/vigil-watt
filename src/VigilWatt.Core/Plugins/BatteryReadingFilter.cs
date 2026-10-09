@@ -19,20 +19,16 @@ public enum ReadingVerdict
 /// <summary>
 /// 电量读数异常过滤器（每台设备一个实例）。
 ///
-/// **要解决的问题**：设备休眠/关机、或 dongle 偶发抽风时，会吐出一个和真实值差很远的读数
-/// （真机 66% 时推 1%），直接采信就会误报低电量告警、把脏数据写进历史曲线。
+/// 要解决的问题：设备休眠/关机、或 dongle 偶发抽风时会吐出一个和真实值差很远的读数
+/// （真机 66% 时推 1%），直接采信会误报低电量告警、把脏数据写进历史曲线。
 ///
-/// **两条规则**：
-/// 1. **数值有效性**：低于 <see cref="MinValidPercent"/>（默认 2，即 0/1）或大于 100 的读数直接判
-///    <see cref="ReadingVerdict.InvalidValue"/>，永不采信——设备用 0/1 当"休眠占位帧"是行业惯例，
-///    而低电量阈值是 20%，真掉到 1% 之前早就提醒过了，所以拒绝它不会漏掉任何真实告警。
-/// 2. **变化幅度**：与「上次采信值」相比涨跌超过 <see cref="MaxStepPercent"/> 个百分点的读数先判
-///    <see cref="ReadingVerdict.RejectAnomaly"/> 并**过滤掉**（本轮不采用）；只有它**持续出现**超过
-///    <see cref="PersistWindow"/> 才认定为真实变化。读数回到基准附近时持续计时自动清零，
-///    所以偶发抖动永远过不去。
+/// 两条规则：① 数值有效性——低于 <see cref="MinValidPercent"/>（0/1 是休眠占位帧）或 &gt;100 永不采信；
+/// ② 变化幅度——与上次采信值相比涨跌超过 <see cref="MaxStepPercent"/> 先判异常，需持续
+/// <see cref="PersistWindow"/> 才升级为真实变化。
 ///
-/// 注意：基准 <see cref="LastAcceptedPercent"/> **不随设备离线而清空**——休眠伪读数经常出现在
+/// 基准 <see cref="LastAcceptedPercent"/> **不随设备离线而清空**——休眠伪读数经常出现在
 /// "设备刚要掉线/刚回来"的窗口里，清了基准就等于放它进门。
+/// 阈值来源与调用链见 doc/project/code-flow.md §4.2。
 /// </summary>
 public sealed class BatteryReadingFilter
 {

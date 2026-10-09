@@ -3,11 +3,10 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-/// <summary>
-/// MchoseV1Codec —— 迈从键盘 V1（report 0x13）帧编解码。
-/// 用例全部使用真机抓到的原始帧（见 <see cref="TestFrames"/>），
-/// 其中 B3 是"休眠帧被误读成电量 1%"这个 bug 的回归用例。
-/// </summary>
+    /// <summary>
+    /// MchoseV1Codec —— 迈从键盘 V1（report 0x13）帧编解码。用例全部使用真机原始帧
+    /// （见 <see cref="TestFrames"/>），其中 B3 是"休眠帧被误读成电量 1%"这个 bug 的回归用例。
+    /// </summary>
 public class MchoseV1CodecTests
 {
     [Fact]

@@ -23,18 +23,10 @@ public class AppSettings
 
     public double WidgetY { get; set; } = 60;
 
-    /// <summary>
-    /// 小组件一屏最多显示几个设备，超出的靠滚轮滚动查看。
-    /// 合法范围见 <c>VigilWatt.App.Services.WidgetMaxDevicesOptions</c>（1~5，默认 3），
-    /// Core 不引用 App，故这里只留数字与默认值，收敛由设置页/小组件负责。
-    /// </summary>
+    /// <summary>小组件一屏最多显示几个设备，超出靠滚轮滚动。合法范围见 <c>VigilWatt.App.Services.WidgetMaxDevicesOptions</c>（1~5，默认 3）；Core 不引用 App，故这里只留数字与默认值，收敛由设置页/小组件负责。</summary>
     public int WidgetMaxDevices { get; set; } = 3;
 
-    /// <summary>
-    /// 小组件显示方式。取值见 <c>VigilWatt.App.Services.WidgetDisplayMode</c>：
-    /// Topmost（浮在其它窗口上方）/ Normal（普通窗口）/ Desktop（压在其它窗口下方）。
-    /// 未知取值一律按 Normal 处理。
-    /// </summary>
+    /// <summary>小组件显示方式。取值见 <c>VigilWatt.App.Services.WidgetDisplayMode</c>：Topmost（浮在其它窗口上方）/ Normal（普通窗口）/ Desktop（压在其它窗口下方）；未知取值按 Normal。</summary>
     public string WidgetDisplayMode { get; set; } = "Normal";
 
     public bool StartMinimized { get; set; } = true;
@@ -42,11 +34,7 @@ public class AppSettings
     /// <summary>Velopack 更新源：本地文件夹路径、网络共享或 GitHub 仓库 URL；空 = 不检查更新。</summary>
     public string UpdateUrl { get; set; } = "";
 
-    /// <summary>
-    /// 窗口背景材质。取值见 <c>VigilWatt.App.Services.WindowBackdrop</c>：
-    /// Auto（跟随系统能力）/ Mica（云母，仅 Win11，不满足自动降级）/ Acrylic（磨砂，Win10 1809+）/ Solid（纯色分层底）。
-    /// 未知取值一律按 Auto 处理。
-    /// </summary>
+    /// <summary>窗口背景材质。取值见 <c>VigilWatt.App.Services.WindowBackdrop</c>：Auto（跟随系统能力）/ Mica（云母，仅 Win11，不满足自动降级）/ Acrylic（磨砂，Win10 1809+）/ Solid（纯色分层底）；未知取值按 Auto。</summary>
     public string WindowBackdrop { get; set; } = "Auto";
 
     /// <summary>2.4G 插件开关（品牌级）。</summary>
@@ -62,23 +50,15 @@ public class AppSettings
     /// <summary>是否允许向迈从 dongle 发送探测/查询写入（有干扰设备的风险，需用户显式开启）。</summary>
     public bool MchoseProbingEnabled { get; set; } = false;
 
-    /// <summary>是否允许向北通手柄接收器发送电量查询。该帧是官方客户端自己使用的只读状态查询
-    /// （cmd=0x5，不碰写配置/固件/灯效），风险低，默认开启；关掉即完全静默（不认领、不写入）。</summary>
+    /// <summary>是否允许向北通手柄接收器发送电量查询。该帧是官方客户端自己使用的只读状态查询（cmd=0x5，不碰写配置/固件/灯效），风险低，默认开启。
+    /// ⚠️ 关掉**只挡住轮询写入**，不挡探测：探测路径 RunProbe→Probe 目前仍会写帧（待修）。</summary>
     public bool BetopProbingEnabled { get; set; } = true;
 
-    /// <summary>
-    /// 是否把本机（笔记本）电池也纳入监控。默认关闭——它是"另一类设备"，
-    /// 不像外设那样需要盯着，用户明确要时才开（见设置页「监控本机电量」）。
-    ///
-    /// 注意：这是个纯 bool，老 settings.json 里没有该字段时反序列化直接用属性默认值 false，
-    /// 不需要像 <see cref="PluginEnabled"/> 那样手动补键。
-    /// </summary>
+    /// <summary>是否把本机（笔记本）电池也纳入监控。默认关闭——它是"另一类设备"，不像外设那样需要盯着，用户明确要时才开（见设置页「监控本机电量」）。
+    /// 注意：纯 bool，老 settings.json 缺该字段时反序列化直接用属性默认值 false，不需要像 <see cref="PluginEnabled"/> 那样手动补键。</summary>
     public bool MonitorSystemBattery { get; set; } = false;
 
-    /// <summary>
-    /// 日志级别。取值见 <see cref="VigilWatt.Core.Utils.LogLevelNames"/>（Off/Debug/Info/Warn/Error），默认 Info。
-    /// 未知取值一律按 Info 处理。**重启生效**（启动时赋给 Log.MinLevel）。
-    /// </summary>
+    /// <summary>日志级别。取值见 <see cref="VigilWatt.Core.Utils.LogLevelNames"/>（Off/Debug/Info/Warn/Error），默认 Info；未知取值按 Info。**重启生效**（启动时赋给 Log.MinLevel）。</summary>
     public string LogLevel { get; set; } = VigilWatt.Core.Utils.LogLevelNames.Default;
 
     [JsonIgnore]
@@ -113,10 +93,9 @@ public class AppSettings
 
             _cached = loaded ?? new AppSettings();
 
-            // 老 settings.json 里没有新插件的开关键时补上默认值：反序列化会用 JSON 里的字典
-            // **整体替换**默认字典，缺键的插件会被 DeviceManager/设置页的 TryGetValue 判成"关闭"，
-            // 导致新增插件（如 Betop）装上去默认不工作、用户还以为是功能没实现。
-            // 这里按默认表补齐缺失的键（缺键才补，不覆盖用户已保存的值）。
+            // 老 settings.json 缺新插件的开关键时补默认值：反序列化会用 JSON 里的字典**整体替换**默认字典，
+            // 缺键的插件会被 DeviceManager/设置页的 TryGetValue 判成"关闭"，新增插件（如 Betop）装上去默认不工作、用户还以为是功能没实现。
+            // 这里按默认表补齐缺失键（缺键才补，不覆盖用户已保存的值）。
             var defaults = new AppSettings();
             if (_cached.PluginEnabled == null)
                 _cached.PluginEnabled = defaults.PluginEnabled;

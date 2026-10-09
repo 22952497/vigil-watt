@@ -4,10 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace VigilWatt.Core.Plugins.Logitech;
 
-/// <summary>
-/// 嵌入的罗技 HID++ 目录：接收器槽位/报文偏好 + 毫伏→百分比曲线。
-/// 目录是补充不是白名单——未知 PID 仍按默认行为打开 HID++ 接口。
-/// </summary>
+/// <summary>嵌入的罗技 HID++ 目录：接收器槽位/报文偏好 + 毫伏→百分比曲线；是补充不是白名单，未收录 PID 仍按默认行为打开 HID++ 接口。</summary>
 internal static class HidppCatalog
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -22,7 +19,7 @@ internal static class HidppCatalog
     public static ReceiverInfo? FindReceiver(ushort productId)
         => Data.Value.Receivers.TryGetValue(productId, out var r) ? r : null;
 
-    /// <summary>未知接收器：最多 6 槽（Unifying/Bolt 上限），报文偏好按「有长则跳短」旧规则。</summary>
+    /// <summary>未收录接收器的默认值：最多 6 槽（Unifying/Bolt 上限），报文偏好按"有长则跳短"旧规则。</summary>
     public static int MaxSlots(ushort productId)
         => FindReceiver(productId)?.MaxSlots ?? 6;
 

@@ -2,11 +2,7 @@ using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Hid;
 
-/// <summary>
-/// HID vendor 通道探测工具：国产 2.4G 接收器的 output report 是否带 report ID、
-/// 用哪个 ID、命令格式如何，各不相同。对候选接口跑一遍矩阵，把所有结果写日志，
-/// 据此校准各品牌插件。
-/// </summary>
+/// <summary>HID vendor 通道探测工具：对候选接口跑一遍变体矩阵（带/不带 report ID、短/长）并写日志，用于校准各品牌插件。多数变体已无调用方，现存唯一调用是 Elan 观察模式的只读 FeatureSweep（见 doc/project/architecture.md §1）。</summary>
 public static class HidWriteProbe
 {
     public sealed record ProbeVariant(string Name, byte[] Packet);

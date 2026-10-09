@@ -4,8 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <Page.Resources>
-        <!-- 设置行统一语言：左侧标题 + 说明，右侧控件（对齐 Windows 11 设置页的"标签左、控件右"布局）。
-             说明：样式放在 Page.Resources，代码动态生成的插件行也复用同一套，保证两种来源的行长得一模一样。 -->
+        <!-- 设置行统一语言：左标题+说明、右控件；样式放 Page.Resources，代码动态生成的插件行也复用同一套，保证两种来源的行长得一样 -->
         <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="15" />
             <Setter Property="FontWeight" Value="SemiBold" />
@@ -28,7 +27,7 @@
             <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
             <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <!-- 行内自带 0,12 的上下留白，卡片只留 4px 边距，视觉上等于每行 16px -->
+            <!-- 行内自带 0,12 上下留白，卡片只留 4px 边距，视觉上每行 16px -->
             <Setter Property="Padding" Value="16,4" />
         </Style>
     </Page.Resources>
@@ -38,7 +37,6 @@
         <ScrollViewer Grid.Row="0" Padding="20,16">
             <StackPanel Spacing="18" MaxWidth="720" HorizontalAlignment="Left">
 
-                <!-- 页面标题：与历史统计 / 历史管理页同款"标题 + 副标题" -->
                 <StackPanel Spacing="2">
                     <TextBlock Text="设置" Style="{StaticResource AppPageTitleStyle}" />
                     <TextBlock Text="外观、提醒、数据采集、2.4G 插件与桌面小组件"
@@ -316,7 +314,7 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- 保存栏固定在底部，不再随内容滚走；左侧即时反馈，右侧主操作 -->
+        <!-- 保存栏固定底部不随内容滚走：左侧即时反馈，右侧主操作 -->
         <Border Grid.Row="1" Padding="20,12"
                 Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"

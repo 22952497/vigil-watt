@@ -4,14 +4,9 @@ using VigilWatt.Core.Utils;
 namespace VigilWatt.Core.Plugins.Logitech;
 
 /// <summary>
-/// HID++ 底层 I/O：通过 HID++ vendor 接口写 output report 发请求，
-/// 读 input report 匹配响应。报文格式对照 Solaar lib/logitech_receiver/base.py：
-/// - 短报文 7 字节 [0x10, devIdx, feature, (func&lt;&lt;4)|sw, p0, p1, p2]
-/// - 长报文 20 字节 [0x11, devIdx, feature, (func&lt;&lt;4)|sw, p0..p15]
-/// - 错误响应：data[0]=0x8F (1.0) / 0xFF (2.0)，data[1..2] 回显请求前两字节，data[3] 错误码
-/// - 设备自发通知：sw 低 4 位为 0（与请求应答的 SwId 区分）
-///
-/// report ID 按接口 caps / 输出长度选择（Bolt 20 字节集合必须发 0x11）。
+/// HID++ 底层 I/O：通过 vendor 接口写 output report 发请求、读 input report 匹配响应（报文格式对照 Solaar base.py）。
+/// 短报文 7 字节 [0x10, devIdx, feature, (func&lt;&lt;4)|sw, p0..p2]；长报文 20 字节 [0x11, ..., p0..p15]；错误响应 data[0]=0x8F(1.0)/0xFF(2.0)；设备自发通知 sw 低 4 位=0。
+/// report ID 按接口 caps / 输出长度选择（Bolt 20 字节集合必须发 0x11）。详见 doc/hardware/protocols.md §3。
 /// </summary>
 internal sealed class HidppIO : IDisposable
 {
@@ -28,10 +23,8 @@ internal sealed class HidppIO : IDisposable
     /// <summary>本接口实际使用的 report ID（0x10 或 0x11）。</summary>
     public byte ReportId => _reportId;
 
-    /// <summary>
-    /// 设备自发通知：参数为 (devIdx, data)，data 从 feature 字节起（与 <see cref="Request"/> 返回值同布局）。
-    /// 在请求等待与空闲 Pump 时都会触发；订阅方必须快速返回、不重入 Request。
-    /// </summary>
+    /// <summary>设备自发通知：参数为 (devIdx, data)，data 从 feature 字节起（与 <see cref="Request"/> 返回值同布局）。
+    /// 在请求等待与空闲 Pump 时都会触发；订阅方必须快速返回、不重入 Request。</summary>
     public Action<byte, byte[]>? NotificationReceived;
 
     public HidppIO(HidDeviceHandle handle)
@@ -41,10 +34,7 @@ internal sealed class HidppIO : IDisposable
         _longMessage = HidppCodec.IsLongMessage(_reportId);
     }
 
-    /// <summary>
-    /// 发送一条 HID++ 请求并等待匹配的响应。返回响应 data 部分（不含 report id 和 devIdx）。
-    /// 等待期间穿插的设备通知会经 <see cref="NotificationReceived"/> 抛出。
-    /// </summary>
+    /// <summary>发送一条 HID++ 请求并等待匹配的响应（返回响应 data 部分，不含 report id 和 devIdx）；等待期间穿插的设备通知经 <see cref="NotificationReceived"/> 抛出。</summary>
     public byte[]? Request(byte devIndex, ushort featureIdAndFunc, ReadOnlySpan<byte> args,
         bool patchSw = true, TimeSpan? timeout = null)
     {
@@ -80,10 +70,7 @@ internal sealed class HidppIO : IDisposable
         }
     }
 
-    /// <summary>
-    /// 空闲泵：只读不写，把超时窗口内到达的通知交给 <see cref="NotificationReceived"/>。
-    /// 与 <see cref="Request"/> 互斥（同一把锁），零写入，供后台线程持续监听插拔电等事件。
-    /// </summary>
+    /// <summary>空闲泵：只读不写，把超时窗口内到达的通知交给 <see cref="NotificationReceived"/>；与 <see cref="Request"/> 互斥（同一把锁），零写入，供后台线程持续监听插拔电等事件。</summary>
     public void PumpNotifications(TimeSpan wait)
     {
         if (wait <= TimeSpan.Zero) return;
@@ -141,10 +128,7 @@ internal sealed class HidppIO : IDisposable
         return null;
     }
 
-    /// <summary>
-    /// 若是设备自发通知则分发并返回 true。
-    /// HID++ 2.0：通知的 software id（低 4 位）为 0；我们发出的请求应答带 SwId=0x0B。
-    /// </summary>
+    /// <summary>若是设备自发通知则分发并返回 true。HID++ 2.0 通知的 software id（低 4 位）为 0；请求应答带 SwId=0x0B。</summary>
     private bool TryDispatchNotification(byte[] input)
     {
         if (input.Length < 4) return false;

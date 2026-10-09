@@ -46,12 +46,11 @@ public sealed class TrayService : IDisposable
     /// <summary>
     /// 请求刷新托盘图标与提示文字。
     ///
-    /// 设备事件来自后台线程（每轮轮询结束、每次电量/在线状态变化都会触发，一轮里可能连打十几次），
-    /// 所以这里做两件事：① 合并——同一时刻只排一次队，多余请求直接丢掉（下一次渲染本来就包含最新状态）；
-    /// ② 回 UI 线程——与其它 UI 更新保持同一线程，避免和 Dispose 抢 _currentHIcon。
+    /// 设备事件来自后台线程且一轮里可能连打十几次，所以这里：① **合并**——同一时刻只排一次队，
+    /// 多余请求直接丢掉（下一次渲染本来就包含最新状态）；② **回 UI 线程**——避免和 Dispose 抢 _currentHIcon。
     ///
-    /// 存在的理由：UpdateIcon 以前只在 Initialize 和 explorer 重启时各调一次，
-    /// 启动那一刻设备还没扫出来，于是托盘提示永远停在"暂无在线设备"。
+    /// 必须由设备事件驱动：UpdateIcon 以前只在 Initialize 和 explorer 重启时各调一次，
+    /// 而启动那一刻设备还没扫出来，于是托盘提示永远停在"暂无在线设备"。
     /// </summary>
     public void RequestUpdate()
     {
@@ -147,9 +146,8 @@ public sealed class TrayService : IDisposable
         foreach (var d in _services.Manager.Devices)
         {
             if (!d.IsOnline || d.BatteryPercent is not { } p) continue;
-            // 本机电量不参与托盘的"最低电量"取值（用户 2026-10-06 明确）：
-            // 笔记本正常用到 30% 是常态，让它把托盘染红会盖掉"外设快没电了"这个真正的信号。
-            // 它仍会出现在设备列表、小组件、历史统计和低电量提醒里——只是不抢托盘那一个数字。
+            // 本机电量不参与托盘的"最低电量"取值（用户 2026-10-06 明确）：笔记本正常用到 30% 是常态，
+            // 让它把托盘染红会盖掉"外设快没电了"这个真正的信号。它仍进设备列表/小组件/历史统计。
             if (d.Source == DeviceSource.System) continue;
             if (lowest == null || p < lowest.BatteryPercent) lowest = d;
         }
@@ -219,9 +217,8 @@ public sealed class TrayService : IDisposable
             {
                 _currentHIcon = hIcon;
                 if (oldIcon != IntPtr.Zero) Native.DestroyIcon(oldIcon);
-                // 只在提示真正变化时打日志：轮询期间会频繁刷新，全打会把日志冲爆，
-                // 但"提示变了没有"正是排查托盘状态问题最想知道的一条信息。
-                // 去重状态由 Log.InfoOnChange 按 key 维护（不再自己留 _lastTip 字段）。
+                // 只在提示真正变化时打日志（轮询期间会频繁刷新），而"提示变了没有"正是排查托盘问题
+                // 最想知道的信息。去重状态由 Log.InfoOnChange 按 key 维护。
                 Log.InfoOnChange("tray-tip", tip, $"托盘提示已更新: {tip}");
             }
             else
@@ -299,8 +296,8 @@ public sealed class TrayService : IDisposable
     }
 
     /// <summary>
-    /// 供其它入口（小组件右键菜单）调用的退出通道：与托盘右键的"退出"走同一条路，
-    /// 保证都会先摘掉托盘图标再结束进程，避免任务栏残留一个点不动的图标。
+    /// 供其它入口（小组件右键菜单）调用的退出通道：与托盘右键"退出"同一条路，保证都会先摘掉
+    /// 托盘图标再结束进程，避免任务栏残留一个点不动的图标。
     /// </summary>
     public static void ExitApplication() => Exit();
 

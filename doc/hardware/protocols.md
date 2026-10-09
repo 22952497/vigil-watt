@@ -99,7 +99,7 @@
 
 ### 1.5 会话排他（运维注意）
 
-dongle 的配置会话一次只服务一个客户端。崩溃进程不关会话 → dongle 假死，**官方软件也连不上**；kill 持有进程或重新插拔恢复（详见 safety.md §2.2）。本应用与官方 M HUB 不要同时连。
+dongle 的配置会话一次只服务一个客户端。崩溃进程不关会话 → dongle 假死，**官方软件也连不上**；kill 持有进程或重新插拔恢复（详见 safety.md §2 事故二与 §4 应急恢复）。本应用与官方 M HUB 不要同时连。
 
 ## 2. QHW 协议（新一代 dongle，M HUB WEB 前端逆向）—— 已实现备用
 
@@ -155,6 +155,24 @@ HID++ 1.0/2.0 协议发现（无型号白名单）。电量级联：
 - Unified Battery `0x1004`：**func 1 = GetStatus**（电量% + 充电态），**func 0 = GetCapabilities**（不能当电量）。组装请求必须 `(feature<<8)|(func<<4)`，写成 `|func` 会被 SwId 补丁抹成 func 0（真机曾把 Capabilities 的 15 误当电量，充着电也读不到 charging）。
 - **实时充电**：插拔电时设备会发 HID++ 自发通知（`sw` 低 4 位=0，payload 与 GetStatus 同布局）。插件后台 `PumpNotifications` 只读不写，经 `StatusPushed` 即时 Upsert——不必等 60 秒轮询（与 Logi Battery Dashboard 同源）。未知 `devIdx` 的通知会当场补 ping 发现。
 - 每次 `Attach` 按目录槽位数补扫尚未发现的索引（接收器上第二台不必等重启）。
+
+**HID++ 报文层（字节级；实现见 `Plugins/Logitech/HidppIO.cs` / `HidppCodec.cs`）：**
+
+| 报文 | 布局 |
+|---|---|
+| 短（7 字节） | `[0x10, devIdx, feature, (func<<4)\|sw, p0, p1, p2]` |
+| 长（20 字节） | `[0x11, devIdx, feature, (func<<4)\|sw, p0..p15]` |
+| 错误响应 | `data[0]` = `0x8F`（1.0）/ `0xFF`（2.0）；`data[1..2]` 回显请求前两字节；`data[3]` = 错误码 |
+| 设备自发通知 | `sw` 低 4 位 = 0（本应用请求应答用 SwId `0x0B`，据此区分） |
+
+**各特征的电量 / 充电编码（实现见 `HidppCodec.cs`）：**
+
+| 特征 | 编码 |
+|---|---|
+| Battery Voltage `0x1001` | 大端毫伏 + flags；`bit7`=充电中、低 3 位 `1`=充满、`bit5`=危急 |
+| ADC Measurement `0x1F20` | 大端毫伏 + flags；`0x01`=放电 / `0x03`=充电 / `0x07`=充满 |
+| 统一充电状态码（`0x1004` / `0x1000` 共用） | `1`/`2`/`4`=充电中、`3`=充满、其余=放电 |
+| 配对信息 `0xB5` 字节布局 | Unifying `0x2N`：参数区 `[3..4]`=WPID、`[7]`=kind；Bolt `0x5N`：`[1]`=kind、`[2..3]`=WPID（小端，交换后成大端） |
 
 ### 雷柏 Rapoo (VID_24AE) —— V2 世代 status-report7 协议 —— ✅ 插件已落地（纯被动）
 
@@ -342,6 +360,7 @@ bit: 7 6 5 4 | 3 2 1 0
      真机实测 T9 三接口 = `0x01`/`0x04`/`0x05`，与 hidapi 重建结果一致。
    - **写入长度**直接用 `HIDP_CAPS.OutputReportByteLength`，它**已含 report ID 那一字节**
      （T9 Col04 实测 16 = 15 数据 + 1 ID），不需要再 +1。
+   - **report ID 取值约定**（`HidDeviceInfo.OutputReportId`）：`null` = 读不到；`0` = 该接口**不使用** report ID（报文首字节即数据、无 ID 前缀）；`>0` = 就是它。HID++ 长接口应为 `0x11`、短接口 `0x10`。
 2. **响应**：`02 15 <电量%> <保留> <充电标志> …`
    - 整帧 `[2]` = 电量百分比（0~100 十进制；`0` 视为未就绪/占位，不接受）
    - 整帧 `[4]` **低 4 位** = 充电标志，非 0 = 充电中（高 4 位是保留位，勿误判）
@@ -431,7 +450,8 @@ bit: 7 6 5 4 | 3 2 1 0
 
 ### 4.7 安全与开关
 
-- 写入受 `AppSettings.BetopProbingEnabled` 控制（**默认开启**——查询即官方客户端自己用的只读命令，风险低）；关掉即完全静默（不认领、不写入）。
+- 写入受 `AppSettings.BetopProbingEnabled` 控制（**默认开启**——查询即官方客户端自己用的只读命令，风险低）。
+  ⚠️ **关掉只挡住轮询写入，不挡探测**：该开关经 `BetopPlugin.WritesEnabled` → 基类 `CanWrite` 生效，而**探测路径**（`BatteryPluginBase.RunProbe` → `BetopPlugin.Probe`）目前**仍会写帧**——「关掉即完全静默」尚不成立，**待修**（应让探测与轮询共用同一写入闸门）。
 - 连续 3 次查询失败由基类自动熔断（10 分钟退避后重试一轮），最坏 1 帧/10 分钟。
 - 品牌级总开关 `PluginEnabled["Betop"]`（默认开）。
 - 迈从插件已按 VID 排除北通接口（`MchosePlugin.IsCandidate`），避免对北通 dongle 发 QHW / 0x13 帧。

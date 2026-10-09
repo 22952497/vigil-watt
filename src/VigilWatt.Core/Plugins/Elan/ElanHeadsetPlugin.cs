@@ -5,9 +5,7 @@ using VigilWatt.Core.Utils;
 namespace VigilWatt.Core.Plugins.Elan;
 
 /// <summary>
-/// Elan (VID 0x04F3) 2.4G 接收器插件——与本项目的弱水时砂炽天使（38FF:0001）无关，旧记录已修正（见 protocols.md §3）。
-/// 接收器带 feature report 通道，电量协议未公开：探测只做只读的 feature 扫描并记日志，
-/// 找到可信电量位前保持观察模式（ClaimEnabled=false，不认领设备，避免把版本号当电量）。
+/// Elan (VID 0x04F3) 2.4G 接收器插件（与本项目的弱水时砂炽天使 38FF:0001 无关，旧记录已修正，见 doc/hardware/protocols.md §3）。电量协议未公开：探测只做只读的 feature 扫描并记日志，找到可信电量位前保持观察模式（ClaimEnabled=false，不认领设备，避免把版本号当电量）。
 /// </summary>
 public sealed class ElanHeadsetPlugin : BatteryPluginBase
 {

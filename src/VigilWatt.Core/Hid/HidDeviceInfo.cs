@@ -17,10 +17,8 @@ public sealed class HidDeviceInfo
     public ushort OutputReportLength { get; init; }
     public ushort FeatureReportLength { get; init; }
 
-    /// <summary>
-    /// 输出报文的 report ID（扫描时从 caps 读取）。null = 读不到；0 = 接口不使用 report ID。
-    /// HID++ 长接口应是 0x11、短接口应是 0x10——以本字段为准，勿硬编码。
-    /// </summary>
+    /// <summary>输出报文的 report ID（扫描时从 caps 读取）。null = 读不到；0 = 接口不使用 report ID。
+    /// HID++ 长接口应是 0x11、短接口应是 0x10——以本字段为准，勿硬编码。</summary>
     public byte? OutputReportId { get; init; }
 
     public string Product { get; init; } = "";
@@ -72,10 +70,7 @@ public sealed class HidDeviceHandle : IDisposable
         _stream = stream;
     }
 
-    /// <summary>
-    /// 发送 feature report 并立即读回同 ID 的响应（HidD 是同步调用，自带设备层超时）。
-    /// buffer[0] 必须是 report ID。
-    /// </summary>
+    /// <summary>发送 feature report 并立即读回同 ID 的响应（HidD 同步调用，自带设备层超时）；buffer[0] 必须是 report ID。</summary>
     public byte[]? GetFeature(byte reportId)
     {
         ushort len = Info.FeatureReportLength;
@@ -88,12 +83,9 @@ public sealed class HidDeviceHandle : IDisposable
     }
 
     /// <summary>
-    /// 读该接口**输出报文**的 report ID（HID 规范里由 caps 的 ReportID 字段给出）。
-    /// 返回 0 = 该接口不使用 report ID（报文首字节即数据，无 ID 前缀）；读不到返回 null。
-    ///
-    /// **绝不能硬编码**：北通 T9 三个厂商集合分别是 1/4/5、鲲鹏20 是 2。写一个该接口没有的
-    /// report ID，HID 驱动直接报 ERROR_INVALID_FUNCTION（"函数不正确"）。
-    /// 用户态拿不到原始报告描述符（hid.dll 不导出 HidP_GetReportDescriptor），故走 caps。
+    /// 读该接口**输出报文**的 report ID（由 caps 的 ReportID 字段给出）。0 = 该接口不使用 report ID；读不到返回 null。
+    /// **绝不能硬编码**（北通 T9 三个厂商集合 1/4/5、鲲鹏20 是 2）：写一个该接口没有的 report ID，驱动直接报 ERROR_INVALID_FUNCTION。
+    /// 用户态拿不到原始报告描述符（hid.dll 不导出 HidP_GetReportDescriptor），故走 caps。详见 doc/hardware/protocols.md §4.3。
     /// </summary>
     public byte? GetOutputReportId()
     {
@@ -129,11 +121,8 @@ public sealed class HidDeviceHandle : IDisposable
 
     /// <summary>
     /// 写 output report（WriteFile，异步带超时）。buffer[0] 是 report ID。
-    ///
-    /// <paramref name="quiet"/> = true 时不把失败记成 WARN——调用方已知这次失败是**预期结果**，
-    /// 会自己记一条更精确的日志。典型场景：探测一条不属于本协议的通道时，设备的报告描述符里
-    /// 没有那个 report ID，写必然失败（ERROR_INVALID_PARAMETER），而"写失败"正是"不是这条通道"
-    /// 的判据。**别用它掩盖真正的写入故障。**
+    /// <paramref name="quiet"/> = true 时不把失败记成 WARN——调用方已知该失败是**预期结果**（如探测不属于本协议的通道，写失败正是"不是这条通道"的判据）。
+    /// **别用它掩盖真正的写入故障。**
     /// </summary>
     public bool WriteOutput(byte[] report, TimeSpan timeout, bool quiet = false)
     {

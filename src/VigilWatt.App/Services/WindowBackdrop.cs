@@ -6,11 +6,8 @@ namespace VigilWatt.App.Services;
 /// <summary>
 /// 窗口背景材质：取值定义 + "按系统能力回退"的纯逻辑。
 ///
-/// 为什么要回退：Mica 是 Windows 11 专属（微软文档明确写着"在 Windows 10 上会回退为纯色"），
-/// Desktop Acrylic 则要 Windows 10 1809+。两者都得在运行时先问控制器，不能写死。
-///
-/// 这里刻意把"选哪种材质"做成纯函数（输入偏好 + 两个 bool，输出一个取值），
-/// 便于设置页显示"实际生效的是什么"，也便于以后加单测。
+/// 必须回退而不能写死：Mica 是 Win11 专属，Desktop Acrylic 要 Win10 1809+，两者都得在运行时先问控制器。
+/// 做成纯函数便于设置页显示"实际生效的是什么"，也便于加单测。
 /// </summary>
 public static class WindowBackdrop
 {
@@ -23,7 +20,6 @@ public static class WindowBackdrop
     /// <summary>桌面亚克力：桌面实时模糊，Windows 10 1809+（省电模式下会被系统关掉并自动回退纯色）。</summary>
     public const string Acrylic = "Acrylic";
 
-    /// <summary>纯色分层底：不做模糊，文字对比度最好、零性能开销。</summary>
     public const string Solid = "Solid";
 
     /// <summary>把任意输入（含 null / 手改坏了的配置）收敛成四个合法取值之一。</summary>

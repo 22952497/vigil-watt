@@ -12,17 +12,7 @@ public readonly record struct SystemPowerSnapshot(bool HasBattery, int? Percent,
     public static SystemPowerSnapshot Unavailable => new(false, null, false);
 }
 
-/// <summary>
-/// 读本机电源状态的纯 P/Invoke 实现，底层是 <c>GetSystemPowerStatus</c>。
-///
-/// 为什么用这个 API 而不是 WinRT 的 <c>Battery.AggregateBattery</c>：
-/// 项目里 WinRT 只用于 BLE（见 architecture.md 的"Core 无 UI 依赖"例外条款），
-/// 而系统电量是个纯读数、不需要事件源，一个 kernel32 调用就够，
-/// 也不必为它引入 WinRT 投影和 <c>Battery</c> 的异步/COM 生命周期。
-///
-/// <see cref="SYSTEM_POWER_STATUS.BatteryFlag"/> 的 <c>128</c> 位是"无系统电池"，
-/// <c>255</c> 是"状态未知"，两者都不能当成 0% 电池——这正是台式机场景的判定依据。
-/// </summary>
+/// <summary>读本机电源状态的纯 P/Invoke 实现（<c>GetSystemPowerStatus</c>，纯读零写入；不用 WinRT <c>Battery</c>）。<c>BatteryFlag</c> 128=无电池 / 255=未知，都不能当 0% 电池——台式机判定依据。详见 doc/project/code-flow.md §3.1。</summary>
 public static class SystemPowerReader
 {
     /// <summary>BatteryFlag 位：无系统电池。</summary>
@@ -52,10 +42,7 @@ public static class SystemPowerReader
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
 
-    /// <summary>
-    /// 读一次电源状态。任何失败都退化为 <see cref="SystemPowerSnapshot.Unavailable"/>，
-    /// 绝不抛异常——它是每分钟轮询路径上的一环，不该因为读不到电量而打断整轮。
-    /// </summary>
+    /// <summary>读一次电源状态；任何失败退化为 <see cref="SystemPowerSnapshot.Unavailable"/>，绝不抛异常（轮询路径上的一环）。</summary>
     public static SystemPowerSnapshot Read()
     {
         try
@@ -69,10 +56,7 @@ public static class SystemPowerReader
         }
     }
 
-    /// <summary>
-    /// 把三个原始字节翻译成快照。**独立出来是为了可单测**——
-    /// 真机上没法伪造"台式机无电池"或"接电但 255%"这些场景。
-    /// </summary>
+    /// <summary>把三个原始字节翻译成快照；独立出来以便单测（真机没法伪造"台式机无电池""接电但 255%"）。</summary>
     internal static SystemPowerSnapshot Interpret(byte acLineStatus, byte batteryFlag, byte batteryLifePercent)
     {
         bool acOnline = acLineStatus == AcOnlineValue;

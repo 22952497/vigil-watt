@@ -15,6 +15,7 @@
 
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|
+| [comment-style.md](dev/comment-style.md) | **注释规范：代码里该写什么、长内容放哪、内容该进哪份文档** | 写/改注释前，以及每次 AI 开工前 |
 | [build.md](dev/build.md) | 构建与环境坑（XamlCompiler 静默崩溃、双输出路径、发布流程） | 编译失败、换机器重装环境 |
 | [runtime-pitfalls.md](dev/runtime-pitfalls.md) | 运行时坑（HID 读取模型、BLE 属性、托盘、DPI、XAML 事件时序） | UI/设备读写行为诡异时 |
 
@@ -32,6 +33,7 @@
 |---|---|---|
 | [code-review-2026-10-06.md](reviews/code-review-2026-10-06.md) | 全仓代码/架构静态审查（基线 `ddd3b39`）：硬件写入边界、状态同步、BLE 判定、体验与测试缺口，含文件行号与修复顺序 | 规划重构/排优先级、改写入或状态链路前 |
 | [code-review-followup-2026-10-06.md](reviews/code-review-followup-2026-10-06.md) | 对上条的独立复核：哪些属实、哪 3 处需修正、报告遗漏了什么（罗技无写入闸门等），以及四阶段优化路线图 | 看完上条要动手改时、排长期重构顺序 |
+| [comment-audit-2026-10-09.md](reviews/comment-audit-2026-10-09.md) | 全仓注释审计与 doc 归并映射（基线 2026-10-09 工作树）：逐块处置表（保留/压缩/归纳/删除）、9 条 doc 归纳清单、"不能删"清单 | 写/改注释前；想知道某段注释为什么被删或被搬走时 |
 
 ## 症状速查
 

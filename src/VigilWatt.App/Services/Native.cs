@@ -138,12 +138,9 @@ internal static class Native
     public static extern IntPtr GetModuleHandleW(string? name);
 
     // ---- 窗口圆角（仅 Win11）----
-    // Win11 起 DWM 能给窗口做原生圆角（带抗锯齿）。
-    //
-    // ⚠ Win10 **不要**再尝试用 SetWindowRgn 裁圆角：WinUI 3 的内容走 DirectComposition，
-    // 由合成器直接画到窗口表面，SetWindowRgn 只裁传统 GDI 绘制区域，对 DComp 内容
-    // **完全无效**（实测：设了区域，窗口看起来仍是直角）。Win10 的圆角靠
-    // "透明窗口 + XAML 自绘"解决，见 WidgetWindow.ApplyWin10Chrome。
+    // ⚠ Win10 **不要**用 SetWindowRgn 裁圆角：WinUI 3 的内容走 DirectComposition，SetWindowRgn
+    // 只裁传统 GDI 区域、对 DComp 内容完全无效（实测"设了区域仍是直角"）。
+    // Win10 的圆角靠"透明窗口 + XAML 自绘"，见 WidgetWindow.ApplyWin10Chrome。
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWCP_ROUND = 2;
 
@@ -151,17 +148,16 @@ internal static class Native
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
     // ---- DWM 窗口边框/阴影策略 ----
-    // 无边框（SetBorderAndTitleBar(false,false)）窗口在 Win10 上会连 DWM 投影一起失去，
-    // 卡片"贴死"桌面。把 NC 渲染策略显式设回 ENABLED 可以让 DWM 重新画投影。
-    // 这是小组件"平淡"的根因修复：Win11 本来就不受影响。
+    // 无边框窗口在 Win10 上会连 DWM 投影一起失去（卡片"贴死"桌面，是"平淡"的根因）。
+    // 把 NC 渲染策略显式设回 ENABLED 即可恢复投影；Win11 本就不受影响。
     public const int DWMWA_NCRENDERING_POLICY = 2;
     public const int DWMNCRP_ENABLED = 2;
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(IntPtr hwnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
-    // SetWindowPos 的 Z 序插入位。小组件"钉在桌面"档靠 HWND_BOTTOM 把窗口压到最底，
-    // 切回普通/置顶档靠 HWND_TOP 抬回来（HWND_TOPMOST 留给 IsAlwaysOnTop 管，别混用）。
+    // SetWindowPos 的 Z 序插入位：钉桌面档靠 HWND_BOTTOM，切回普通/置顶档靠 HWND_TOP。
+    // HWND_TOPMOST 留给 IsAlwaysOnTop 管，别混用。
     public static readonly IntPtr HWND_TOP = IntPtr.Zero;
     public static readonly IntPtr HWND_BOTTOM = new(1);
 
@@ -172,12 +168,8 @@ internal static class Native
     public const uint SWP_FRAMECHANGED = 0x20;
 
     // ---- 窗口整体透明（仅 Win10 的圆角方案用）----
-    // WinUI 3 的窗口表面默认不透明，且 `Window` 没有 `Background` 属性、
-    // `SystemBackdrop` 的自定义子类在 C# 里又不可实现（OnTargetConnected 的参数类型
-    // `ICompositionSupportsSystemBackdrop` 是 ABI 接口，未投影到 C#）。
-    // 唯一能让窗口"镂空"的通道是这条 user32 未公开导出：把窗口的 accent 策略设成
-    // 全透明的渐变（alpha=0），窗口表面就不再画任何像素。
-    // 实测这是 WinUI 3 做"异形窗口/透明窗口"的通行做法（WPF/Electron 同款）。
+    // 唯一能让窗口"镂空"的通道：`Window` 没有 Background 属性，自定义 SystemBackdrop 在 C# 里
+    // 又不可实现（ABI 接口未投影）。把 accent 策略设为全透明渐变即可，是 WinUI 3 做异形窗口的通行做法。
     public const int WCA_ACCENT_POLICY = 19;
     public const int ACCENT_ENABLE_TRANSPARENTGRADIENT = 2;
 

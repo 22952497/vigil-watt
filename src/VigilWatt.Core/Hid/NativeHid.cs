@@ -3,10 +3,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace VigilWatt.Core.Hid;
 
-/// <summary>
-/// Win32 原生声明：CfgMgr32 枚举 HID 接口 + kernel32/hid.dll 设备 I/O。
-/// 不用 WinRT 的 Windows.Devices.HumanInterfaceDevice，因为系统级 collection 被排除且私有协议访问受限。
-/// </summary>
+/// <summary>Win32 原生声明：CfgMgr32 枚举 HID 接口 + kernel32/hid.dll 设备 I/O。不用 WinRT HumanInterfaceDevice（系统级 collection 被排除、私有协议访问受限）。</summary>
 internal static class NativeHid
 {
     public const uint CM_GET_DEVICE_INTERFACE_LIST_PRESENT = 0;
@@ -53,10 +50,8 @@ internal static class NativeHid
     public const int HIDP_STATUS_SUCCESS = 0x00110000;
 
     // ---------------------------------------------------------------- report ID 读取
-    // 用户态**没有**拿原始报告描述符的 API：hid.dll 不导出 HidP_GetReportDescriptor
-    // （实测 AttributeError），hidapi 的 get_report_descriptor 其实是拿 preparsed data
-    // 自己重建描述符。所以改用 caps 里的 ReportID 字段——它是 HID 规范里 report ID 的
-    // 唯一权威来源，且 HidP_GetCaps/HidP_GetButtonCaps 本机实测可用（status=0x00110000）。
+    // 用户态**没有**拿原始报告描述符的 API（hid.dll 不导出 HidP_GetReportDescriptor，实测 AttributeError），
+    // 故改用 caps 里的 ReportID 字段——HID 规范里 report ID 的唯一权威来源（HidP_GetCaps/GetButtonCaps 本机实测可用）。
 
     public enum HIDP_REPORT_TYPE { HidP_Input = 0, HidP_Output = 1, HidP_Feature = 2 }
 
@@ -116,10 +111,7 @@ internal static class NativeHid
         public ushort DesignatorMin, DesignatorMax, DataIndexMin, DataIndexMax;
     }
 
-    /// <summary>
-    /// 取某个报文类型的 report ID。规则：caps 里第一个非 0 的 ReportID 即该接口的 report ID；
-    /// caps 存在但全为 0 → 该接口不使用 report ID（报文首字节就是数据）；完全没有 caps → null。
-    /// </summary>
+    /// <summary>取某报文类型的 report ID：caps 里第一个非 0 的 ReportID 即该接口的 ID；caps 全为 0 → 不使用 report ID；无 caps → null。</summary>
     public static byte? ReadReportId(IntPtr preparsedData, HIDP_REPORT_TYPE reportType)
     {
         const int max = 64;
@@ -189,10 +181,7 @@ internal static class NativeHid
 
     /// <summary>
     /// HIDP_CAPS —— **字段顺序必须与 Windows SDK 的 hidpi.h 一致：Usage 在前，UsagePage 在后**。
-    /// 早期版本把 UsagePage 写在前面（错的），于是扫描日志里 usage_page/usage 显示成颠倒的
-    /// （例如 Consumer Control 打成 `usage=0x0001/0x000C`），排查协议时被误导过。
-    /// 现有插件都按"两个字段里任一个是 0xFF00"来匹配，所以修不修都不影响认领；
-    /// 但修掉后日志才是真实的 usage_page/usage。
+    /// 早期版本把 UsagePage 写在前（错的），扫描日志里 usage_page/usage 会颠倒（如 Consumer Control 打成 `usage=0x0001/0x000C`），排查协议时被误导过。
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct HIDP_CAPS

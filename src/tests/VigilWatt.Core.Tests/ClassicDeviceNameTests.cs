@@ -3,11 +3,10 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-/// <summary>
-/// ClassicDeviceName —— 经典蓝牙显示名的"占位名"识别。
-/// 用例取自真机（2026-10-06）：那台 EDIFIER W820NB 的 AEP 名字实际是设备 ID，
-/// 列表里就显示成一长串 ID，这就是要挡掉的东西。
-/// </summary>
+    /// <summary>
+    /// ClassicDeviceName —— 经典蓝牙显示名的"占位名"识别。用例取自真机：EDIFIER W820NB 的
+    /// AEP 名字实际是设备 ID，列表里就显示成一长串 ID，这正是要挡掉的。
+    /// </summary>
 public class ClassicDeviceNameTests
 {
     /// <summary>真机实测的 AEP 设备 ID（WinRT 在名字没解析出来时就返回它当名字）。</summary>

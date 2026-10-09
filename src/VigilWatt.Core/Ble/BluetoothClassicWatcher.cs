@@ -6,16 +6,7 @@ using Windows.Devices.Enumeration;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>
-/// 经典蓝牙（BR/EDR）监视器：监听已配对、已连接的 A2DP/HFP 设备（蓝牙耳机等）。
-/// BleBatteryWatcher 的 selector 只覆盖 BLE 端点，经典蓝牙音频设备不会进那个 watcher，
-/// 所以这里用 BluetoothDevice 的 selector 单独开一路 DeviceWatcher。
-///
-/// 电量两条通道，都只读系统缓存、不打开设备、不建立连接、零写入：
-/// 1. AEP 属性 System.Devices.AepBattery_Level（本机无效，仅作兼容保留）
-/// 2. <see cref="ClassicAudioBattery"/>：读 HFP 免手操作网关设备节点的
-///    DEVPKEY_Device_BatteryLevel（本机实测可用，与 Windows 设置页显示一致）
-/// </summary>
+/// <summary>经典蓝牙（BR/EDR）监视器：用 BluetoothDevice selector 单开一路 watcher（BLE watcher 覆盖不到音频设备），提供连接状态 + 电量（HFP 网关节点 PnP 属性）。详见 doc/project/code-flow.md §3。</summary>
 public sealed class BluetoothClassicWatcher : IDisposable
 {
     private DeviceWatcher? _watcher;
@@ -108,9 +99,8 @@ public sealed class BluetoothClassicWatcher : IDisposable
             return;
         }
 
-        // 新增设备必须**确认真的连着**才进列表。
-        // 旧代码拿"读到了电量"当在线依据——那是错的：配对但已断开的耳机，它的 HFP 网关
-        // 设备节点上仍留着上次的电量（真机 2026-10-06：W820NB 明明没连，却以 50% 在线出现在列表里）。
+        // 新增设备必须"确认真的连着"才进列表：配对但已断开的耳机，其 HFP 网关节点上仍留着上次的电量
+        // （真机 W820NB 明明没连，却以 50% 在线出现在列表里）。
         bool isNew = !_devices.TryGetValue(id, out var status);
         if (isNew && !connectionVerified)
         {
@@ -150,14 +140,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
         }
     }
 
-    /// <summary>
-    /// 新增设备前的连接确认。
-    ///
-    /// 为什么不能只看 AEP 的 <c>IsConnected</c>：<c>Added</c> 首帧里这个属性**可能还没填好**
-    /// （真机 2026-10-06 实测），而旧代码此时拿"读到了电量"当在线依据 —— 那是错的，
-    /// 配对但已断开的耳机，它的 HFP 网关设备节点上仍留着上次的电量（W820NB 没连却以 50% 进列表）。
-    /// 所以直接问系统要"当前已连接"的集合（只读枚举，不建立任何连接）。
-    /// </summary>
+    /// <summary>新增设备前的连接确认：<c>Added</c> 首帧的 <c>IsConnected</c> 可能缺失，不能只看它；直接问系统要"当前已连接"集合（只读枚举，不建立连接）。</summary>
     private async Task VerifyConnectionAndAddAsync(
         string id, IReadOnlyDictionary<string, object> props, string? name)
     {
@@ -199,11 +182,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
         try { return Convert.ToBoolean(obj); } catch { return null; }
     }
 
-    /// <summary>
-    /// 取设备显示名。来源按可靠性排序：WinRT 传来的名字 → <c>System.ItemNameDisplay</c> →
-    /// 注册表配对记录 → 格式化 MAC。每个候选都要过 <see cref="ClassicDeviceName.IsPlaceholder"/>，
-    /// 因为 WinRT 在友好名还没解析出来时会把 **AEP 设备 ID 当名字**返回（真机实测过）。
-    /// </summary>
+    /// <summary>取显示名，来源按可靠性排序：WinRT 名字 → <c>ItemNameDisplay</c> → 注册表配对名 → 格式化 MAC；每个候选都过 <see cref="ClassicDeviceName.IsPlaceholder"/>（WinRT 在友好名未解析时会把 AEP 设备 ID 当名字返回）。</summary>
     private static void ApplyName(
         DeviceStatus status, string aepId, string? infoName, IReadOnlyDictionary<string, object> props)
     {
@@ -252,10 +231,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
         return true;
     }
 
-    /// <summary>
-    /// 周期刷新（DeviceManager 轮询时调用）。watcher 只在设备属性变化时推事件，
-    /// 电量变了不一定触发 Updated，所以这里主动重读一次，有变化才通知。
-    /// </summary>
+    /// <summary>周期刷新（轮询时调用）：watcher 只在属性变化时推事件，这里主动重读一次，有变化才通知。</summary>
     public void RefreshBattery()
     {
         if (!_started) return;
