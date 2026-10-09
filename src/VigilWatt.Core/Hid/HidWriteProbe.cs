@@ -75,7 +75,7 @@ public static class HidWriteProbe
         {
             var resp = handle.GetFeature(id);
             if (resp != null)
-                Log.Info($"[探测] {handle.Info.VidPid} usage=0x{handle.Info.Usage:X4} GetFeature(0x{id:X2}) -> {Log.Hex(resp)}");
+                Log.Debug($"[探测] {handle.Info.VidPid} usage=0x{handle.Info.Usage:X4} GetFeature(0x{id:X2}) -> {Log.Hex(resp)}");
         }
     }
 
@@ -99,12 +99,12 @@ public static class HidWriteProbe
             if (got.Count > 0)
             {
                 responded ??= v.Name;
-                Log.Info($"[探测] {handle.Info.VidPid} usage=0x{handle.Info.Usage:X4} 变体={v.Name} 收到 {got.Count} 个响应报文:");
-                foreach (var g in got.Take(4)) Log.Info($"[探测]   <- {Log.Hex(g)}");
+                Log.Debug($"[探测] {handle.Info.VidPid} usage=0x{handle.Info.Usage:X4} 变体={v.Name} 收到 {got.Count} 个响应报文:");
+                foreach (var g in got.Take(4)) Log.Debug($"[探测]   <- {Log.Hex(g)}");
             }
         }
         if (responded == null)
-            Log.Info($"[探测] {handle.Info.VidPid} usage=0x{handle.Info.Usage:X4} 无任何变体响应");
+            Log.Debug($"[探测] {handle.Info.VidPid} usage=0x{handle.Info.Usage:X4} 无任何变体响应");
         return responded;
     }
 }

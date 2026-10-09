@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using VigilWatt.App.Services;
 using VigilWatt.Core.Models;
 using VigilWatt.Core.Plugins;
@@ -71,6 +72,23 @@ public sealed partial class SettingsPage : Page
         }
         UpdateBackdropHint(pref);
 
+        // 日志级别：档位按 LogLevelOptions.Choices 生成（取值只有一处定义），副标题说明当前档位含义。
+        // 注意与"窗口背景"不同，这里是重启生效——副标题已写明。
+        foreach (var (value, label) in LogLevelOptions.Choices)
+        {
+            LogLevelCombo.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+        }
+        var level = LogLevelNames.Normalize(s.LogLevel);
+        foreach (ComboBoxItem item in LogLevelCombo.Items)
+        {
+            if (item.Tag as string == level)
+            {
+                LogLevelCombo.SelectedItem = item;
+                break;
+            }
+        }
+        LogLevelHintText.Text = LogLevelOptions.Describe(level);
+
         // 插件开关动态生成：新插件（IBatteryPlugin 实现）自动出现在设置页
         bool first = true;
         foreach (var plugin in App.Services.Manager.Plugins)
@@ -90,6 +108,12 @@ public sealed partial class SettingsPage : Page
     {
         if (WidgetModeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
         WidgetModeHintText.Text = WidgetDisplayMode.Describe(tag);
+    }
+
+    private void LogLevel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (LogLevelCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
+        LogLevelHintText.Text = LogLevelOptions.Describe(tag);
     }
 
     /// <summary>副标题按"选中的偏好在本机上实际会生效成什么"来写。</summary>
@@ -164,6 +188,7 @@ public sealed partial class SettingsPage : Page
             : WidgetMaxDevicesOptions.Default;
         s.UpdateUrl = UpdateSourceBox.Text.Trim();
         s.WindowBackdrop = (BackdropCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? WindowBackdrop.Auto;
+        s.LogLevel = LogLevelNames.Normalize((LogLevelCombo.SelectedItem as ComboBoxItem)?.Tag as string);
         foreach (var (name, toggle) in _pluginToggles)
         {
             s.PluginEnabled[name] = toggle.IsOn;
@@ -197,17 +222,8 @@ public sealed partial class SettingsPage : Page
         // 历史清理立即执行一次
         App.Services.Manager.CleanupHistoryNow();
 
-        SavedIcon.Visibility = Visibility.Visible;
-        SavedText.Text = "已保存";
-        var timer = DispatcherQueue.CreateTimer();
-        timer.Interval = TimeSpan.FromSeconds(2);
-        timer.Tick += (_, _) =>
-        {
-            SavedText.Text = "";
-            SavedIcon.Visibility = Visibility.Collapsed;
-            timer.Stop();
-        };
-        timer.Start();
+        // 日志级别不热更新（重启生效），保存后给一句提示，避免用户以为"点了没反应"
+        ShowSavedFeedback(s.LogLevel == LogLevelNames.Default ? "已保存" : "已保存（日志级别重启后生效）");
     }
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
@@ -271,5 +287,70 @@ public sealed partial class SettingsPage : Page
         {
             CheckUpdateButton.IsEnabled = true;
         }
+    }
+
+    private void OpenLogDir_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dir = Path.Combine(AppPaths.RootDir, "logs");
+            Directory.CreateDirectory(dir);
+            Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("打开日志目录失败: " + ex.Message);
+        }
+    }
+
+    private async void ClearLogs_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "清空日志？",
+            Content = "将删除 logs 目录下的 app.log、滚动历史（app.N.log）与 log-error.txt，且不可恢复。",
+            PrimaryButtonText = "清空",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        try
+        {
+            // 先释放 app.log 句柄，否则删不掉；之后的日志会重新开一个新文件
+            Log.Shutdown();
+            var dir = Path.Combine(AppPaths.RootDir, "logs");
+            if (Directory.Exists(dir))
+            {
+                foreach (var file in Directory.EnumerateFiles(dir, "app*.log"))
+                    File.Delete(file);
+                var err = Path.Combine(dir, "log-error.txt");
+                if (File.Exists(err)) File.Delete(err);
+            }
+            Log.Info("日志已由设置页清空");
+            ShowSavedFeedback("日志已清空");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("清空日志失败: " + ex.Message);
+            ShowSavedFeedback("清空日志失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>底部保存栏的即时反馈：显示一句话，2 秒后自动隐去。</summary>
+    private void ShowSavedFeedback(string text)
+    {
+        SavedIcon.Visibility = Visibility.Visible;
+        SavedText.Text = text;
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(2);
+        timer.Tick += (_, _) =>
+        {
+            SavedText.Text = "";
+            SavedIcon.Visibility = Visibility.Collapsed;
+            timer.Stop();
+        };
+        timer.Start();
     }
 }

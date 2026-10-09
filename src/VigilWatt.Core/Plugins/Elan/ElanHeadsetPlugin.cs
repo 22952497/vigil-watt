@@ -52,13 +52,13 @@ public sealed class ElanHeadsetPlugin : BatteryPluginBase
         {
             var resp = handle.GetFeature(id);
             if (resp == null) continue;
-            Log.Info($"[Elan 探测] GetFeature(0x{id:X2}) -> {Log.Hex(resp)}");
+            Log.Debug($"[Elan 探测] GetFeature(0x{id:X2}) -> {Log.Hex(resp)}");
 
             for (int i = 1; i < Math.Min(resp.Length, 12); i++)
             {
                 if (resp[i] <= 100 && resp[i - 1] <= 4)
                 {
-                    Log.Info($"[Elan 探测] 候选电量位: id=0x{id:X2} offset={i} 值={resp[i]} 邻字节={resp[i - 1]}");
+                    Log.Debug($"[Elan 探测] 候选电量位: id=0x{id:X2} offset={i} 值={resp[i]} 邻字节={resp[i - 1]}");
                     return (id, i, resp[i]);
                 }
             }

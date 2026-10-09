@@ -75,6 +75,12 @@ public class AppSettings
     /// </summary>
     public bool MonitorSystemBattery { get; set; } = false;
 
+    /// <summary>
+    /// 日志级别。取值见 <see cref="VigilWatt.Core.Utils.LogLevelNames"/>（Off/Debug/Info/Warn/Error），默认 Info。
+    /// 未知取值一律按 Info 处理。**重启生效**（启动时赋给 Log.MinLevel）。
+    /// </summary>
+    public string LogLevel { get; set; } = VigilWatt.Core.Utils.LogLevelNames.Default;
+
     [JsonIgnore]
     private static readonly string SettingsPath = Path.Combine(AppPaths.RootDir, "settings.json");
 

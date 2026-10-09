@@ -204,7 +204,7 @@ public sealed class BetopPlugin : BatteryPluginBase
             // 有些厂商集合是 250Hz 的持续流（手柄状态），逐帧打日志会刷爆 app.log——只留前几帧。
             if (logged < 4)
             {
-                Log.Info($"北通 收到报文: {Log.Hex(input)}");
+                Log.Debug($"北通 收到报文: {Log.Hex(input)}");
                 logged++;
             }
             else if (logged == 4)

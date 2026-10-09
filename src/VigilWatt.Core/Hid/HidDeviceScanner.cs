@@ -49,9 +49,9 @@ public static class HidDeviceScanner
         if (signature != _lastSignature)
         {
             _lastSignature = signature;
-            Log.Info($"HID 扫描完成，共 {list.Count} 个接口（设备集合有变化，输出明细）");
-            foreach (var m in meta) Log.Info(m);
-            foreach (var d in list) Log.Info("  " + d);
+            Log.Info($"HID 扫描完成，共 {list.Count} 个接口（设备集合有变化，明细见 Debug 档）");
+            foreach (var m in meta) Log.Debug(m);
+            foreach (var d in list) Log.Debug("  " + d);
         }
         return list;
     }

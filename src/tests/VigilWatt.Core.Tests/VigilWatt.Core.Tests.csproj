@@ -48,6 +48,7 @@
     <Compile Include="..\..\VigilWatt.Core\Utils\AppPaths.cs" />
     <Compile Include="..\..\VigilWatt.Core\Utils\ByteSize.cs" />
     <Compile Include="..\..\VigilWatt.Core\Utils\Log.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Utils\LogLevel.cs" />
     <!-- 小组件 OS 能力判定也是零依赖纯逻辑，链接真源文件而非复制 -->
     <Compile Include="..\..\VigilWatt.App\Services\WidgetCompat.cs" />
   </ItemGroup>

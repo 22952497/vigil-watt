@@ -137,7 +137,7 @@ public sealed class RapooPlugin : BatteryPluginBase
 
         if (status.Kind == RapooFrameKind.StatusInvalidPercent)
         {
-            Log.Info($"雷柏 电量越界/归零（疑似休眠瞬态），丢弃: {Log.Hex(input)}");
+            Log.Debug($"雷柏 电量越界/归零（疑似休眠瞬态），丢弃: {Log.Hex(input)}");
             return null;
         }
 
@@ -152,7 +152,7 @@ public sealed class RapooPlugin : BatteryPluginBase
         {
             var input = handle.ReadInput(TimeSpan.FromMilliseconds(400));
             if (input == null) continue;
-            Log.Info($"雷柏 收到报文: {Log.Hex(input)}");
+            Log.Debug($"雷柏 收到报文: {Log.Hex(input)}");
 
             var status = RapooCodec.Parse(input);
             if (status.Kind == RapooFrameKind.Status) return (status.Percent, status.Charging);

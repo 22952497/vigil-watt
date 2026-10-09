@@ -77,12 +77,16 @@ public partial class App : Application
         if (!createdNew)
         {
             Log.Info("检测到已有实例运行，退出");
+            Log.Shutdown();
             Environment.Exit(0);
             return;
         }
 
-        Log.Info($"启动 VigilWatt，参数: {args.Arguments}");
         Services = new AppServices();
+        // 日志级别：启动时应用（重启生效，不追求热更新）
+        Log.MinLevel = LogLevelNames.Parse(Services.Settings.LogLevel);
+
+        Log.Info($"启动 VigilWatt，参数: {args.Arguments}");
         Services.Manager.Start();
 
         Services.MainWindow = new MainWindow();

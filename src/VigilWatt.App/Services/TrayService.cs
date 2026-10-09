@@ -130,7 +130,7 @@ public sealed class TrayService : IDisposable
 
     private void HandleTrayMessage(uint mouseMessage)
     {
-        Log.Info($"收到托盘回调: 0x{mouseMessage:X4}");
+        Log.Debug($"收到托盘回调: 0x{mouseMessage:X4}");
         if (mouseMessage == Native.WM_LBUTTONUP || mouseMessage == Native.WM_LBUTTONDBLCLK)
         {
             ShowMainWindow();
@@ -297,6 +297,9 @@ public sealed class TrayService : IDisposable
     {
         Log.Info("用户退出应用");
         _instance?.Dispose();
+        // 退出收尾：刷盘并释放 app.log 句柄。挂在真实退出路径上
+        // （AppServices.Dispose 全仓无人调用，钩子挂那儿永远不会触发）。
+        Log.Shutdown();
         Environment.Exit(0);
     }
 

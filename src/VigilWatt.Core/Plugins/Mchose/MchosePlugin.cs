@@ -220,7 +220,7 @@ public sealed class MchosePlugin : BatteryPluginBase
                 }
                 else
                 {
-                    Log.Info($"迈从 被动收到设备状态通知（payload=0x{push.Payload:X2}，仅记录）: {Log.Hex(input)}");
+                    Log.Debug($"迈从 被动收到设备状态通知（payload=0x{push.Payload:X2}，仅记录）: {Log.Hex(input)}");
                 }
             }
             return null;
@@ -353,7 +353,7 @@ public sealed class MchosePlugin : BatteryPluginBase
         if (!SendQhwHandshake(handle, quiet: true))
         {
             if (ShouldLogOnce(handle, LogKeyQhwSkip))
-                Log.Info($"迈从 qhw 握手写失败（非 QHW 通道，快速跳过；同路径后续不再重复记录）: {handle.Info.DevicePath}");
+                Log.Debug($"迈从 qhw 握手写失败（非 QHW 通道，快速跳过；同路径后续不再重复记录）: {handle.Info.DevicePath}");
             return null;
         }
 
@@ -372,7 +372,7 @@ public sealed class MchosePlugin : BatteryPluginBase
         {
             if (!handle.WriteOutput(frame, TimeSpan.FromMilliseconds(500)))
             {
-                Log.Info($"迈从 qhw 第{attempt}次写失败: {handle.Info.DevicePath}");
+                Log.Debug($"迈从 qhw 第{attempt}次写失败: {handle.Info.DevicePath}");
                 return null;
             }
 
@@ -397,7 +397,7 @@ public sealed class MchosePlugin : BatteryPluginBase
                     return ("qhw", parsed.Value.Percent, MapCharging(parsed.Value.ChargeRaw));
                 }
 
-                Log.Info($"迈从 qhw 收到非匹配报文: {Log.Hex(input)}");
+                Log.Debug($"迈从 qhw 收到非匹配报文: {Log.Hex(input)}");
             }
         }
         Log.Info($"迈从 qhw 无电量响应: {handle.Info.DevicePath}");
@@ -454,7 +454,7 @@ public sealed class MchosePlugin : BatteryPluginBase
                 ResetLogOnce(handle, LogKeyKbV1Silent);
                 return read;
             }
-            Log.Info($"迈从 会话ACK: {Log.Hex(input)}");
+            Log.Debug($"迈从 会话ACK: {Log.Hex(input)}");
         }
 
         // 电量查询，最多重试 2 次（键盘休眠时先醒来）
@@ -462,7 +462,7 @@ public sealed class MchosePlugin : BatteryPluginBase
         {
             if (!SendKeyboardV1Frame(handle, MchoseV1Codec.BatteryQueryCmd, 0x01))
             {
-                Log.Info($"迈从 keyboard-v1 第{attempt}次写失败: {handle.Info.DevicePath}");
+                Log.Debug($"迈从 keyboard-v1 第{attempt}次写失败: {handle.Info.DevicePath}");
                 continue;
             }
 
@@ -482,7 +482,7 @@ public sealed class MchosePlugin : BatteryPluginBase
         }
 
         if (ShouldLogOnce(handle, LogKeyKbV1Silent))
-            Log.Info($"迈从 keyboard-v1 两次询问无响应（键盘多半在睡；恢复应答后会再记一条）: {handle.Info.DevicePath}");
+            Log.Debug($"迈从 keyboard-v1 两次询问无响应（键盘多半在睡；恢复应答后会再记一条）: {handle.Info.DevicePath}");
         return null;
     }
 
@@ -520,15 +520,15 @@ public sealed class MchosePlugin : BatteryPluginBase
                 //
                 // 这里不做"触发核实"：本方法服务于主动路径（探测/轮询），查询刚刚才发过，
                 // 立刻再查一次没有新信息。触发核实只放在被动路径（TryParsePassiveInput）。
-                Log.Info($"迈从 收到设备状态通知（payload=0x{push.Payload:X2}，语义未明仅记录）: {Log.Hex(input)}");
+                Log.Debug($"迈从 收到设备状态通知（payload=0x{push.Payload:X2}，语义未明仅记录）: {Log.Hex(input)}");
                 return null;
 
             case V1PushKind.BatteryInvalid:
-                Log.Info($"迈从 忽略异常电量帧（电量={push.Percent}）: {Log.Hex(input)}");
+                Log.Debug($"迈从 忽略异常电量帧（电量={push.Percent}）: {Log.Hex(input)}");
                 return null;
 
             case V1PushKind.Other:
-                Log.Info($"迈从 忽略非电量推送帧（类型=0x{push.Type:X2}）: {Log.Hex(input)}");
+                Log.Debug($"迈从 忽略非电量推送帧（类型=0x{push.Type:X2}）: {Log.Hex(input)}");
                 return null;
         }
 
@@ -540,7 +540,7 @@ public sealed class MchosePlugin : BatteryPluginBase
                 return (pct, ParseKeyboardV1Charge(flag, pct));
 
             case V1ResponseKind.InvalidBattery:
-                Log.Info($"迈从 keyboard-v1 电量占位/越界: {Log.Hex(input)}");
+                Log.Debug($"迈从 keyboard-v1 电量占位/越界: {Log.Hex(input)}");
                 return null;
 
             default:
@@ -582,7 +582,7 @@ public sealed class MchosePlugin : BatteryPluginBase
         {
             if (!SendQhwHandshake(dev.Handle))
             {
-                Log.Info($"迈从 qhw 轮询握手写失败: {dev.Handle.Info.DevicePath}");
+                Log.Debug($"迈从 qhw 轮询握手写失败: {dev.Handle.Info.DevicePath}");
                 return null;
             }
             dev.HandshakeSent = true;
@@ -591,7 +591,7 @@ public sealed class MchosePlugin : BatteryPluginBase
         var frame = BuildQhwFrame(dev.Handle, CmdGetBattery);
         if (!dev.Handle.WriteOutput(frame, TimeSpan.FromMilliseconds(500)))
         {
-            Log.Info($"迈从 qhw 轮询写失败: {dev.Handle.Info.DevicePath}");
+            Log.Debug($"迈从 qhw 轮询写失败: {dev.Handle.Info.DevicePath}");
             return null;
         }
 
@@ -616,7 +616,7 @@ public sealed class MchosePlugin : BatteryPluginBase
                 return (parsed.Value.Percent, MapCharging(parsed.Value.ChargeRaw));
             }
         }
-        Log.Info($"迈从 qhw 轮询无响应: {dev.Handle.Info.DevicePath}");
+        Log.Debug($"迈从 qhw 轮询无响应: {dev.Handle.Info.DevicePath}");
         return null;
     }
 }
