@@ -43,9 +43,9 @@
                                     <TextBlock Text="{x:Bind Name}" FontSize="15" FontWeight="SemiBold"
                                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                     <Border Grid.Column="1" CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
-                                            Background="{ThemeResource SubtleFillColorSecondaryBrush}">
-                                        <TextBlock Text="{x:Bind SourceText}" FontSize="10"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            Background="{x:Bind SourceBackgroundBrush}">
+                                        <TextBlock Text="{x:Bind SourceText}" FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{x:Bind SourceBrush}" />
                                     </Border>
                                     <TextBlock Grid.Column="2" Text="⚡" FontSize="13" VerticalAlignment="Center"
                                                Foreground="{x:Bind ProgressBrush}"

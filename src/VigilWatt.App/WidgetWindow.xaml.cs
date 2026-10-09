@@ -36,6 +36,8 @@ public sealed partial class WidgetWindow : Window
     private const double RowHeight = IconSize + RowInnerGap + BarHeight;
     private const double NameMaxWidth = 200;    // 名称列上限（超出省略号），正常设备名都能放下
     private const double ChargeMarkWidth = 14;  // 充电标识 ⚡ 列宽度（13 号字近似，与列表页同款字符）
+    private const double TagFontSize = 10;      // 来源徽标字号（与设备列表页一致）
+    private const double TagPadH = 5;           // 来源徽标左右内边距
 
     /// <summary>n 行内容（含行间距）的总高度。</summary>
     private static double RowsHeight(int rows) => rows <= 0 ? 0 : rows * RowHeight + (rows - 1) * RowGap;
@@ -181,9 +183,10 @@ public sealed partial class WidgetWindow : Window
         }
         foreach (var d in devices)
         {
-            // 充电行比放电行多一列 ⚡（列宽 + 该列两侧间距）；放电行的 ⚡ 列放空串，只占列间距
+            // 充电行比放电行多一列 ⚡（列宽 + 该列两侧间距）；放电行的 ⚡ 列放空串，只占列间距。
+            // 来源徽标（蓝牙/2.4G/本机）所有行恒定存在。
             double chargeW = d.Charging == ChargingState.Charging ? ChargeMarkWidth : 0;
-            double w = IconSize + IconGap + nameW + 10 + chargeW + 10 + PercentWidth(d);
+            double w = IconSize + IconGap + nameW + 10 + SourceTagWidth(d.Source) + 10 + chargeW + 10 + PercentWidth(d);
             if (w > rowW) rowW = w;
         }
 
@@ -266,6 +269,14 @@ public sealed partial class WidgetWindow : Window
     private static double PercentWidth(DeviceStatus d) =>
         d.BatteryPercent.HasValue ? $"{d.BatteryPercent}%".Length * 11 : 22;
 
+    /// <summary>来源徽标近似宽度（10 号字 + 左右内边距）：CJK≈10px、ASCII≈6px，偏宽松留余量。</summary>
+    private static double SourceTagWidth(DeviceSource source)
+    {
+        double w = TagPadH * 2;
+        foreach (var ch in DeviceSourceInfo.ShortLabel(source)) w += ch > 0x2E80 ? 10 : 6;
+        return w;
+    }
+
     private static UIElement BuildRow(DeviceStatus d, double width, Skin skin)
     {
         var percent = d.BatteryPercent;
@@ -275,11 +286,12 @@ public sealed partial class WidgetWindow : Window
 
         var row = new StackPanel { Spacing = RowInnerGap, Width = width };
 
-        // 图标 Auto 列、名称 * 列自适应收缩（超长省略号）、充电标识 Auto 列、百分比 Auto 列，互不挤占。
-        // 充电列在所有行恒定存在（不充电时放空串），四列结构一致，名称列宽与百分比右缘因此对得齐
+        // 图标 Auto 列、名称 * 列自适应收缩（超长省略号）、来源徽标 Auto 列、充电标识 Auto 列、百分比 Auto 列，互不挤占。
+        // 徽标与充电列在所有行恒定存在（不充电时放空串），五列结构一致，名称列宽与百分比右缘因此对得齐
         var line = new Grid { ColumnSpacing = 8 };
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -297,8 +309,13 @@ public sealed partial class WidgetWindow : Window
         Grid.SetColumn(name, 1);
         line.Children.Add(name);
 
+        // 来源徽标：与设备列表页同款彩色胶囊（蓝牙蓝 / 2.4G 紫 / 本机青）
+        var sourceTag = BuildSourceTag(d.Source);
+        Grid.SetColumn(sourceTag, 2);
+        line.Children.Add(sourceTag);
+
         // 充电标识：与设备列表页同款 ⚡（列表页由 Visibility 绑定 IsCharging 控制显隐；
-        // 这里用空串占位，既保持四列结构对齐，又让 ⚡ 用与百分比/进度条相同的充电蓝色）
+        // 这里用空串占位，既保持五列结构对齐，又让 ⚡ 用与百分比/进度条相同的充电蓝色）
         var chargeMark = new TextBlock
         {
             Text = charging ? "⚡" : "",
@@ -307,7 +324,7 @@ public sealed partial class WidgetWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = new SolidColorBrush(stateColor),
         };
-        Grid.SetColumn(chargeMark, 2);
+        Grid.SetColumn(chargeMark, 3);
         line.Children.Add(chargeMark);
 
         var percentText = new TextBlock
@@ -318,7 +335,7 @@ public sealed partial class WidgetWindow : Window
             Foreground = new SolidColorBrush(stateColor),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Grid.SetColumn(percentText, 3);
+        Grid.SetColumn(percentText, 4);
         line.Children.Add(percentText);
         row.Children.Add(line);
 
@@ -339,6 +356,30 @@ public sealed partial class WidgetWindow : Window
         });
         row.Children.Add(track);
         return row;
+    }
+
+    /// <summary>
+    /// 来源徽标：彩色胶囊（文字=来源色，底色=同色压淡），与设备列表页 <c>DevicesPage</c> 的徽标同款。
+    /// 颜色走 <see cref="UiPalette.SourceTag"/> 固定值、不走 ThemeResource——
+    /// 本方法在 DispatcherQueue 回调路径上跑，查 Resources 抛异常会直接 fail-fast（同 <see cref="Skin"/> 的理由）。
+    /// </summary>
+    private static FrameworkElement BuildSourceTag(DeviceSource source)
+    {
+        var color = UiPalette.SourceTag(source);
+        return new Border
+        {
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(TagPadH, 1.5, TagPadH, 1.5),
+            Background = new SolidColorBrush(UiPalette.Tint(color)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = DeviceSourceInfo.ShortLabel(source),
+                FontSize = TagFontSize,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(color),
+            },
+        };
     }
 
     /// <summary>设备类型图标：圆角方块底 + 纯形状拼装的图形（不用字体图标，避免字形缺失渲染成方块）。</summary>

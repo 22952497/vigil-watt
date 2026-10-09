@@ -16,6 +16,12 @@ public sealed class DeviceRowModel
     public string SubText { get; init; } = "";
     public bool IsCharging { get; init; }
 
+    /// <summary>来源徽标文字色（蓝牙蓝 / 2.4G 紫 / 本机青）。</summary>
+    public Brush SourceBrush { get; init; } = UiPalette.Brush(UiPalette.Offline);
+
+    /// <summary>来源徽标胶囊底色（同色压淡）。</summary>
+    public Brush SourceBackgroundBrush { get; init; } = UiPalette.Brush(UiPalette.Offline);
+
     /// <summary>电量条着色：充电蓝 / 低电红 / 中等橙 / 正常绿 / 离线灰。</summary>
     public Brush ProgressBrush { get; init; } = UiPalette.Brush(UiPalette.Offline);
 
@@ -40,6 +46,7 @@ public sealed class DeviceRowModel
         var progressColor = d.IsOnline
             ? UiPalette.BatteryLevel(percent, charging)
             : UiPalette.Offline;
+        var sourceColor = UiPalette.SourceTag(d.Source);
         Brush percentBrush = !d.IsOnline ? UiPalette.Brush(UiPalette.Offline)
             : charging ? UiPalette.Brush(UiPalette.Charging)
             : percent is <= 20 ? UiPalette.Brush(UiPalette.Low)
@@ -52,12 +59,9 @@ public sealed class DeviceRowModel
             Name = d.DisplayName,
             PercentText = percent.HasValue ? $"{percent}%" : "--",
             Progress = percent ?? 0,
-            SourceText = d.Source switch
-            {
-                DeviceSource.Ble or DeviceSource.BluetoothClassic => "蓝牙",
-                DeviceSource.System => "本机",
-                _ => "2.4G",
-            },
+            SourceText = DeviceSourceInfo.ShortLabel(d.Source),
+            SourceBrush = UiPalette.Brush(sourceColor),
+            SourceBackgroundBrush = UiPalette.Brush(UiPalette.Tint(sourceColor)),
             SubText = $"{d.Protocol}{state} · 更新于 {d.LastUpdated:HH:mm:ss}",
             IsCharging = charging,
             ProgressBrush = UiPalette.Brush(progressColor),
