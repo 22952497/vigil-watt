@@ -59,6 +59,33 @@ public sealed partial class SettingsPage : Page
             }
         }
 
+        // 任务栏贴片：与小组件同一套路（下拉框存偏好、副标题写行为），取值收敛也只有一处定义
+        TaskbarToggle.IsOn = s.TaskbarBatteryEnabled;
+        var taskbarMode = TaskbarBatteryMode.Normalize(s.TaskbarBatteryMode);
+        foreach (ComboBoxItem item in TaskbarModeCombo.Items)
+        {
+            if (item.Tag as string == taskbarMode)
+            {
+                TaskbarModeCombo.SelectedItem = item;
+                break;
+            }
+        }
+        TaskbarModeHintText.Text = TaskbarBatteryMode.Describe(taskbarMode);
+
+        foreach (var n in TaskbarBatteryOptions.Choices)
+        {
+            TaskbarMaxCombo.Items.Add(new ComboBoxItem { Content = $"{n} 个", Tag = n });
+        }
+        var taskbarMax = TaskbarBatteryOptions.Clamp(s.TaskbarBatteryMaxDevices);
+        foreach (ComboBoxItem item in TaskbarMaxCombo.Items)
+        {
+            if (item.Tag is int v && v == taskbarMax)
+            {
+                TaskbarMaxCombo.SelectedItem = item;
+                break;
+            }
+        }
+
         // 窗口背景：下拉框选中"用户偏好"，副标题说"这台机器上实际会生效什么"——
         // 两者不是一回事（Win10 上选 Mica 会静默降级成 Acrylic），分开显示才不会让人困惑。
         var pref = WindowBackdrop.Normalize(s.WindowBackdrop);
@@ -114,6 +141,12 @@ public sealed partial class SettingsPage : Page
     {
         if (LogLevelCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
         LogLevelHintText.Text = LogLevelOptions.Describe(tag);
+    }
+
+    private void TaskbarMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (TaskbarModeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
+        TaskbarModeHintText.Text = TaskbarBatteryMode.Describe(tag);
     }
 
     /// <summary>副标题按"选中的偏好在本机上实际会生效成什么"来写。</summary>
@@ -185,6 +218,13 @@ public sealed partial class SettingsPage : Page
         s.WidgetMaxDevices = WidgetMaxCombo.SelectedItem is ComboBoxItem maxItem && maxItem.Tag is int maxValue
             ? WidgetMaxDevicesOptions.Clamp(maxValue)
             : WidgetMaxDevicesOptions.Default;
+        s.TaskbarBatteryEnabled = TaskbarToggle.IsOn;
+        s.TaskbarBatteryMode = TaskbarBatteryMode.Normalize(
+            (TaskbarModeCombo.SelectedItem as ComboBoxItem)?.Tag as string);
+        s.TaskbarBatteryMaxDevices = TaskbarMaxCombo.SelectedItem is ComboBoxItem taskbarMaxItem
+                                     && taskbarMaxItem.Tag is int taskbarMaxValue
+            ? TaskbarBatteryOptions.Clamp(taskbarMaxValue)
+            : TaskbarBatteryOptions.Default;
         s.UpdateUrl = UpdateSourceBox.Text.Trim();
         s.WindowBackdrop = (BackdropCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? WindowBackdrop.Auto;
         s.LogLevel = LogLevelNames.Normalize((LogLevelCombo.SelectedItem as ComboBoxItem)?.Tag as string);
@@ -213,6 +253,22 @@ public sealed partial class SettingsPage : Page
             // 已开着的小组件：先把配置落到位再重画，让"显示方式/最多显示设备数"当场生效，
             // 不必关掉再开。RefreshFromSettings 内部会重新应用层级并重算窗口高度。
             App.Services.Widget?.RefreshFromSettings();
+        }
+
+        // 任务栏贴片开关即时生效（与小组件同一条路）
+        if (s.TaskbarBatteryEnabled && App.Services.TaskbarBattery == null)
+        {
+            App.Services.TaskbarBattery = new TaskbarBatteryWindow();
+            App.Services.TaskbarBattery.Activate();
+        }
+        else if (!s.TaskbarBatteryEnabled && App.Services.TaskbarBattery != null)
+        {
+            App.Services.TaskbarBattery.Close();
+            App.Services.TaskbarBattery = null;
+        }
+        else if (s.TaskbarBatteryEnabled)
+        {
+            App.Services.TaskbarBattery?.RefreshFromSettings();
         }
 
         // 窗口背景即时生效：改完就想看到效果，不该逼用户重启应用

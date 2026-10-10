@@ -16,6 +16,7 @@ public sealed class AppServices : IDisposable
     public DeviceManager Manager { get; }
     public TrayService Tray { get; private set; } = null!;
     public WidgetWindow? Widget { get; set; }
+    public TaskbarBatteryWindow? TaskbarBattery { get; set; }
     public MainWindow? MainWindow { get; set; }
 
     public AppServices()
@@ -155,6 +156,12 @@ public partial class App : Application
         {
             Services.Widget = new WidgetWindow();
             Services.Widget.Activate();
+        }
+
+        if (Services.Settings.TaskbarBatteryEnabled)
+        {
+            Services.TaskbarBattery = new TaskbarBatteryWindow();
+            Services.TaskbarBattery.Activate();
         }
     }
 }

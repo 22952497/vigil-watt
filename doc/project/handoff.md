@@ -13,6 +13,14 @@
 **代码审查机制（2026-10-10）已建立**：标准在 `doc/dev/review-standard.md`，发现跟踪在 `doc/reviews/BACKLOG.md`。
 **2026-10-10 又做了"上线前全检 + 全部调整"**：4 条 P0 + 7 条 P1 + 大部分 P2 已修并验证（构建 0 警告 0 错误、测试 253 用例全绿）。
 BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形态 / D3 / D4 / D5 / D6**，其余全部 `done` 或 `wontfix`（各带理由）。
+**2026-10-10 第二十轮新增「任务栏电量贴片」**（可选开关、默认关）：把在线设备电量做成一条胶囊钉在任务栏托盘左侧，
+可沿任务栏拖动并记住位置；定位/跟随原理见 `dev/runtime-pitfalls.md` §16，文件速查见 §6。
+**同轮第二、三轮反馈共修掉三件事**（第二轮的判断被第三轮实测**推翻并更正**，以 §17 为准）：
+① 贴片"白框"——可见的是 **Win32 窗口自己用类背景刷擦出来的底色**（`COLOR_WINDOW`，浅色主题=纯白），
+不是内容岛那层；修法是 `DwmExtendFrameIntoClientArea(-1)` + 接管 `WM_ERASEBKGND`/`WM_PAINT` 把客户区擦成 alpha=0；
+② 最右一格 `%` 被裁——窗口宽度改为布局实测；③ 点任务栏闪一下——抬 Z 序拍频 1 秒 → **16ms**（实测遮挡约一帧）。
+**用户已复看确认外观无误**（2026-10-10 21:28："是我需要的效果"）。
+⚠ **`dev/runtime-pitfalls.md` §14 里"本机 Win10 19045"的旧标注已过期**，以 §17 的复核为准。
 
 ## 2. 用户设备清单（勿对号入座错）
 
@@ -54,6 +62,15 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
    **验证方法**：把手柄充满（`byte23=0x78`）后再关机，看 dongle 报 `0x50` 还是 `0x70` ——
    报 `0x70` 说明低位 `0x08` 是"链路有效"标志，可把判据一般化成 `(byte23 & 0x08) == 0`，
    同时电量换算要改成"高 4 位 / 7"；报 `0x50` 则维持现状（等级×8）。见 protocols.md §4.4.1。
+9. **任务栏电量贴片（2026-10-10 第二十轮新增）**：开关在设置页「任务栏」，默认关。
+   **已由第三轮实测 + 用户复看确认**：白框已消除（贴片内外背景像素逐字节相同，用户确认观感无误）、
+   双设备宽度自适应正确（89px → 186px）、点任务栏的遮挡时长压到约一帧（16ms 拍频）、
+   `TrayNotifyWnd` 在 Win11 26200 上仍存在。
+   **仍需人手确认**：① 沿任务栏**拖动与位置记忆**的手感（`WM_NCHITTEST` 已确认不受影响，但没真拖过）；
+   ② 任务栏**自动隐藏**收起时贴片是否跟着藏；③ **竖向任务栏 / 多显示器**（代码写了分支但完全未验证）；
+   ④ **深色主题**下文字对比是否够（CR-42）；⑤ 贴片是否压住任务栏按钮（CR-39）。
+   原理与已证伪路径见 `dev/runtime-pitfalls.md` §16 / §17（**§17 是最容易重复踩的一条**：
+   窗口两层背景 + 九种透明通道的实测结果表）。
 
 ## 5. 给下一个 AI 的注意事项
 
@@ -98,6 +115,10 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 | 本机电量开关 | `AppSettings.MonitorSystemBattery` + `DeviceManager.ApplySystemBatterySetting()` + `SettingsPage`「本机」分节 |
 | 托盘为何不含本机电量 | `src/VigilWatt.App/Services/TrayService.cs` 的 `Render()`：`if (d.Source == DeviceSource.System) continue;` |
 | 托盘/小组件/设置页 | `src/VigilWatt.App/Services` 与 `Views`（code-flow.md §7/§8/§9） |
+| 任务栏电量贴片 | `src/VigilWatt.App/TaskbarBatteryWindow.xaml(.cs)`（定位/跟随/不抢焦点见 runtime-pitfalls.md §16） |
+| 贴片窗口表面透明（两层背景 + 按系统分通道） | `src/VigilWatt.App/Services/TaskbarTransparency.cs`（Win11 = extend-frame + 自接管 `WM_ERASEBKGND`/`WM_PAINT`；**最容易重复踩**，见 runtime-pitfalls.md §17） |
+| 任务栏贴片配置与开关 | `AppSettings.TaskbarBatteryEnabled/Mode/MaxDevices/OffsetX` + `Services/TaskbarBatteryMode.cs` + 设置页「任务栏」分节 |
+| 设备类型图标（小组件与贴片共用） | `src/VigilWatt.App/Services/DeviceIconFactory.cs`（纯形状拼装，**别用字体图标**） |
 | 程序图标 | 生成器 `scripts/make-app-icon.py`（改配色/字形改它后重跑，**别手改 .ico**）→ `src/VigilWatt.App/Assets/VigilWatt.ico`；接入 = csproj `<ApplicationIcon>` + `MainWindow.ApplyWindowIcon()`（两处都要，见 runtime-pitfalls §5.2） |
 | 托盘提示/图标刷新 | `TrayService.RequestUpdate()` + `App.AttachTray` 里挂的 `DeviceUpdated`/`DevicesChanged`（见 runtime-pitfalls §5.1） |
 | 历史统计页（指标卡/曲线/hover） | `src/VigilWatt.App/Views/StatsPage.xaml(.cs)` + `Views/BatteryChartControl.xaml.cs` |

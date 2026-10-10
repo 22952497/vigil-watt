@@ -30,6 +30,18 @@ public class AppSettings
     /// <summary>小组件显示方式。取值见 <c>VigilWatt.App.Services.WidgetDisplayMode</c>：Topmost（浮在其它窗口上方）/ Normal（普通窗口）/ Desktop（压在其它窗口下方）；未知取值按 Normal。</summary>
     public string WidgetDisplayMode { get; set; } = "Normal";
 
+    /// <summary>是否把电量贴片钉在任务栏上。默认关闭——它会占住任务栏一小块地方，用户明确要时才开。</summary>
+    public bool TaskbarBatteryEnabled { get; set; }
+
+    /// <summary>任务栏贴片显示内容。取值见 <c>VigilWatt.App.Services.TaskbarBatteryMode</c>：All（全部在线设备）/ Lowest（仅最低电量一台）；未知取值按 All。</summary>
+    public string TaskbarBatteryMode { get; set; } = "All";
+
+    /// <summary>任务栏贴片最多显示几台设备，超出显示 "+N"。合法范围见 <c>VigilWatt.App.Services.TaskbarBatteryOptions</c>（1~5，默认 3）。</summary>
+    public int TaskbarBatteryMaxDevices { get; set; } = 3;
+
+    /// <summary>任务栏贴片相对"托盘左侧默认位"的水平偏移（物理像素，正数向右）。用户拖动后写入，重启沿用。</summary>
+    public int TaskbarBatteryOffsetX { get; set; }
+
     public bool StartMinimized { get; set; } = true;
 
     /// <summary>Velopack 更新源：本地文件夹路径、网络共享或 GitHub 仓库 URL；空 = 不检查更新。</summary>

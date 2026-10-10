@@ -50,6 +50,31 @@
   - **D10 随之作废**（其"插件声明写入许可"方案被更彻底的"插件开关即授权"取代）；**CR-12 的 UI 交付物（写入许可子行）已回退**，但 CR-12 的根因（`MchoseProbingEnabled` 无控件）已由"取消该设置项"解决；
   - 顺带补掉 **CR-22 的漏项**：`LogitechPlugin.Detach` 原先无条件打"罗技插件已卸载"（不继承基类故没被 CR-22 覆盖），改为只在真释放会话时记。
   验证：`dotnet build` 0 警告 0 错误；测试 **253 用例全绿**。
+- **2026-10-10（第二十轮 · 新增任务栏电量贴片）**：收工 L2 轻审查（限定改动面）新增 **CR-38/39/40/41**，
+  全部 `open`——四条都是"静态可见、**运行时不可验**"的一类（贴片能不能正常压在任务栏上、位置对不对，
+  只能真机肉眼确认，本轮不能启动应用）。同时把该轮**已经修掉的**两处记录在此：位置数学抽成
+  `Services/TaskbarLayout.cs` 并补 23 条单测（R8/S1，原本 `TaskbarBatteryWindow.xaml.cs` 447 行超限 → 拆到 344 行）、
+  删掉 `Native.IsWindow` 死声明（S6）。  验证：`dotnet build` 0 警告 0 错误；测试 **276 用例全绿**（基线 253 → 新增 23）。
+- **2026-10-10（第二十轮 · 用户反馈去底框）**：贴片首版是"白底圆角胶囊"，用户实测"能显示，但很突兀，**不需要背景**"
+  → 去掉底色与边框，只留文字与设备图形浮在任务栏上（窗口表面透明本来就是必需的，现在更没有可画的东西了）。
+  随之新增 **CR-42**（文字色跟应用主题、不跟任务栏实际明暗），`open`。
+- **2026-10-10（第二十轮 · 第二轮反馈：白框仍在 + 两个 bug）**：用户复看后报"效果还是一样"+ 点任务栏闪 + 第二个设备 `%` 不全。
+  查出**根因是前一轮的判断前提错了**：这台机器早已不是 Win10 而是 **Win11 26200**，
+  于是 `SetWindowCompositionAttribute` 的 accent 策略**静默失效**（返回成功、无警告、就是不透明），
+  而"删 XAML 底色"根本治不到那层——WinUI 3 的窗口背景分 Win32 层与内容岛层两层，看到的是**内容岛那一层**。
+  修法见 `dev/runtime-pitfalls.md` §17。本轮新增 **CR-43（done）/ CR-44（open）/ CR-45（done）/ CR-46（done）**，
+  并更新 **CR-40**（Z 序空档从 1 秒压到 100ms，风险等级下降但未消除）。
+  验证：`dotnet build` 0 警告 0 错误；测试 **276 用例全绿**。
+- **2026-10-10（第二十轮 · 第三轮反馈：白框与闪动都还在）**：用户复看后报"白色的框还在，而且点击任务栏信息还闪一下"
+  ——即第二轮的两处修改**都没修掉**。本轮先补上"能看见"的能力（临时截屏脚本没声明 DPI 感知，前两轮截出来的都是
+  不相干区域，等于在盲改），再逐通道实测：
+  - **可见的那层被认错了**：是 **Win32 窗口自己用类背景刷擦出来的底色**（`GCLP_HBRBACKGROUND = 0x6` = `COLOR_WINDOW`，
+    浅色主题就是纯白），不是内容岛那层 → **CR-43 的定性被推翻并更正**，修法改为
+    `DwmExtendFrameIntoClientArea(-1)` + 自己接管 `WM_ERASEBKGND`/`WM_PAINT` 把客户区擦成 alpha=0（§17.5）。
+  - **闪动是 Z 序空档**：抬 Z 序拍频 100ms → **16ms**，实测遮挡 **6~25ms（中位 19ms）**。
+  本轮 **CR-43 重写并 done（像素级实测）**、**CR-44 → wontfix（实测无效 + colorkey 变体有硬伤）**、
+  **CR-45 / CR-46 复看确认**、更新 **CR-40**，新增 **CR-47/48/49**。
+  验证：`dotnet build` 0 警告 0 错误；测试 **276 用例全绿**；贴片内外背景像素**逐字节相同**。
 
 ## P0 · 安全 / 数据损坏
 
@@ -101,6 +126,18 @@
 | **CR-34** | `SettingsPage.Load()` **不可重入**：`PluginPanel.Children` / `_pluginToggles` / `_writePermissionRows` 只增不清（`WidgetMaxCombo.Items` / `LogLevelCombo.Items` 同）。当前仅构造函数调用一次故**不触发**；隐患是 `_pluginToggles` 用字典索引器（重复 key 覆盖、不累积）而 `_writePermissionRows` 用 `List.Add`（累积）——**两者行为不一致**，一旦有人加"重新加载"就会同时出现"UI 重复行 + 保存回写走旧行" | `Views/SettingsPage.xaml.cs:Load` / `:AddPluginRow` / `:_writePermissionRows` | `open` | 10-10 修复轮（收工自审） |
 | **CR-35** | `LogitechPlugin` 成功打开接口后**只清 `Io`、不清 `OpenFailed`**。因 `CanRetryOpen` 仅在 `Io == null` 时求值、且 `OpenFailedAt` 过期后恒真，当前**无实际后果**；残留语义会让后续改这段的人误判会话仍处打开失败态 | `Plugins/Logitech/LogitechPlugin.cs:MarkOpenFailed` / `CanRetryOpen` / `Attach` | `open` | 10-10 修复轮（收工自审） |
 | **CR-36** | `RequestRefresh` 的 `_refreshQueued` 只在 `TryEnqueue` 回调里复位；`TryEnqueue` 返回 false（窗口/队列已关）时永久卡在 1。当前 `Closed` 已解绑事件、关闭后不再收请求，**无实际后果** | `WidgetWindow.xaml.cs:RequestRefresh`、`Views/DevicesPage.xaml.cs:RequestRefresh` | `open` | 10-10 修复轮（收工自审） |
+| **CR-38** | 任务栏贴片在**构造函数**里就跑了一次 `Relayout`，此时 `Root.XamlRoot` 尚未就绪 → `Scale` 退化成 1.0。**非 100% DPI 下首次 `AppWindow.Resize` 用错比例**，窗口尺寸偏小（`Loaded` 后第二次刷新才修正）→ 启动瞬间贴片可能闪一下/先小后大。与 `WidgetWindow` 同款写法（那边同样存在，只是启动即 `Activate` 掩盖了） | `TaskbarBatteryWindow.xaml.cs:Scale` / `:RelayoutCore` / 构造函数里的 `RefreshContent()` | `open` | 10-10 第二十轮（收工自审） |
+| **CR-39** | 贴片默认位**紧贴托盘左侧**，而 Win11 该区域正是任务栏应用按钮/溢出区 → 会盖住它们；且贴片覆盖范围内的**左键被拖动逻辑吃掉**（点不到底下的任务栏按钮）。是"钉进任务栏"这一形态的固有代价，不是 bug，但需真机评估是否可接受 | `TaskbarBatteryWindow.xaml.cs:Root_PointerPressed`、`Services/TaskbarLayout.cs:Place` | `open` | 10-10 第二十轮（收工自审） |
+| **CR-40** | 贴片**无条件反复 `SetWindowPos(HWND_TOPMOST)`**：Start 菜单 / 任务栏飞出面板打开时（它们同为 topmost），贴片会被抬到它们**之上**，视觉上"穿透"到菜单前面。安全的修法是"只在 Z 序上方紧邻的就是任务栏时才重设"（`GetWindow(hwnd, GW_HWNDPREV)` → `GetAncestor(GA_ROOT)` 比对 `Shell_TrayWnd`），但**判错会让贴片永久躲在任务栏背后**（比偶尔浮在菜单上更糟），故不改、留待真机。**2026-10-10 两次更新**：抬 Z 序的拍频先从 1 秒改成 100ms、再改成 **16ms**（为修"点任务栏闪一下"，见 CR-46），**穿透窗口从"最长 1 秒"缩到"约一帧"，但频率更高**，风险等级下降、未消除 | `TaskbarBatteryWindow.xaml.cs:EnsureAbove` / `:Follow` | `open` | 10-10 第二十轮（收工自审） |
+| **CR-41** | 贴片的**竖向任务栏 / 多显示器 / 自动隐藏**三条路径全部**未经真机验证**（本机是底部任务栏、单屏）。代码里写了兜底（竖向时胶囊挂到"桌面那一侧"、`TrayNotifyWnd` 找不到就退回任务栏边缘、厚度 ≤4px 判隐藏），但兜底本身也是静态推断；另有 `TrayNotifyWnd` 在 Win11 上是否仍存在未确认 | `Services/TaskbarLayout.cs:Place`（竖向分支）、`TaskbarBatteryWindow.xaml.cs:TryGetTaskbar` | `open` | 10-10 第二十轮（收工自审） |
+| **CR-42** | 贴片去底框后，**文字颜色跟的是应用主题、不是"任务栏实际看起来的明暗"**。浅色主题 + 深色壁纸时（Win11 任务栏半透明、透出壁纸），深色文字/图形在深色任务栏上对比不足。可选缓解：给文字加 `ThemeShadow`、或按任务栏采样亮度反色、或退回"极淡的底" | `Services/TaskbarChipFactory.cs:SkinFor`（按 `ElementTheme` 两套硬编码） | `open` | 10-10 第二十轮（用户反馈"不需要背景"后的连带取舍） |
+| **CR-43** | **贴片的透明通道在 Win11 上静默失效 → 用户第三轮复看"白框还在"**。第二轮把可见的那层判成了**内容岛 Visual 层**，**定性错误**；第三轮实测更正：可见的是 **Win32 窗口自己用类背景刷擦出来的底色**——`GetClassLongPtr(hwnd, GCLP_HBRBACKGROUND)` = **`0x6`** = `(HBRUSH)(COLOR_WINDOW + 1)`，浅色主题即纯白 `#FFFFFF`，与实测方块颜色完全一致；内容岛那层（`WS_EX_NOREDIRECTIONBITMAP`）本来就是透明的。同时确认 **accent 策略在 Win11 上返回 1、日志干净、窗口毫无变化**（"日志干净"≠"通道生效"）。**修法**：`DwmExtendFrameIntoClientArea(-1)` 让 DWM 改按逐像素 alpha 合成 + 接管 `WM_ERASEBKGND`/`WM_PAINT` 把客户区擦成 alpha=0，并保留透明 `SystemBackdrop` 与 `DWMWCP_DONOTROUND`/`DWMWA_COLOR_NONE`。**已验证**（像素级 + **用户复看确认**"是我需要的效果"）：贴片内背景像素（`#E4EFFA`/`#E3EEF9`）与紧邻任务栏像素**逐字节相同**，仅内容像素不同 | `Services/TaskbarTransparency.cs:Apply` / `:SurfaceWndProc`、`Services/Native.cs:ApplyBorderlessChrome` / `:DwmExtendFrameIntoClientArea` | `done` | 10-10 用户第三轮反馈；通道实测见 `dev/runtime-pitfalls.md` §17 |
+| **CR-44** | **`WS_EX_LAYERED` 这条备选已实测排除**：多份资料把它列为"Win32 层"透明化的必需项，第三轮在本机逐个试过——`WS_EX_LAYERED` + `LWA_ALPHA(255)` **无变化**（255 就是不透明）、只加 `WS_EX_LAYERED` **无变化**、运行期补 `WS_EX_NOREDIRECTIONBITMAP` 被系统**直接丢弃**（只能建窗口时带）。唯一见效的是 `LWA_COLORKEY`，但深色主题下贴片文字本身就是白色会被键掉、且键中像素变**点击穿透**（贴片留白拖不动，又紧挨任务栏按钮区，误点会启动别的程序）。故**不采用**，改走 extend-frame 路线（CR-43） | `Services/Native.cs`（未加该路径）、`Services/TaskbarTransparency.cs` | `wontfix` | 10-10 第三轮实测（`dev/runtime-pitfalls.md` §17.2 / §17.4） |
+| **CR-45** | **贴片最右一格的 `%` 被窗口边缘裁掉**：窗口宽度靠"字符数 × 8.5"估算，真实字宽差一两像素就裁掉最后一个 `%`。**修法**：改为 `ChipStack.Measure(无穷大)` 实测 `DesiredSize.Width`（`MeasureContentWidth`），估算函数与 `ChargeMarkWidth` 一并删除（S6）。**已复看确认**（像素级 + 用户复看）：两台设备同时在线时窗口自动从 89px 长到 **186px**（≈124 DIP，正好是"两格 + 分隔线 + 间距"），两格的数字与 `%` 都完整 | `TaskbarBatteryWindow.xaml.cs:MeasureContentWidth` | `done` | 10-10 用户反馈"第二个设备的电量显示不全" |
+| **CR-46** | **点任务栏时贴片会闪一下**：抬 Z 序原先与几何跟随共用 **1 秒**节拍，任务栏浮上来后最多要等 1 秒才被夺回，那一秒就是空档。第二轮先降到 **100ms**，用户复看**仍反馈会闪**——空档长度就等于拍频。第三轮降到 **16ms**（`DispatcherQueueTimer` 的实际下限，系统计时器粒度约 15.6ms），读任务栏矩形改为每 60 拍一次。**已实测**：把任务栏抬到 topmost 顶端后逐毫秒探贴片中心被谁占住，遮挡时长 **6~25ms、中位 19ms**（≈一帧）。**用户复看未再提及闪动**（属弱证据，未明确确认） | `TaskbarBatteryWindow.xaml.cs:Follow` / `FollowTickMs` / `GeometryEveryTicks` | `done` | 10-10 用户两轮反馈 |
+| **CR-47** | **16ms 拍频的常驻代价未测**：抬 Z 序从 100ms 改成 16ms 后，UI 线程每秒被唤醒约 62 次（每次一次 `SetWindowPos`，已在最上层时是空操作）。桌面机可忽略，但本项目是**电池工具**，长时间不深睡是否影响笔记本续航**没有实测**。可选优化：只在"检测到被盖住"后进入 16ms 快档，否则回落慢档 | `TaskbarBatteryWindow.xaml.cs:FollowTickMs` / `:EnsureAbove` | `open` | 10-10 第三轮（性能与手感的取舍） |
+| **CR-48** | **贴片拖动未真机手测**：本轮为透明给窗口加了 `DwmExtendFrameIntoClientArea(-1)`，它理论上会把客户区当"边框"处理、可能被系统拖拽接管。**已用 `WM_NCHITTEST` 排除**（中心与四角都返回 `HTCLIENT(1)`），但"实际拖起来顺不顺、松手能否记住位置"仍需人手试 | `Services/TaskbarTransparency.cs:ClearWin32Background`、`TaskbarBatteryWindow.xaml.cs:Root_PointerPressed` | `open` | 10-10 第三轮（收工自审） |
+| **CR-49** | `TaskbarTransparency._prevProc` 是**静态单份**，隐含"同一时刻只有一个贴片窗口"的假设。当前成立（设置页切换是先 `Close()` 再重建），但若日后允许同屏两个贴片，第二个窗口的 `CallWindowProcW` 会调到错的旧窗口过程 | `Services/TaskbarTransparency.cs:_prevProc` / `:ClearWin32Background` | `open` | 10-10 第三轮（收工自审） |
 
 ### wontfix 理由（CR-30 / CR-31）
 
@@ -109,6 +146,10 @@
   **若日后要修，正确做法是"按 DevicePath 缓存接口元数据"（把 96 次/分降到 24 次/分），而不是改打开权限**——那条路不改枚举面，但收益同样有限。
 - **CR-31**：个人自用工具，更新源由用户自己填写，且 `CheckUpdate_Click` 在下载前有明确的确认对话框（不是静默更新）。真正的缓解手段是**给发布包做代码签名**——那属于发布流程（`scripts/build-installer.ps1`）而不是应用代码，不在本次修复范围。
   风险本身真实：任何能写 `settings.json` 的人都能让应用拉一个恶意 feed。**已知风险、接受**。
+
+### wontfix 理由（CR-44）
+
+- **CR-44**：`WS_EX_LAYERED` 这条路**实测无效**（四种写法逐个试过，见条目）。唯一见效的 colorkey 变体有两条硬伤：深色主题下贴片文字本身就是白色、会被键色一起挖掉；键中像素变点击穿透，贴片留白拖不动，而它又紧挨任务栏按钮区、误点会启动别的程序。而 extend-frame 路线已能做到**像素级完全透明**，没有理由为更差的方案引入这两条硬伤。
 
 ## Info · 记录备查（非缺陷）
 
@@ -193,3 +234,10 @@
 - **UI 路径全部无自动化覆盖**：`RequestRefresh` 合并刷新、设置页插件行生成——只能靠真机点检。
   CR-34/35/36 正是"静态可见、运行时不可验"的一类，故收工自审只记录不修（理由见 `doc/reviews/archive/fix-round-2026-10-10.md` §5）。
   CR-34 里的 `_writePermissionRows` 已随第十九轮删除，但 `Load()` 不可重入本身仍在。
+- **第二十轮（任务栏贴片）部分行为已实测**（2026-10-10 第三轮补测）。**已证实**：
+  ① `WS_EX_NOACTIVATE` 的窗口调 `Window.Activate()` 能正常加载并显示 XAML 内容（贴片内容正常渲染）；
+  ② `TrayNotifyWnd` 在 Win11 26200 上**仍存在**（`FindWindowExW` 实测命中，贴片落在托盘左侧）；
+  ③ 透明化彻底（贴片内外背景像素逐字节相同，无残留底框）；④ 双设备时宽度自适应正确（89px → 186px）。
+  **仍未测**：CR-38（非 100% DPI 下启动瞬间的尺寸跳变——本机 150%，但启动瞬间未逐帧观察）、
+  CR-39（贴片是否压住任务栏按钮，需人手看）、CR-41（竖向任务栏 / 多显示器 / 自动隐藏）、
+  CR-42（深色主题下的文字对比）、CR-47（16ms 拍频的耗电）、CR-48（拖动手感）、CR-49。

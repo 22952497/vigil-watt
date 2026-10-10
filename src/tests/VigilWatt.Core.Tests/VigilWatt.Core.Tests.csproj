@@ -59,6 +59,9 @@
     <Compile Include="..\..\VigilWatt.Core\Utils\LogLevel.cs" />
     <!-- 小组件 OS 能力判定也是零依赖纯逻辑，链接真源文件而非复制 -->
     <Compile Include="..\..\VigilWatt.App\Services\WidgetCompat.cs" />
+    <!-- 任务栏贴片的定位数学与取值收敛同样是零依赖纯逻辑（只碰 int/Math），定位算错必须能在单测里复现 -->
+    <Compile Include="..\..\VigilWatt.App\Services\TaskbarLayout.cs" />
+    <Compile Include="..\..\VigilWatt.App\Services\TaskbarBatteryMode.cs" />
   </ItemGroup>
 
 </Project>

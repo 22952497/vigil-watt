@@ -1,0 +1,30 @@
+<Window
+    x:Class="VigilWatt.App.TaskbarBatteryWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="VigilWatt 任务栏电量">
+
+    <!--
+      **本 Border 不画任何底色与边框**：贴片是"浮在任务栏上的一行读数"，不是一张卡片——加了底框就会在
+      任务栏上糊出一个突兀的方块（用户 2026-10-10 反馈）。它只负责拖动命中区与右键菜单。
+      内边距/格间距由 .cs 的 PadH/PadV/ChipGap 统一赋值，这里不写数字（改一边忘一边是上一版的坑）。
+      窗口表面整体透明（Win11 走透明 SystemBackdrop，见 runtime-pitfalls §17），铺 ThemeResource 会直接透出底色，别加。
+    -->
+    <Border x:Name="Root"
+            CornerRadius="8"
+            BorderThickness="0"
+            PointerPressed="Root_PointerPressed"
+            PointerMoved="Root_PointerMoved"
+            PointerReleased="Root_PointerReleased"
+            PointerCaptureLost="Root_PointerReleased">
+        <Border.ContextFlyout>
+            <MenuFlyout>
+                <MenuFlyoutItem Text="打开主窗口" Click="OpenMain_Click" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="退出" Click="Exit_Click" />
+            </MenuFlyout>
+        </Border.ContextFlyout>
+
+        <StackPanel x:Name="ChipStack" Orientation="Horizontal" />
+    </Border>
+</Window>

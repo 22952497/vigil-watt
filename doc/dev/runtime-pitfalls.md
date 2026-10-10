@@ -322,15 +322,21 @@ Mica 是 **Windows 11 专属**（微软文档原文："在 Windows 10 上会回�
 
 **API 差异（WASDK 1.7，实测结论）**：
 - `SystemBackdrop` / `MicaBackdrop` / `DesktopAcrylicBackdrop` 都在
-  **`Microsoft.UI.Xaml.Media`**（不是 `Microsoft.UI.Composition.SystemBackdrops`）；
-  `ICompositionSupportsSystemBackdrop` 也是 ABI 接口、不可用于 C# 重写。
+  **`Microsoft.UI.Xaml.Media`**（不是 `Microsoft.UI.Composition.SystemBackdrops`）。
+- ⚠ **本节原写"`ICompositionSupportsSystemBackdrop` 是 ABI 接口、C# 用不了"——2026-10-10 证伪**：
+  它在 WASDK 1.7.260224002 里**有 C# 投影**（`Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop`），
+  `window.As<ICompositionSupportsSystemBackdrop>()` 编译通过且可用，是 Win11 上唯一的透明通道，见 §17。
+  （"不能自定义 `SystemBackdrop` 子类"这条仍然成立，但不需要它了。）
 - `Window` **没有** `Background` 属性（XAML 与代码侧都没有）。
 - `DesktopAcrylicController.SetTarget` 没有 `SetTarget(Window)` 重载。
 
 **验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误；`dotnet test` **101/101**。
 
-**环境提醒**：本机（Win10 19045）用 shell / `nohup` 拉起 `VigilWatt.App.exe` 会在几秒内被
-进程树清理带走（与 changelog.md 记的一致），**Win10 侧的外观只能由用户双击 exe 肉眼确认**。
+**环境提醒**：本节写于 Win10 19045 上（2026-10-08）。**2026-10-10 复核：开发机已经是 Windows 11 build 26200**，
+于是"Win10 兼容外壳"这条路在当前机器上**根本不执行**（`WidgetCompat.NeedsTransparentChrome` 为 false），
+`MakeWindowTransparent` 能否跑通**在本机从未被验证过**——小组件有卡片底色挡着看不出来，
+任务栏贴片没有底色，同一处失效就立刻现形，见 §17。
+（用 shell / `nohup` 拉起 exe 会被进程树清理带走这条现象是 Win10 时期的记录，未在 Win11 上复测。）
 
 ## 15. 小组件"钉在桌面"只能靠 SetWindowPos(HWND_BOTTOM)，不能靠 IsAlwaysOnTop（2026-10-08）
 
@@ -367,3 +373,224 @@ Win10 的透明外壳（`ApplyWin10Chrome`）。压到底层的观感与"钉在�
 `EVENT_SYSTEM_FOREGROUND` 再重新压底，复杂度不成比例。
 
 **验证**：`dotnet build` 0 错误；`dotnet test` **101/101**。
+
+## 16. 任务栏电量贴片：怎么把自己"钉"进任务栏（2026-10-10 新增）
+
+**需求**：把在线设备电量做成一条胶囊，固定在任务栏里显示。
+
+**先排除两条路**：
+
+- **deskband / Toolbar**：需要注册 COM 组件并由 explorer 加载，**Win11 已移除该机制**；即便在 Win10 上，
+  它也是"注入 explorer 进程"，系统更新一次就可能失效。不做。
+- **AppBar（`SHAppBarMessage` ABM_NEW/SETPOS）**：会真的向系统**预留**一块屏幕空间，
+  和任务栏自身（它也是一个 AppBar）的布局互相挤压，行为不可预期。不做。
+
+**采用的做法**：一个普通 WinUI 3 无边框窗口，**把自己摆进任务栏的矩形里**（TrafficMonitor 一类做法）。
+需要的只有"找窗口 + 读矩形 + 摆位置"三件事。
+
+### 16.1 找任务栏与托盘
+
+```csharp
+var taskbar = Native.FindWindowW("Shell_TrayWnd", null);          // 主任务栏（任务栏被拖到副屏时它也跟过去）
+var tray    = Native.FindWindowExW(taskbar, IntPtr.Zero, "TrayNotifyWnd", null);  // 通知区域（图标 + 时钟）
+Native.GetWindowRect(taskbar, out var taskbarRect);
+```
+
+- 贴片的默认位 = **托盘左边**（`trayRect.Left - pillW - gap`），竖向任务栏则是托盘上边。
+  托盘窗口找不到时退回任务栏自身边缘，不要因此不显示。
+- **自动隐藏的判定用厚度**：任务栏收起时 `GetWindowRect` 只剩约 **2px** 厚的一条边
+  （不是"窗口不可见"）。所以判据是 `Math.Min(rect.Width, rect.Height) <= 4` → 视为隐藏、贴片一起藏。
+  贴片不能"任务栏藏了它还在"，那会在屏幕边缘孤零零挂一条。
+
+### 16.2 顶层级：和任务栏抢 Z 序
+
+任务栏本身是 **topmost**。贴片也设 `OverlappedPresenter.IsAlwaysOnTop = true` 之后，
+**两者在同一层，谁后调用 `SetWindowPos` 谁在上面**——点一下任务栏，它就会浮到贴片之上。
+
+所以跟随定时器每拍除了定位，还要把自己重新压上去：
+
+```csharp
+Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0,
+    Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+```
+
+跟随用轮询而不是 `SetWinEventHook`：要监听的类型太多（任务栏移动 / 尺寸变化 / 显示隐藏 / 自动隐藏弹出 /
+Z 序变化），轮询的开销可以忽略，代码却少一大截。**但拍频必须拆成两档**（2026-10-10 实修）：
+
+- **抬 Z 序 = 16ms 一拍**。原来抬 Z 序跟几何跟随共用 1 秒节拍，用户实测"点任务栏时贴片会消失一下"。
+  先降到 100ms，用户复看**仍然反馈"点任务栏会闪一下"**——空档长度就等于拍频，100ms 仍然看得见。
+  实测方法：把任务栏抬到 topmost 顶端，再逐毫秒探贴片中心被谁占住；100ms 拍频下空档最长就是 100ms。
+  压到 16ms（一帧 60Hz = 16.7ms）后实测 **6~25ms、中位 19ms**，已落到人眼分辨不出的范围。
+  **16ms 也基本是 `DispatcherQueueTimer` 的下限**（系统计时器粒度约 15.6ms），再往下压没有意义。
+  抬一次只是一次 `SetWindowPos`，已经在最上层时还是空操作，每秒约 60 次的开销可以忽略。
+- **读任务栏矩形 = 约 1 秒一拍**（每 60 拍一次）。这一档可能触发 `AppWindow.Resize/Move`，不必跑那么密。
+
+```csharp
+// Follow()：每拍都抬，几何跟随按 _geometryTick 计数降频
+EnsureAbove();
+if (++_geometryTick < GeometryEveryTicks) return;
+_geometryTick = 0;
+// …… 这里才是 TryGetTaskbar / RelayoutCore / SetShown
+```
+
+**注意与 §15 的分工**：那里说"别混用 HWND_TOPMOST"，指的是**小组件**（层级由 `IsAlwaysOnTop` 表达三档语义）。
+贴片只有"必须压住任务栏"一个诉求，用 `HWND_TOPMOST` 反复重设是正解。
+
+### 16.3 绝不抢焦点
+
+三条一起才够：
+
+1. `WS_EX_NOACTIVATE`（`GWL_EXSTYLE`）——点击贴片不激活窗口；
+2. `WS_EX_TOOLWINDOW`——不进 Alt-Tab 与任务栏按钮区；
+3. 显示/隐藏用**原生 `ShowWindow(SW_SHOWNOACTIVATE / SW_HIDE)`**，
+   **不要用 `AppWindow.Show()`**——后者会尝试激活窗口，而贴片被"显示"一次就把用户正在打的字打断了。
+
+`Window.Activate()` 只在启动/设置页新建时调一次（XAML 内容需要它才加载），此时 `WS_EX_NOACTIVATE` 已在
+构造函数里设好，激活会被系统忽略。
+
+### 16.4 贴片不画底框，窗口表面必须整体透明
+
+**贴片刻意没有底色与边框**：第一版做成了"白底圆角胶囊"，用户实测反馈"能显示，但很突兀"——
+任务栏上凭空多出一个方块。现在只有**文字与设备图形**浮在任务栏上，观感与任务栏自身的图标一致。
+
+代价是窗口表面**必须整体透明**。**这是本项目最麻烦的一处**：WinUI3 的窗口有**两层**背景，
+两层的通道完全不同，**Win11 上还要再关掉 DWM 给的圆角与外描边**。完整结论见 §17。
+窗口上只画前景，其余像素是真任务栏。
+
+**注意**：只把 XAML 里的 `Background` 删掉**并不够**——窗口背板不归 XAML 管（§14 已证明 `Window` 连
+`Background` 属性都没有）。第一版就是只删了 XAML 底色，用户实测"还是一样、还是有个框"；
+第二版补了透明系统背板，用户复看**白框仍在**——因为可见的那一层根本不是内容岛画的，
+是 Win32 窗口自己用类背景刷（`COLOR_WINDOW`，浅色主题=纯白）擦出来的。见 §17.1。
+
+**代价**：前景色（文字/图形/分隔线）一律不能走 `ThemeResource`，只能像小组件 `Skin` 那样**按主题硬编码两套**
+（刷新路径在 `DispatcherQueue` 回调里，查 Resources 抛异常会直接 fail-fast，见 §11）。
+**另一个已知局限**：文字颜色跟的是**应用主题**、不是"任务栏实际看起来的明暗"。浅色主题 + 深色壁纸
+（任务栏半透明、透出壁纸）时，深色文字会不够清楚——**未处理**，见 BACKLOG CR-42。
+
+### 16.5 拖动 = 沿任务栏方向的偏移
+
+贴片位置不是自由坐标，而是"**默认位 + offset**"：
+
+- 横向任务栏只取鼠标位移的 **X**、竖向只取 **Y**（斜着拖不会把贴片拽离任务栏）；
+- 每次落位后把"实际落点 - 默认位"**反推回 offset**，这样拖到头再往回拖不会有"空走"；
+- 松手时写入 `AppSettings.TaskbarBatteryOffsetX`，重启沿用。
+
+### 16.6 本机电量恒定排除
+
+Windows 任务栏**自己就有一个电池图标**，贴片再重复一遍纯属噪音。
+判据 `d.Source != DeviceSource.System`，与托盘"最低电量"不统计本机是同一个理由（README 的
+「托盘图标为什么不显示笔记本电量」那条）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 警告 0 错误。
+**未做**：未启动应用肉眼确认（贴片位置/自动隐藏/多显示器/竖向任务栏都需真机看），
+未向任何设备发帧。
+
+## 17. 贴片"白框"与"点任务栏闪一下"：WinUI3 窗口的两层背景（2026-10-10 实修）
+
+**症状**（用户两轮反馈，第二轮明确说第一轮没修好）：
+
+1. 任务栏上仍是一块**纯白方块**（`#FFFFFF`），文字/图标浮在上面；
+2. 点一下任务栏，贴片信息会**闪一下**。
+
+**先记一条排查教训（这是白费两轮的地方）**：一开始用临时 Python 脚本截屏"亲眼看看"，
+截出来永远**一片空白**，于是连续两轮都在凭推理改代码。原因是那个进程**没有声明 DPI 感知**：
+`GetWindowRect` 返回物理坐标（本机 3840×2160），而 `GetDC(0)` + `BitBlt` 按 DPI 虚拟化后的逻辑坐标
+（2560×1440）取像素，两边对不上，取的永远是不相干的区域。
+**截屏脚本第一行必须先 `SetProcessDpiAwarenessContext(-4)`（PER_MONITOR_AWARE_V2）**，否则别信它的输出。
+
+### 17.1 根因：可见的是 **Win32 那一层**，不是内容岛
+
+WinUI3 的窗口背景确实是两层，但**哪一层可见**必须实测，不能想当然：
+
+| 层 | 是什么 | 实测结论 |
+| --- | --- | --- |
+| ① **Win32 窗口背景** | 窗口类 `WinUIDesktopWin32WindowClass` 的**类背景刷**，GDI 用它擦客户区 | **这才是"白框"** |
+| ② 内容岛 Visual 背景 | `DesktopChildSiteBridge` 那层（`WS_EX_NOREDIRECTIONBITMAP`，纯 DComp） | 本来就是透明的 |
+
+**证据链**（三条互相印证）：
+
+- 读类背景刷：`GetClassLongPtr(hwnd, GCLP_HBRBACKGROUND)` = **`0x6`**，即 `(HBRUSH)(COLOR_WINDOW + 1)`。
+  `COLOR_WINDOW` 在浅色主题下**就是纯白 `#FFFFFF`**，与实测到的方块颜色完全一致。
+- 用 GDI 往客户区填别的颜色，方块跟着变——说明看到的就是这层 GDI 表面。
+- 强制 `RedrawWindow(..., RDW_ERASE)` 触发一次擦背景，白框**立刻回来**——确认是"擦背景"这个动作画上去的。
+
+内容岛那层（②）换透明 `SystemBackdrop` 是**必要的**，但它**从来不是可见的那一层**——
+这正是上一轮"日志显示背板设置成功、白框却还在"的原因。
+
+### 17.2 通道实测表（本机 Win11 26200.9445）
+
+不要靠资料推断哪条通道能用，本机逐个试过：
+
+| 通道 | 结果 |
+| --- | --- |
+| `SetWindowCompositionAttribute` + `ACCENT_ENABLE_TRANSPARENTGRADIENT` | ❌ **返回 1、日志干净、窗口毫无变化**（见 17.3） |
+| `ICompositionSupportsSystemBackdrop.SystemBackdrop = 透明画刷` | ⚠️ 只清掉 ② 层，① 层照旧 |
+| `WS_EX_LAYERED` + `SetLayeredWindowAttributes(...,255,LWA_ALPHA)` | ❌ 无变化（alpha 255 就是不透明） |
+| 只加 `WS_EX_LAYERED`（不设任何属性） | ❌ 无变化 |
+| 运行期补 `WS_EX_NOREDIRECTIONBITMAP` | ❌ **系统直接把这一位丢掉**（只能建窗口时带） |
+| `DwmEnableBlurBehindWindow`（1px 空区域） | ❌ 无变化 |
+| `DwmExtendFrameIntoClientArea(-1,-1,-1,-1)` 单独用 | ❌ 无变化 |
+| `SetLayeredWindowAttributes(..., 白, 0, LWA_COLORKEY)` | ✅ 有效，**但不采用**（见 17.4） |
+| **extend-frame + 自己接管擦背景（填 alpha=0）** | ✅ **采用**（见 17.5） |
+
+### 17.3 "静默失效"到底有多静默
+
+`SetWindowCompositionAttribute` 在 Win11 上**照样返回非 0**，日志里不会出现任何失败。
+§14 记的"Win10 靠它做透明"在 Win11 上完全无效，而**调用方从返回值上分辨不出来**。
+推论：**"日志干净"不能当作"这条通道生效了"**——只能靠肉眼/像素确认。
+
+### 17.4 为什么不用 colorkey（虽然它是唯一直接见效的）
+
+`WS_EX_LAYERED` + `LWA_COLORKEY(白)` 确实能把白框打掉（实测贴片内外的背景像素完全一致）。
+但两条硬伤让它不能上：
+
+1. **深色主题下贴片的文字就是白色 `#FFFFFF`**，键色会连文字一起挖掉；
+2. colorkey 命中的像素会**变成点击穿透**——贴片四周那圈留白（`PadH`/`PadV`）就点不到了，
+   而"沿任务栏拖动贴片"正是用户要的功能。贴片又紧挨任务栏按钮区，误点会直接启动别的程序。
+
+### 17.5 采用的修法（`Services/TaskbarTransparency.cs`）
+
+两步，缺一不可：
+
+```csharp
+// ① 让 DWM 改用窗口表面的逐像素 alpha 合成（否则它一律把窗口当不透明）
+var margins = new Native.MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+Native.DwmExtendFrameIntoClientArea(hwnd, ref margins);
+
+// ② 接管 WM_ERASEBKGND / WM_PAINT，把客户区擦成 alpha=0
+//    （GDI 填色不写 alpha 字节，正好留下 0；再叠 DWM 的逐像素合成就是真透明）
+if (msg == Native.WM_ERASEBKGND) return 1;   // 认领"已擦"，别让类背景刷上白
+if (msg == Native.WM_PAINT) { /* BeginPaint → FillRect(BLACK_BRUSH) → EndPaint */ return 0; }
+```
+
+**只有 ② 没有 ① 会剩约 4% 的暗底**（实测 `#B2C8D8` vs 任务栏 `#BACFE2`），
+所以 extend-frame 不是可选项。
+
+**两个必须注意的实现细节**：
+
+- **子类化必须幂等**：`Apply` 在构造函数与 `Root.Loaded` 各调一次，重复 `SetWindowLongPtr(GWLP_WNDPROC)`
+  会把我们自己的过程再包一层 → 消息一进来就无限递归。判据用"**当前窗口过程是不是已经是自己**"
+  （`GetWindowLongPtr(hwnd, GWLP_WNDPROC) == Marshal.GetFunctionPointerForDelegate(...)`），
+  比记 HWND 更稳（HWND 会被系统复用）。`TrayService` 里是同一类写法。
+- **委托必须用静态字段压住**：交给非托管代码的 `WndProcDele` 一旦被 GC 回收，窗口再来消息就是访问已释放内存。
+
+**顺带确认**：`DwmExtendFrameIntoClientArea` **不会**把客户区变成"标题栏"——
+实测 `WM_NCHITTEST` 在中心与四角都仍返回 `HTCLIENT(1)`，自定义拖动不受影响。
+
+### 17.6 "点任务栏闪一下"
+
+独立问题，结论与数值见 §16.2：贴片与任务栏同为 topmost，点任务栏会把它抬到贴片之上。
+"抬回最上层"的拍频从 100ms 压到 **16ms**（系统计时器粒度下限）后，
+实测遮挡时长 **6~25ms、中位 19ms**，约等于一帧，人眼分辨不出。
+
+### 17.7 未验证 / 已知边界
+
+- **拖动手感未做真机手测**：`WM_NCHITTEST` 已确认不受影响，但"拖起来顺不顺"要人试。
+- **深色主题未实测**：修法与主题无关，但配色（§16.4）在深色下的观感仍未确认。
+- **Win10 通道（accent）本轮一行没动**，也没有可复现的 Win10 机器；§14 那条路的实际观感仍属未验证。
+- 本次验证用的临时脚本（`.workbuddy-ai/tmp/*.py`）用完即删。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 警告 0 错误；`dotnet test` **276/276**；
+**像素级实测**：修复后贴片内背景像素（`#E4EFFA` / `#E3EEF9`）与紧邻的任务栏像素逐字节相同，
+仅内容像素（绿色 `#34C759`）不同 → 无残留底框。
+

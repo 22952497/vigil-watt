@@ -70,6 +70,11 @@
 | 本机电量不显示（开了开关也没有） | ① 台式机 / 电池被禁用（`BatteryFlag=128/255`，设计上不显示）；② 设置的「监控本机电量」没开（默认关）；③ 开关刚打开但还没到下一轮轮询 | project/code-flow.md §本机电量 |
 | 本机电量显示"已充满"而不是"充电中" | 接电且读到 100% 时按 `Full` 处理（与 Windows 电池图标一致），不是 bug | project/code-flow.md §本机电量 |
 | 托盘图标为什么不显示笔记本电量 | 设计如此：托盘"最低电量"只统计无线外设，本机电量不参与（否则笔记本正常放电就染红图标）。本机电量仍进列表/小组件/历史统计/低电量提醒 | project/code-flow.md §托盘 |
+| 任务栏电量贴片被任务栏盖住 / 点一下任务栏它就沉下去 | 任务栏本身是 topmost，贴片与它同层；贴片每 **16ms** 重抬一次 `SetWindowPos(HWND_TOPMOST)`（几何跟随仍是约 1 秒一拍） | dev/runtime-pitfalls.md §16.2 |
+| 任务栏电量贴片不见了 / 自动隐藏时还挂在屏幕边上 | 任务栏收起后只剩约 2px 厚的边，判据是**厚度 ≤ 4px**（不是"窗口不可见"）；贴片应跟着一起藏 | dev/runtime-pitfalls.md §16.1 |
+| 任务栏电量贴片位置怪 / 拖动空走一截 | 位置 = 托盘左边（或上边）+ 拖动偏移；每次落位会把"实际落点"反推回 offset | dev/runtime-pitfalls.md §16.5 |
+| 任务栏电量贴片是一块"白框"/浅色方块，删了 XAML 底色也没用 | 窗口背景分两层，**可见的是 Win32 那层**：窗口类的类背景刷就是 `COLOR_WINDOW`（浅色主题=纯白），删 XAML 底色治不到它；Win11 上 accent 透明通道还会**静默失效**（返回成功、无警告、就是不透明）。正解 = extend-frame + 自接管擦背景 | dev/runtime-pitfalls.md §17 |
+| 自己写的截屏脚本截出来永远一片空白 | 进程没声明 DPI 感知：`GetWindowRect` 给物理坐标、`GetDC(0)`+`BitBlt` 给 DPI 虚拟化后的逻辑坐标，两边对不上。**第一行先 `SetProcessDpiAwarenessContext(-4)`** | dev/runtime-pitfalls.md §17（开头） |
 
 数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log；历史日志 `app.1.log` / `app.2.log`，写入异常兜底 `logs\log-error.txt`）。日志分级 `LogLevel`（默认 `Info`，可选 关闭/详细/信息/警告/错误）在设置页下拉框调整，**改后需重启**，完整设计见 [dev/logging.md](dev/logging.md)。
 

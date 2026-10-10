@@ -398,3 +398,179 @@
 **需真机确认**：罗技恢复发现；迈从写帧可接受。
 
 
+
+### 第二十轮：新增「任务栏电量贴片」（用户需求，纯 UI + 设置）
+
+**起因（用户需求）**："添加一个配置功能，可以将电量固定到任务栏中显示。显示的样式需要好看简洁"。
+
+**方案确认（UI 改版先出方案，见 AGENTS.md §3）**：先给外观预览图 + 三条路线对比，用户选定
+**① 任务栏内贴片 ② 显示内容可在设置里切换 ③ 位置默认托盘左侧、可拖动记住**。
+
+**先排除两条路**（理由见 `dev/runtime-pitfalls.md` §16）：**deskband/Toolbar**（Win11 已移除该机制，
+只能靠 COM 注入 explorer，系统一更新就失效）、**AppBar**（`SHAppBarMessage` 会真的预留屏幕空间，
+和任务栏自身的 AppBar 布局互相挤压）。**采用**"把普通无边框窗口摆进任务栏矩形"（TrafficMonitor 一类做法）。
+
+**新增**：
+
+- `src/VigilWatt.App/TaskbarBatteryWindow.xaml(.cs)`：任务栏上的一行读数（**不画底色与边框**）。
+  每台在线设备 = 设备图形 + 电量%，数字用 `UiPalette.BatteryLevel` 与列表页/小组件/托盘**同一套状态色**
+  （≤20 红 / ≤50 琥珀 / >50 绿 / 充电蓝 + ⚡）；设备间用 1px 分隔线；超出「最多显示设备数」折叠成 `+N`；
+  无在线设备时显示"暂无在线设备"。
+- `Services/DeviceIconFactory.cs`：把小组件里的设备图形绘制（原 `WidgetWindow.BuildIcon`/`Glyph`）
+  **抽成共享工厂**，两个 UI 面共用一套图形，避免各画一份而分叉。`WidgetWindow` 改为调用它（行为不变）。
+- `Services/TaskbarLayout.cs`：定位数学（托盘左边默认位 + 拖动偏移 + 夹取 + 反推 offset）做成**纯函数**，
+  与窗口分开并链进测试项目（R8）。
+- `Services/TaskbarChipFactory.cs`：贴片的配色与"一格长什么样"（图形 + 电量 + ⚡ / 分隔线 / `+N` / 空态文案）。
+- `Services/TaskbarBatteryMode.cs`：`TaskbarBatteryMode`（All/Lowest）+ `TaskbarBatteryOptions`（1~5，默认 3），
+  沿用 `WidgetDisplayMode` 那种"取值收敛只有一处定义"的写法。
+- `AppSettings`：`TaskbarBatteryEnabled`（默认 **false**）/ `TaskbarBatteryMode` / `TaskbarBatteryMaxDevices`
+  / `TaskbarBatteryOffsetX`（拖动后的水平偏移，物理像素）。
+- `Native`：`FindWindowW` / `FindWindowExW` / `GetWindowRect` / `RECT` / `WS_EX_NOACTIVATE` /
+  `ShowWindow` / `HWND_TOPMOST` / `SW_HIDE` / `SW_SHOWNOACTIVATE`。
+- 设置页新增「任务栏」分节（开关 / 显示内容 / 最多显示设备数），与小组件同一套即时生效逻辑；
+  `AppServices.TaskbarBattery` + `App.OnLaunched` 按设置创建。
+
+**几个刻意的决定**：
+
+1. **本机电量恒定排除**（`Source != DeviceSource.System`）：Windows 任务栏自己就有一个电池图标，
+   再重复一遍是噪音——与托盘"最低电量"不统计本机是同一个理由。
+2. **跟随用 1 秒轮询而非 `SetWinEventHook`**：要监听的事件类型太多（移动/尺寸/显示隐藏/自动隐藏弹出），
+   轮询开销可忽略而代码少一大截。
+3. **贴片必须每秒重新 `SetWindowPos(HWND_TOPMOST)`**：任务栏本身是 topmost，两者同层，点任务栏它就会浮上来。
+   注意这与 §15"别混用 HWND_TOPMOST"不矛盾——那条说的是**小组件**（层级表达三档语义），贴片只有"压住任务栏"一个诉求。
+4. **显示/隐藏用原生 `ShowWindow(SW_SHOWNOACTIVATE)`，不用 `AppWindow.Show()`**：后者会尝试激活窗口，
+   贴片被"显示"一次就把用户正在打的字打断了。
+5. **窗口表面整体透明**（复用小组件 Win10 那条路）：贴片**不画底色与边框**，只留前景浮在任务栏上，
+   所以圆角/背板一概不要；代价是文字/图形/分隔线只能按主题硬编码两套、不能走 `ThemeResource`。
+
+**用户反馈迭代（同轮内）**：首版做成"白底圆角胶囊"，用户实测截图反馈"可以显示，但不好看，很突兀，**不需要背景**"
+→ 去掉底色与边框（`Skin` 从"表面/边框/前景"五项缩到只有前景三项），`Root` 的 `BorderThickness` 归零、内边距收窄。
+随之新增 BACKLOG **CR-42**：文字色跟的是应用主题、不跟"任务栏实际看起来的明暗"，
+浅色主题 + 深色壁纸（任务栏半透明透出壁纸）时对比可能不足——**未处理，待真机评估**。
+
+**收工 L2 轻审查**（`review-standard.md` §5 场景 B，限定改动面）：新发现 **CR-38/39/40/41**，全部 `open`——
+① 构造期 `Scale` 退化成 1.0（非 100% DPI 下首次 Resize 用错比例）；② 贴片默认位会盖住任务栏按钮；
+③ 每秒无条件重设 topmost，Start 菜单打开时会被穿透；④ 竖向任务栏 / 多显示器 / 自动隐藏三条路径**未真机验证**。
+本轮**当场修掉的两处**（同属自审产物，故不留 BACKLOG 条目）：位置数学抽成 `TaskbarLayout` 并补 23 条单测
+（R8；顺带把 `TaskbarBatteryWindow.xaml.cs` 从 447 行拆到 344 行，**满足 S1 的 400 行上限**）、
+删掉 `Native.IsWindow` 死声明（S6）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；单测 **276 用例全绿 / 0 失败**
+（基线 253 → 本轮新增 23 条：`TaskbarLayoutTests` 定位数学 T1–T9 + `TaskbarBatteryOptionsTests` 取值收敛 T10–T12。
+`dev/build.md` §4.1 记的"全量卡住"本轮**未复现**——`LogTests` 单跑与全量都秒回，该现象仍是间歇性的，下次卡住先按 §4.1 用 `--filter` 绕）。
+**未做**：任何 git 操作；**未启动应用肉眼确认**——贴片位置/自动隐藏/多显示器/竖向任务栏都需要真机看。
+**需真机确认**：先看"贴片是不是空的"（`WS_EX_NOACTIVATE` 下 `Window.Activate()` 能否正常加载内容，**本轮最该先验的一条**），
+再看是否稳稳压在任务栏之上、自动隐藏是否跟着一起藏、拖动与位置记忆。
+
+**第二轮用户反馈（同轮内，三条一起）**："效果还是一样，可以考虑背景框隐藏、背景色透明。还有几个bug：
+点击任务栏时这个显示会消失一下。还有 第二个设备的电量显示不全 % 不全"。
+
+诊断分三步走，**第一条把前一轮的整个前提推翻了**：
+
+1. **这台机器不是 Win10**。`cmd /c ver` = `10.0.26200.9445`（Win11 25H2）；`§14` 记的"本机 Win10 19045"已过期。
+   于是 `WidgetCompat.NeedsTransparentChrome` 为 false → 小组件走 Mica 路径，**`MakeWindowTransparent`
+   在本机从未被执行过**，"它有效"这个前提没有依据。
+2. **`SetWindowCompositionAttribute` 的 accent 策略在 Win11 上静默失效**：函数照样返回非 0、
+   `app.log` 里没有任何失败警告，只是窗口表面照旧铺系统底色——**"日志干净"不能当"通道生效"的证据**。
+3. 从用户截图看出残留物是**浅色圆角方块 + 一圈淡描边**，圆角意味着 DWM 原生圆角 → 反证是 Win11。
+   查证后确认 **WinUI 3 的窗口背景有两层**：① Win32 窗口背景（accent 只能治这一层、且仅 Win10）；
+   ② XAML 内容岛 Visual 的背景。用户看到的是第 ② 层，**所以删 XAML 的 `Background` 永远删不掉它**。
+
+**修法**（新增 `Services/TaskbarTransparency.cs`：透明通道与窗口类分开，窗口只管道具；配套 `Native.ApplyBorderlessChrome`）：
+
+- **Win11 通道 = 内容岛系统背板换成全透明画刷**：`window.As<ICompositionSupportsSystemBackdrop>().SystemBackdrop`
+  设成 `Windows.UI.Composition.Compositor` 造的透明 `CompositionColorBrush`。
+  **画刷必须出自系统合成器**——用 WinUI 的 `Window.Compositor` 会编译期报 `CS0029`（类型对不上），
+  好在是编译期就挡住，不会拖到运行时。合成器有线程亲和性，静态 `Lazy<>` 缓存复用。
+- **`Native.ApplyBorderlessChrome`**：清 `GWL_STYLE` 的边框样式位（`WS_CAPTION`/`WS_THICKFRAME`/…）
+  + `SWP_FRAMECHANGED`，再设 `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_DONOTROUND`、
+  `DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE`，把 Win11 那圈圆角与描边关掉。旧系统上这些属性不存在，
+  **失败即忽略**，不让外观收敛把窗口初始化搞挂。
+- **两条通道按系统分**（`WidgetCompat.NeedsTransparentChrome`）：Win10 走 accent（**本轮一行没动**），
+  Win11 走背板；`Root.Loaded` 里再补设一次（背板要落到窗口真正接上的内容岛上）。
+- **最右一格的 `%` 被裁**：窗口宽度原来是"字符数 × 8.5"估出来的，差一两像素就裁掉最后一个 `%`。
+  改成 `ChipStack.Measure(无穷大)` 实测 `DesiredSize.Width`（`MeasureContentWidth`），
+  估算函数与 `ChargeMarkWidth` 一起删掉（S6）。
+- **点任务栏贴片消失一下**：抬 Z 序原来跟几何跟随共用 1 秒节拍，那 1 秒就是空档。拆成两档——
+  **抬 Z 序 100ms 一拍**（只是一次 `SetWindowPos`，代价可忽略），**读任务栏矩形仍约 1 秒一拍**。
+- 顺带把 `Root.Padding` / `ChipStack.Spacing` 改成由 `.cs` 的 `PadH/PadV/ChipGap` 赋值，XAML 不再写数字
+  （此前 `PadV` 是**声明了没人用**的死常量，S6）。
+
+**文档纠错（都是前几轮留下的错前提）**：
+- `dev/runtime-pitfalls.md` §14 的"本机 Win10 19045"标注为过期并复核为 Win11 26200；
+  同处**证伪**了"`ICompositionSupportsSystemBackdrop` 是 ABI 接口、C# 用不了"这条旧结论
+  （WASDK 1.7.260224002 里有 C# 投影，且是 Win11 上唯一的透明通道）。
+- 新增 **§17**：两层背景模型、accent 在 Win11 静默失效、画刷必须出自系统合成器、参考实现
+  （`cnbluefire/WinUI3TransparentBackground`）与未验证边界。
+- §16.2 补"两档拍频"、§16.4 改为"透明是两条通道、只删 XAML 底色不够"。
+
+**BACKLOG**：新增 **CR-43**（Win11 透明通道失效，`done`）、**CR-44**（`WS_EX_LAYERED` 备选未上，`open`）、
+**CR-45**（`%` 被裁，`done`）、**CR-46**（点任务栏闪，`done`）；CR-40 补充"空档已从 1 秒压到 100ms，风险仍在"。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；`dotnet test` **276/276**
+（全量，2 秒跑完——`dev/build.md` §4.1 记的"全量卡住"本轮再次未复现）。
+**未做**：任何 git 操作；**未启动应用肉眼确认**——白框是否消失、`%` 是否还裁、点任务栏是否还闪，
+三条都要用户双击 exe 复看。若白框仍在，下一步是补 `WS_EX_LAYERED`（CR-44）。
+
+### 第三轮用户反馈（同轮内）：白框与闪动都还在 → 前一轮的定性被实测推翻
+
+用户复看后报："**白色的框还在，而且 点击任务栏。信息还好闪一下**"——即第二轮的两处修改**都没修掉**。
+
+**第一步不是改代码，是补上"能看见"的能力。** 前两轮用临时 Python 脚本截屏想看个究竟，
+截出来永远是**一片空白**，于是都在凭推理改代码。真因是那个进程**没声明 DPI 感知**：
+`GetWindowRect` 返回物理坐标（本机 3840×2160），`GetDC(0)` + `BitBlt` 却按 DPI 虚拟化后的逻辑坐标
+（2560×1440）取像素，两边对不上。加上 `SetProcessDpiAwarenessContext(-4)` 后第一张截图就说明了一切：
+**贴片内部 90.5% 的像素是纯白 `#FFFFFF`**。
+
+**第二步：把九个候选通道在本机逐个试一遍**（临时脚本直接改运行中窗口的样式/属性，不动代码、秒级出结果）：
+
+| 通道 | 结果 |
+|---|---|
+| accent `ACCENT_ENABLE_TRANSPARENTGRADIENT` | ❌ 返回 1、日志干净、毫无变化（§17.3 那条"静默失效"由此**从推断变为实测**） |
+| 透明 `SystemBackdrop`（上一轮的修法） | ⚠️ 只清掉内容岛那层，可见的那层照旧 |
+| `WS_EX_LAYERED` + `LWA_ALPHA(255)` / 只加 `WS_EX_LAYERED` | ❌ 均无变化 |
+| 运行期补 `WS_EX_NOREDIRECTIONBITMAP` | ❌ 系统**直接把这一位丢弃**（只能建窗口时带） |
+| `DwmEnableBlurBehindWindow(1px)` / `DwmExtendFrameIntoClientArea(-1)` 单独用 | ❌ 均无变化 |
+| `LWA_COLORKEY(白)` | ✅ 有效，但**不采用**（深色主题下文字就是白色会被挖掉；键中像素点击穿透，贴片留白拖不动） |
+
+**第三步：定位真正的根因——上一轮认错了层。**
+`GetClassLongPtr(hwnd, GCLP_HBRBACKGROUND)` = **`0x6`** = `(HBRUSH)(COLOR_WINDOW + 1)`：
+窗口类 `WinUIDesktopWin32WindowClass` 的**类背景刷**就是 `COLOR_WINDOW`，浅色主题下**正是纯白**。
+三条证据互相印证：① 颜色与实测方块完全一致；② 用 GDI 往客户区填别的颜色，方块跟着变；
+③ 强制 `RedrawWindow(..., RDW_ERASE)` 触发一次擦背景，白框**立刻回来**。
+而内容岛那层（`DesktopChildSiteBridge`，`WS_EX_NOREDIRECTIONBITMAP` + 无类背景刷）本来就是透明的。
+**结论：可见的是 ① Win32 层，不是 ② 内容岛层**——上一轮 §17 的定性错误，已更正。
+
+**修法**（`Services/TaskbarTransparency.cs`，两步缺一不可）：
+
+1. `DwmExtendFrameIntoClientArea(hwnd, {-1,-1,-1,-1})`——让 DWM 改用窗口表面的逐像素 alpha 合成；
+2. 子类化窗口过程，**接管 `WM_ERASEBKGND`（返回 1，认领"已擦"）与 `WM_PAINT`（用 GDI 填 alpha=0 的黑）**——
+   GDI 填色不写 alpha 字节，正好留下 0，叠上第 1 步就是真透明。
+   只有第 2 步没有第 1 步会剩约 4% 的暗底（实测 `#B2C8D8` vs 任务栏 `#BACFE2`），所以 extend-frame 不是可选项。
+
+两个实现细节（都按仓里既有写法处理）：**子类化必须幂等**（`Apply` 会被调两次，重复装会无限递归；
+判据用"当前窗口过程是不是已经是自己"，比记 HWND 稳）；**`WndProcDele` 必须用静态字段压住**（否则被 GC 回收后
+窗口一收消息就是访问已释放内存，`TrayService` 里是同一类写法）。
+顺带确认 `DwmExtendFrameIntoClientArea` **不会**把客户区变成标题栏：`WM_NCHITTEST` 在中心与四角都仍返回 `HTCLIENT(1)`。
+
+**闪动**：把任务栏抬到 topmost 顶端复现，贴片确实被整个盖住、要等下一拍才抢回来——**空档长度就等于拍频**。
+100ms 仍看得见，压到 **16ms**（`DispatcherQueueTimer` 的下限，系统计时器粒度约 15.6ms）后
+实测遮挡 **6~25ms、中位 19ms**（约一帧）。
+
+**验证**：
+
+- `dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；`dotnet test` **276/276**；
+- **像素级实测**（本机 3840×2160 @150%）：修复后贴片内背景像素（`#E4EFFA` / `#E3EEF9`）与紧邻任务栏像素
+  **逐字节相同**，仅内容像素（绿 `#34C759`）不同；截图里电池图形 + `93%` 直接浮在任务栏上，无底框；
+- **顺带证实 CR-45**：两台设备同时在线时窗口从 89px 自动长到 **186px**（≈124 DIP = 两格 + 分隔线 + 间距），
+  两格数字与 `%` 都完整；也证实 `TrayNotifyWnd` 在 Win11 26200 上仍存在（贴片落在托盘左侧）。
+
+**BACKLOG**：**CR-43 重写并 done**（定性更正 + 像素级验证）、**CR-44 → wontfix**（实测无效 + colorkey 变体有硬伤）、
+**CR-45 / CR-46 复看确认**、CR-40 补"拍频已到 16ms"；新增 **CR-47**（16ms 拍频的耗电未测）、
+**CR-48**（拖动未真机手测）、**CR-49**（`_prevProc` 静态单份的隐含假设）。
+
+**未做**：任何 git 操作；**仍未真机手测拖动**，未验证竖向任务栏 / 多显示器 / 自动隐藏 / 深色主题。
+临时排障脚本（`.workbuddy-ai/tmp/*.py`）用完已删。
+
+**用户复看确认**（2026-10-10 21:28）："哇哦，很棒 是我需要的效果"——**白框与整体观感确认无误**，
+本轮核心诉求闭环；用户未再提及闪动。CR-47/48/49 与竖向任务栏/多显示器/自动隐藏/深色主题仍待真机。
