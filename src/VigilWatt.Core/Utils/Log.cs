@@ -1,21 +1,15 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text;
 
 namespace VigilWatt.Core.Utils;
 
 /// <summary>
-/// 极简文件日志，写到 %LOCALAPPDATA%\VigilWatt\logs\app.log，供协议探测与排障。
-///
-/// **格式契约**（改动会破坏 doc/ 里的 grep 考古命令，详见 doc/dev/logging.md 格式契约一节）：
-/// 行首固定 <c>yyyy-MM-dd HH:mm:ss.fff</c> 本地时间；级别标签宽度 6（<c>[DBG ]</c>…）；
-/// 一个逻辑事件 = 一行（换行/控制符转义、堆栈续行加缩进前缀）；编码 UTF-8 无 BOM；
-/// <c>app.log</c> 是当前文件，历史滚动为 <c>app.1.log</c>…。
-/// 行首用本地时间、而 <c>history.db</c> 的 <c>ts</c> 用 UTC 毫秒，两者靠每个文件首行的
-/// "时间基准"声明对齐（见 <see cref="WriteTimeBasis"/>）。
-///
+/// 极简文件日志，按**本地日期**每天一个文件写到 %LOCALAPPDATA%\VigilWatt\logs\app-yyyy-MM-dd.log。
+/// 写入时比对日期、跨天自动切换文件（长驻应用无需重启）；启动与跨天时清理超过保留天数的旧文件。
 /// 低于 <see cref="MinLevel"/> 的调用零 IO、零分配返回；热路径可用 <see cref="IsEnabled"/> 短路。
-/// 注意 Debug 是**运行期过滤档位**，发布版同样编译进去——**不要**加 <c>[Conditional("DEBUG")]</c>，
-/// 否则 Release 下调用点被整段删掉，用户在 settings.json 里配 Debug 也没用。
+/// **格式契约**（行首本地时间、标签宽 6、一行一事件、UTF-8 无 BOM、首行时间基准）见 doc/dev/logging.md。
+/// 注意 Debug 是**运行期过滤档位**、发布版同样编译进去——**不要**加 <c>[Conditional("DEBUG")]</c>，否则用户在 settings.json 里配 Debug 也没用。
 /// </summary>
 public static class Log
 {
@@ -29,12 +23,12 @@ public static class Log
 
     private const string ErrorFileName = "log-error.txt";
 
-    /// <summary>单文件上限，超过就滚动（按**字节**计，与 FileInfo.Length 同一口径）。
-    /// 非 const：单测与验收（"临时调到 100KB"）需要临时调小。</summary>
-    public static long MaxBytes { get; set; } = 2 * 1024 * 1024;
+    /// <summary>按日文件名前后缀：<c>app-yyyy-MM-dd.log</c>（本地日期）。</summary>
+    private const string FileNamePrefix = "app-";
+    private const string FileNameSuffix = ".log";
 
-    /// <summary>滚动保留的历史份数（app.1.log ~ app.N.log），加 app.log 共 N+1 个文件。</summary>
-    public const int MaxRollFiles = 2;
+    /// <summary>历史日志保留天数，超期文件在启动/跨天时删除；0 或负数 = 不清理。启动时由 AppSettings.LogRetentionDays 赋值，**重启生效**。</summary>
+    public static int RetentionDays { get; set; } = 14;
 
     /// <summary>兜底文件上限，超过就截断重来，避免兜底通道自己涨爆。</summary>
     private const long MaxErrorBytes = 64 * 1024;
@@ -49,10 +43,12 @@ public static class Log
     private static readonly TimeSpan FallbackThrottle = TimeSpan.FromSeconds(30);
 
     private static string _logDir = Path.Combine(AppPaths.RootDir, "logs");
-    private static string _logPath = Path.Combine(_logDir, "app.log");
 
     private static StreamWriter? _writer;
-    private static long _bytesWritten;
+
+    /// <summary>当前 writer 对应的本地日期；与写入日期不符即换文件（跨天）。</summary>
+    private static DateTime _currentDate = DateTime.MinValue;
+
     private static int _consecutiveFailures;
     private static DateTime _nextRetryUtc = DateTime.MinValue;
     private static DateTime _lastFallbackUtc = DateTime.MinValue;
@@ -69,7 +65,7 @@ public static class Log
     public static void Warn(string message) => Write(LogLevel.Warn, "WARN", message);
 
     // ---------- 降噪：状态变化才记 / 节流 ----------
-    // 轮询型代码（每 15 秒 / 每分钟重跑）常在同一状态上重复打日志把 app.log 冲爆。
+    // 轮询型代码（每 15 秒 / 每分钟重跑）常在同一状态上重复打日志把文件冲爆。
     // 三个入口把"什么时候才值得记"从各调用点收拢到这里：
     //   - InfoOnChange：状态变了才记（托盘提示文字、HID 设备集合指纹）
     //   - InfoThrottled：同一 key 在给定间隔内最多记一条
@@ -161,19 +157,18 @@ public static class Log
     }
 
     /// <summary>把日志重定向到指定目录，并立即释放旧文件句柄、复位失败状态与去重表。
-    /// 单测用：不重定向的话测试会往真实的 %LOCALAPPDATA% app.log 里写脏数据。</summary>
+    /// 单测用：不重定向的话测试会往真实的 %LOCALAPPDATA% 日志目录里写脏数据。</summary>
     public static void RedirectTo(string logDir)
     {
         lock (Gate)
         {
             CloseWriterQuietly();
-            _bytesWritten = 0;
+            _currentDate = DateTime.MinValue;
             _consecutiveFailures = 0;
             _nextRetryUtc = DateTime.MinValue;
             _lastFallbackUtc = DateTime.MinValue;
             _disabled = false;
             _logDir = logDir;
-            _logPath = Path.Combine(logDir, "app.log");
             InfoStateByKey.Clear();
             InfoLastTicksByKey.Clear();
         }
@@ -241,17 +236,16 @@ public static class Log
     {
         if (_disabled) return;
 
-        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{tag}] {message}{Environment.NewLine}";
+        var now = DateTime.Now;
+        var line = $"{now:yyyy-MM-dd HH:mm:ss.fff} [{tag}] {message}{Environment.NewLine}";
         lock (Gate)
         {
-            if (!EnsureWriter()) { OnFailure(); return; }
+            if (!EnsureWriter(now.Date)) { OnFailure(); return; }
 
             try
             {
                 _writer!.Write(line);
-                _bytesWritten += Utf8NoBom.GetByteCount(line);
                 _consecutiveFailures = 0;
-                if (_bytesWritten > MaxBytes) Roll();
             }
             catch
             {
@@ -262,27 +256,29 @@ public static class Log
         }
     }
 
-    /// <summary>确保 writer 可用。返回 false 表示本行丢弃（退避中，或刚失败并已记兜底）。</summary>
-    private static bool EnsureWriter()
+    /// <summary>确保 writer 对应 <paramref name="today"/> 的按日文件；首次写入或跨天时切换。
+    /// 返回 false 表示本行丢弃（退避中，或刚失败并已记兜底）。</summary>
+    private static bool EnsureWriter(DateTime today)
     {
-        if (_writer != null) return true;
+        if (_writer != null && _currentDate == today) return true;
+        if (_writer != null) CloseWriterQuietly();   // 跨天：先放下昨天的句柄，再开今天的新文件
         if (_disabled) return false;
         if (DateTime.UtcNow < _nextRetryUtc) return false;   // 退避中：不要每行都重跑系统调用
 
         try
         {
             Directory.CreateDirectory(_logDir);
-            if (File.Exists(_logPath) && new FileInfo(_logPath).Length > MaxBytes)
-                RotateFiles();
+            CleanupOldFiles(today);
 
-            bool isNew = !File.Exists(_logPath) || new FileInfo(_logPath).Length == 0;
+            var path = Path.Combine(_logDir, FileNameFor(today));
+            bool isNew = !File.Exists(path) || new FileInfo(path).Length == 0;
             _writer = new StreamWriter(
-                new FileStream(_logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite),
+                new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite),
                 Utf8NoBom)
             {
                 AutoFlush = true,
             };
-            _bytesWritten = isNew ? 0 : new FileInfo(_logPath).Length;
+            _currentDate = today;
             if (isNew) WriteTimeBasis();
             _consecutiveFailures = 0;
             _nextRetryUtc = DateTime.MinValue;
@@ -296,6 +292,43 @@ public static class Log
         }
     }
 
+    /// <summary>按日文件名：<c>app-yyyy-MM-dd.log</c>（用本地日期，与行首时间戳同一时区）。</summary>
+    private static string FileNameFor(DateTime date) => $"{FileNamePrefix}{date:yyyy-MM-dd}{FileNameSuffix}";
+
+    /// <summary>删除超过保留天数的 <c>app-yyyy-MM-dd.log</c>；旧版单文件 <c>app.log</c>/<c>app.N.log</c> 已不再使用，一并清掉。
+    /// 仅在打开新文件时调用（启动/跨天），不在每行写入时跑。</summary>
+    private static void CleanupOldFiles(DateTime today)
+    {
+        try
+        {
+            var cutoff = today.AddDays(-RetentionDays);
+            foreach (var file in Directory.EnumerateFiles(_logDir, "app*.log"))
+            {
+                // 无法解析出日期的（旧版 app.log / app.N.log）也删——新版不会再写它们，留着只会让人以为日志没更新
+                bool keep = TryParseDate(Path.GetFileName(file), out var date)
+                            && (RetentionDays <= 0 || date.Date > cutoff);
+                if (!keep) TryDelete(file);
+            }
+        }
+        catch { /* 清理失败不影响正常写入 */ }
+    }
+
+    /// <summary>从 <c>app-yyyy-MM-dd.log</c> 解析日期；旧版 <c>app.log</c>/<c>app.N.log</c> 返回 false。</summary>
+    private static bool TryParseDate(string fileName, out DateTime date)
+    {
+        date = default;
+        if (fileName.Length <= FileNamePrefix.Length + FileNameSuffix.Length) return false;
+        if (!fileName.StartsWith(FileNamePrefix, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!fileName.EndsWith(FileNameSuffix, StringComparison.OrdinalIgnoreCase)) return false;
+        var mid = fileName[FileNamePrefix.Length..^FileNameSuffix.Length];
+        return DateTime.TryParseExact(mid, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); } catch { /* 被占用或权限不足，下次再清 */ }
+    }
+
     /// <summary>每个日志文件新建时写一行"时间基准"：声明行首是**本地时间**、附上本机时区与 UTC offset，并说明 history.db 的 ts 是 UTC 毫秒（N4）。
     /// 该行带完整时间戳前缀，不破坏 grep -a "^20" 之类的既有考古命令；仅在文件为空时出现一次。</summary>
     private static void WriteTimeBasis()
@@ -305,41 +338,6 @@ public static class Log
         var text = $"本地时间 {TimeZoneInfo.Local.Id} (UTC{sign}{offset.Duration():hh\\:mm})；history.db 的 ts 为 UTC 毫秒";
         var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [INFO] 时间基准: {text}{Environment.NewLine}";
         _writer!.Write(line);
-        _bytesWritten += Utf8NoBom.GetByteCount(line);
-    }
-
-    private static void Roll()
-    {
-        try
-        {
-            CloseWriterQuietly();
-            RotateFiles();
-            _bytesWritten = 0;
-            if (!EnsureWriter()) OnFailure();
-        }
-        catch
-        {
-            CloseWriterQuietly();
-            _nextRetryUtc = DateTime.UtcNow + RetryBackoff;
-            OnFailure();
-        }
-    }
-
-    /// <summary>app.log → app.1.log → app.2.log，最旧的被丢弃。用 Move 保留历史，不整文件删除。</summary>
-    private static void RotateFiles()
-    {
-        var oldest = Path.Combine(_logDir, $"app.{MaxRollFiles}.log");
-        if (File.Exists(oldest)) File.Delete(oldest);
-
-        for (int i = MaxRollFiles - 1; i >= 1; i--)
-        {
-            var src = Path.Combine(_logDir, $"app.{i}.log");
-            if (File.Exists(src))
-                File.Move(src, Path.Combine(_logDir, $"app.{i + 1}.log"), overwrite: true);
-        }
-
-        if (File.Exists(_logPath))
-            File.Move(_logPath, Path.Combine(_logDir, "app.1.log"), overwrite: true);
     }
 
     /// <summary>写失败时记一笔；连续失败达阈值就写兜底文件（带节流 + 上限）。兜底自身失败则彻底放弃。</summary>
@@ -360,7 +358,7 @@ public static class Log
                 File.Delete(path);
             File.AppendAllText(
                 path,
-                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} 连续 {_consecutiveFailures} 次写入 app.log 失败，日志暂不可用{Environment.NewLine}",
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} 连续 {_consecutiveFailures} 次写入日志失败，日志暂不可用{Environment.NewLine}",
                 Utf8NoBom);
         }
         catch

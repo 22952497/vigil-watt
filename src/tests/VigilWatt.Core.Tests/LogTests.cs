@@ -5,20 +5,20 @@ namespace VigilWatt.Core.Tests;
 
     /// <summary>
     /// Log 核心行为回归测试（见 doc/dev/logging.md §7）。Log 是全局静态，
-    /// 本类每个用例都在独立临时目录里跑，并在 Dispose 时复位级别/阈值。
+    /// 本类每个用例都在独立临时目录里跑，并在 Dispose 时复位级别/保留天数。
     /// </summary>
 public sealed class LogTests : IDisposable
 {
     private readonly string _dir;
     private readonly LogLevel _savedMinLevel;
-    private readonly long _savedMaxBytes;
+    private readonly int _savedRetentionDays;
 
     public LogTests()
     {
         _dir = Path.Combine(Path.GetTempPath(), "VigilWattTests", "log-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
         _savedMinLevel = Log.MinLevel;
-        _savedMaxBytes = Log.MaxBytes;
+        _savedRetentionDays = Log.RetentionDays;
         Log.RedirectTo(_dir);
     }
 
@@ -26,13 +26,14 @@ public sealed class LogTests : IDisposable
     {
         Log.Shutdown();
         Log.MinLevel = _savedMinLevel;
-        Log.MaxBytes = _savedMaxBytes;
+        Log.RetentionDays = _savedRetentionDays;
         try { Directory.Delete(_dir, recursive: true); } catch { /* 忽略 */ }
     }
 
-    private string AppLog => Path.Combine(_dir, "app.log");
+    /// <summary>当天日志文件名，与 <c>Log</c> 的按日命名约定一致。</summary>
+    private string AppLog => Path.Combine(_dir, $"app-{DateTime.Now:yyyy-MM-dd}.log");
 
-    /// <summary>读取当前日志：Log 的写句柄以 FileShare.ReadWrite 打开，而 File.ReadAllText
+    /// <summary>读取当天日志：Log 的写句柄以 FileShare.ReadWrite 打开，而 File.ReadAllText
     /// 只请求 Read 共享，会因共享模式冲突打不开——必须同样以 ReadWrite 共享来读。</summary>
     private string ReadLog()
     {
@@ -76,26 +77,53 @@ public sealed class LogTests : IDisposable
     }
 
     [Fact]
-    public void 超过阈值滚动_生成_app1_且不清空()
+    public void 日志按当天日期命名()
     {
         Log.MinLevel = LogLevel.Info;
-        Log.MaxBytes = 512;
 
-        for (int i = 0; i < 40; i++) Log.Info($"填充第 {i} 行 ----------------------------");
+        Log.Info("today-marker");
 
-        Assert.True(File.Exists(Path.Combine(_dir, "app.1.log")), "应生成 app.1.log");
-        Assert.True(File.Exists(AppLog), "app.log 应作为当前文件继续存在");
+        Assert.True(File.Exists(AppLog), "日志应写到 app-当天日期.log");
+        Assert.Contains("today-marker", ReadLog());
     }
 
     [Fact]
-    public void 滚动后不丢最新行()
+    public void 超过保留天数的旧日志被清理()
     {
         Log.MinLevel = LogLevel.Info;
-        Log.MaxBytes = 512;
+        Log.RetentionDays = 14;
+        var old = Path.Combine(_dir, $"app-{DateTime.Now.AddDays(-20):yyyy-MM-dd}.log");
+        File.WriteAllText(old, "old");
 
-        for (int i = 0; i < 120; i++) Log.Info($"行{i}");
+        Log.Info("触发打开当天文件");
 
-        Assert.Contains("行119", ReadLog());
+        Assert.False(File.Exists(old), "超过保留天数的旧日志应被删除");
+    }
+
+    [Fact]
+    public void 保留天数内的旧日志保留()
+    {
+        Log.MinLevel = LogLevel.Info;
+        Log.RetentionDays = 14;
+        var recent = Path.Combine(_dir, $"app-{DateTime.Now.AddDays(-3):yyyy-MM-dd}.log");
+        File.WriteAllText(recent, "recent");
+
+        Log.Info("触发打开当天文件");
+
+        Assert.True(File.Exists(recent), "保留天数内的日志不应被删除");
+    }
+
+    [Fact]
+    public void 旧版单文件日志被清理()
+    {
+        Log.MinLevel = LogLevel.Info;
+        Log.RetentionDays = 14;
+        var legacy = Path.Combine(_dir, "app.log");
+        File.WriteAllText(legacy, "legacy");
+
+        Log.Info("触发打开当天文件");
+
+        Assert.False(File.Exists(legacy), "旧版 app.log 已不再使用，应被清理");
     }
 
     [Fact]
@@ -200,9 +228,9 @@ public sealed class LogTests : IDisposable
     [Fact]
     public void 写入失败降级写兜底文件()
     {
-        // app.log 位置放一个**目录**：打开必然失败，但 logs 目录本身可写 → 兜底文件应生成
+        // 当天日志文件位置放一个**目录**：打开必然失败，但 logs 目录本身可写 → 兜底文件应生成
         var dir = Path.Combine(_dir, "blocked-dir");
-        Directory.CreateDirectory(Path.Combine(dir, "app.log"));
+        Directory.CreateDirectory(Path.Combine(dir, $"app-{DateTime.Now:yyyy-MM-dd}.log"));
         Log.RedirectTo(dir);
         Log.MinLevel = LogLevel.Info;
 

@@ -68,6 +68,9 @@ public class AppSettings
     /// <summary>日志级别。取值见 <see cref="VigilWatt.Core.Utils.LogLevelNames"/>（Off/Debug/Info/Warn/Error），默认 Info；未知取值按 Info。**重启生效**（启动时赋给 Log.MinLevel）。</summary>
     public string LogLevel { get; set; } = VigilWatt.Core.Utils.LogLevelNames.Default;
 
+    /// <summary>按日日志的保留天数，超期文件在启动/跨天时清理；0 = 不清理。**重启生效**（启动时赋给 Log.RetentionDays）。</summary>
+    public int LogRetentionDays { get; set; } = 14;
+
     [JsonIgnore]
     private static readonly string SettingsPath = Path.Combine(AppPaths.RootDir, "settings.json");
 

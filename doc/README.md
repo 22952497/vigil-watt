@@ -19,7 +19,7 @@
 | [comment-style.md](dev/comment-style.md) | **注释规范：代码里该写什么、长内容放哪、内容该进哪份文档** | 写/改注释前，以及每次 AI 开工前 |
 | [review-standard.md](dev/review-standard.md) | **代码审查标准与流程：严重级、R 红线 / S 建议清单、三层闸门、按场景的流程、报告格式、发现闭环** | 改代码前（对号入座）、提交前自查、做审查时 |
 | [build.md](dev/build.md) | 构建与环境坑（XamlCompiler 静默崩溃、双输出路径、测试用法、发布流程） | 编译失败、换机器重装环境 |
-| [logging.md](dev/logging.md) | 日志设计：分级口径、滚动与兜底、去重/节流、各级别该打什么 | 加日志、调日志级别、排障找日志时 |
+| [logging.md](dev/logging.md) | 日志设计：分级口径、按日分文件与保留、兜底、去重/节流、各级别该打什么 | 加日志、调日志级别、排障找日志时 |
 | [runtime-pitfalls.md](dev/runtime-pitfalls.md) | 运行时坑（HID 读取模型、BLE 属性、托盘、DPI、XAML 事件时序） | UI/设备读写行为诡异时 |
 
 ## 📁 hardware/ — 硬件协议与安全
@@ -76,7 +76,7 @@
 | 任务栏电量贴片是一块"白框"/浅色方块，删了 XAML 底色也没用 | 窗口背景分两层，**可见的是 Win32 那层**：窗口类的类背景刷就是 `COLOR_WINDOW`（浅色主题=纯白），删 XAML 底色治不到它；Win11 上 accent 透明通道还会**静默失效**（返回成功、无警告、就是不透明）。正解 = extend-frame + 自接管擦背景 | dev/runtime-pitfalls.md §17 |
 | 自己写的截屏脚本截出来永远一片空白 | 进程没声明 DPI 感知：`GetWindowRect` 给物理坐标、`GetDC(0)`+`BitBlt` 给 DPI 虚拟化后的逻辑坐标，两边对不上。**第一行先 `SetProcessDpiAwarenessContext(-4)`** | dev/runtime-pitfalls.md §17（开头） |
 
-数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app.log；历史日志 `app.1.log` / `app.2.log`，写入异常兜底 `logs\log-error.txt`）。日志分级 `LogLevel`（默认 `Info`，可选 关闭/详细/信息/警告/错误）在设置页下拉框调整，**改后需重启**，完整设计见 [dev/logging.md](dev/logging.md)。
+数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app-日期.log；**日志按日分文件**，默认保留 14 天，写入异常兜底 `logs\log-error.txt`）。日志分级 `LogLevel`（默认 `Info`，可选 关闭/详细/信息/警告/错误）与保留天数在设置页调整，**改后需重启**，完整设计见 [dev/logging.md](dev/logging.md)。
 
 ## 🔧 scripts/ — 临时调试脚本
 

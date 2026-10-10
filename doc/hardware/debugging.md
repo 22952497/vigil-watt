@@ -4,20 +4,20 @@
 
 ## 0. 日志考古（永远第一步）
 
-先翻 `%LOCALAPPDATA%\VigilWatt\logs\app.log`：接口扫描清单（VID/PID/usage/长度）、历次探测的原始报文、错误都在里面。过去的探测结论可能已经回答了当前问题（2026-10-05 的"邮箱扫描无响应"结论就是这样从旧日志里直接复用的）。
+先翻 `%LOCALAPPDATA%\VigilWatt\logs\`（按日文件 `app-日期.log`）：接口扫描清单（VID/PID/usage/长度）、历次探测的原始报文、错误都在里面。过去的探测结论可能已经回答了当前问题（2026-10-05 的"邮箱扫描无响应"结论就是这样从旧日志里直接复用的）。
 
 > **默认 `Info` 档看不到逐帧报文**（自 2026-10-09 日志分级改造起）：接口清单、逐帧原始报文、"读了但没解析出东西"的中间帧都是 `Debug`，
 > 默认不写。要考古这些内容，先去**设置页把日志级别切到"详细"**（或改 `settings.json` 的 `LogLevel=Debug`），**重启应用**后再复现。
 > 协议解析**结果**（`雷柏 状态帧` / `迈从 … 解析`）仍是 `Info`，行尾带 `原始=<HEX>`，默认档下照样能排障。
-> 历史日志按大小滚动：当前是 `app.log`，更早的是 `app.1.log` / `app.2.log`（grep 时记得一并翻）。
+> 历史日志**按日分文件**：`app-2026-10-09.log` / `app-2026-10-10.log`…（默认保留 14 天）；`grep app-*.log` 可一次翻全部日期。
 
 常用 grep：
 
 ```bash
-grep -a "迈从" app.log | tail -30          # 迈从全部动作
-grep -a "HID 元数据\|usage=" app.log       # 接口清单（需先切 Debug）
-grep -a "ERR \|WARN " app.log | tail       # 最近错误
-grep -a "时间基准" app.log                  # 文件首行：本地时区 + UTC offset（与 history.db 的 UTC 对齐）
+grep -a "迈从" app-*.log | tail -30          # 迈从全部动作（跨全部日期）
+grep -a "HID 元数据\|usage=" app-*.log      # 接口清单（需先切 Debug）
+grep -a "ERR \|WARN " app-*.log | tail      # 最近错误
+grep -a "时间基准" app-*.log                 # 文件首行：本地时区 + UTC offset（与 history.db 的 UTC 对齐）
 ```
 
 设备/设置：`%LOCALAPPDATA%\VigilWatt\settings.json`（PluginEnabled——各插件的开关，同时就是它的写入授权）、history.db（SQLite，samples 表）。
@@ -106,9 +106,9 @@ h.write([0x13, 0x05, 0x01, 0, ...])   # 只发手册里记载的帧
 
 ```bash
 # 1. 统计每种帧变体出现次数（先看有几个不同取值）
-grep -a -oE "收到报文: 04 [0-9A-F]{2} 80 80 80 80 [0-9A-F ]+" app.log | sort | uniq -c | sort -rn
+grep -a -oE "收到报文: 04 [0-9A-F]{2} 80 80 80 80 [0-9A-F ]+" app-*.log | sort | uniq -c | sort -rn
 # 2. 按某个字节取值分段，看每段对应什么现场（配合时间戳与用户口述的物理动作）
-grep -a -E "收到报文: 04 " app.log | sed -E 's/(收到报文: 04 [0-9A-F]{2}).*/\1/' | awk '{print $2, $NF}'
+grep -a -E "收到报文: 04 " app-*.log | sed -E 's/(收到报文: 04 [0-9A-F]{2}).*/\1/' | awk '{print $2, $NF}'
 ```
 
 **判据（2026-10-06 第九轮 T9 手柄实战，protocols.md §4.4.1）**：
@@ -134,14 +134,14 @@ grep -a -E "收到报文: 04 " app.log | sed -E 's/(收到报文: 04 [0-9A-F]{2}
 很容易被误判成"新代码没生效"。
 
 > 自 2026-10-09 日志改造后有两处变化：
-> 1. `app.log` 改以 `FileShare.ReadWrite` 打开，新实例的日志**能**正常写入
+> 1. 日志文件以 `FileShare.ReadWrite` 打开，新实例的日志**能**正常写入
 >    （旧版用 `FileShare.Read`，两个实例互相挡住、日志完全写不进，才造成"没有新启动记录"的假象）；
 > 2. 托盘"退出"会先 `ReleaseMutex` 再结束进程，所以**正常退出**后新实例能立刻启动；
 >    只有 `taskkill /F` 强杀才会留下"互斥量被占"的假象。
 
 ```bash
 tasklist //FI "IMAGENAME eq VigilWatt.App.exe"     # 先确认没有旧实例
-grep -a "启动 VigilWatt" app.log | tail -3         # 每次启动都有一行；没有 = 新实例根本没跑起来
+grep -a "启动 VigilWatt" app-*.log | tail -3       # 每次启动都有一行；没有 = 新实例根本没跑起来
 ```
 另外：**从本仓库的 agent shell 拉起 GUI 应用会被进程树清理在 ~7 秒内带走**（日志只写到首轮扫描就断）。
 要长驻请让用户双击 `publish\VigilWatt.App.exe`；验证只求"看到首轮日志"时可以用 `cmd //c start`。

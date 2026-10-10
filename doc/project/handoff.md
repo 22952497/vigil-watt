@@ -20,6 +20,7 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 不是内容岛那层；修法是 `DwmExtendFrameIntoClientArea(-1)` + 接管 `WM_ERASEBKGND`/`WM_PAINT` 把客户区擦成 alpha=0；
 ② 最右一格 `%` 被裁——窗口宽度改为布局实测；③ 点任务栏闪一下——抬 Z 序拍频 1 秒 → **16ms**（实测遮挡约一帧）。
 **用户已复看确认外观无误**（2026-10-10 21:28："是我需要的效果"）。
+**2026-10-10 第二十一轮：日志改为按日分文件**（`logs\app-日期.log`，跨天自动切、默认保留 14 天，可在设置页改；旧 `app.log` 废弃，见 §5.13）。
 ⚠ **`dev/runtime-pitfalls.md` §14 里"本机 Win10 19045"的旧标注已过期**，以 §17 的复核为准。
 
 ## 2. 用户设备清单（勿对号入座错）
@@ -50,7 +51,7 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 > **与 `doc/reviews/BACKLOG.md` 的分工（2026-10-10 定）**：本节只放**当前这一轮在做的那几条**；
 > **审查发现的未修项全集在 BACKLOG**（open/doing/done/wontfix），不要在这里抄一份。
 
-1. **充电标志校准**：用户插充电线 → 看 app.log `状态字节` → 补全 `ParseKeyboardV1Charge` 映射（已知 0x10 位=充电中）
+1. **充电标志校准**：用户插充电线 → 看日志 `状态字节` → 补全 `ParseKeyboardV1Charge` 映射（已知 0x10 位=充电中）
 2. ~~**休眠推送帧采样**~~ **已完成（2026-10-06）**：休眠帧已实测抓到并解析清楚——`13 0A 01 00 04 **02** 01 …`，下标 5 是**类型位**（0x05=电量 / 0x02=设备状态通知），旧代码没认类型位、把 payload 的 0x01 当电量 1%，这就是误报低电量的根因。现在按类型位识别，并把 0x02 当"设备已休眠"信号**立即标离线**（`RequestOffline`，省掉 3 分钟延迟）。详见 runtime-pitfalls §12、protocols.md §1。
 3. **雷柏充满态采样**：充电标志已实测校准（0x01=放电/0x02=充电，2026-10-05 插充电线确认，电量 69%→75% 期间 [7]=0x02 恒定）；**充满时 [7] 的值还没采到**——下次充满看日志 `充电标志` 字节，若是 0x03 之类补进 RapooPlugin 映射
 4. ~~**时砂耳机**~~ **已结案（2026-10-06）**：2.4G 无电量通道（protocols.md §3 双重确认），且 RoseLink 逆向确认其协议内也无电量命令 —— 主机侧 + 官方 App 侧均无解，唯一途径是耳机语音播报。不再投入。
@@ -90,7 +91,8 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
     - 默认 `Info`；`Debug` 打逐帧报文/探测明细，需要时在**设置页下拉框**切"详细"（或 `settings.json` 改 `LogLevel`）**并重启应用**。
     - **新增日志前先定级别**：状态变化 / 协议解析结果 = `Info`（结果行尾带 `原始=<HEX>`）；逐帧 / 中间帧 / 明细 = `Debug`；热路径先 `Log.IsEnabled(level)` 短路，省掉 `$"..."` 插值。
     - **别在各调用点自己攒去重字段**：轮询型重复日志用 `Log.InfoOnChange(key, state, message)`（状态变了才记）或 `Log.InfoThrottled(key, message, interval)`（同 key 限频）；**"同一 key 只记一条、恢复正常后再记一条"** 用 `Log.Once(level, key, message)` / `Log.ResetOnce(key)`。
-    - 排障时 `app.log` 之外还有 `app.1.log` / `app.2.log`（按大小滚动）；每个文件**首行是"时间基准"**（本地时区 + UTC offset），用来和 `history.db` 的 UTC 毫秒对齐。
+    - 日志**按日分文件**：`logs\app-日期.log`（本地日期），跨天自动切；默认保留 **14 天**（`AppSettings.LogRetentionDays`，设置页「日志」可改，重启生效）。每个文件**首行是"时间基准"**（本地时区 + UTC offset），用来和 `history.db` 的 UTC 毫秒对齐。
+    - 旧版 `app.log` / `app.1.log` / `app.2.log` 已废弃（2026-10-10 第二十一轮改按日），启动/跨天清理时一并删；doc 里 `grep ... app.log` 已改为 `grep ... app-*.log`。
 
 ## 6. 关键文件速查
 
@@ -124,8 +126,8 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 | 历史统计页（指标卡/曲线/hover） | `src/VigilWatt.App/Views/StatsPage.xaml(.cs)` + `Views/BatteryChartControl.xaml.cs` |
 | 历史删除/统计能力 | `src/VigilWatt.Core/Storage/HistoryStore.cs`（`GetStats`/`GetDeviceStats`/`DeleteDevices`/`Compact`）；页面 `Views/HistoryPage.xaml(.cs)` |
 | 历史管理页单测 | `src/tests/VigilWatt.Core.Tests/HistoryStoreTests.cs`（临时库真跑 SQLite） |
-| 日志实现/分级/滚动/兜底 | `src/VigilWatt.Core/Utils/Log.cs` + `Utils/LogLevel.cs`；App 侧档位 `Services/LogLevelOptions.cs`；设置页「日志」分区（设计见 dev/logging.md） |
-| 日志级别配置与单测 | `AppSettings.LogLevel` + `App.OnLaunched` 里 `Log.MinLevel = LogLevelNames.Parse(...)`；退出收尾 `App.ShutdownLogging()`；单测 `src/tests/VigilWatt.Core.Tests/LogTests.cs` |
+| 日志实现/分级/按日分文件/保留/兜底 | `src/VigilWatt.Core/Utils/Log.cs` + `Utils/LogLevel.cs`；App 侧档位 `Services/LogLevelOptions.cs`；设置页「日志」分区（设计见 dev/logging.md） |
+| 日志级别/保留天数配置与单测 | `AppSettings.LogLevel` / `AppSettings.LogRetentionDays` + `App.OnLaunched` 里 `Log.MinLevel = ...` / `Log.RetentionDays = ...`；退出收尾 `App.ShutdownLogging()`；单测 `src/tests/VigilWatt.Core.Tests/LogTests.cs` |
 | 语言包白名单 | `VigilWatt.App.csproj` 的 `MuiLanguagesToKeep` + `_MuiKeep` 两处（build.md §6） |
 | 某轮改动为什么这么做 | `doc/project/changelog.md`（本文件不记历史，只给指针） |
 | 审查发现还剩什么没修 | `doc/reviews/BACKLOG.md`（**唯一载体**：open/doing/done/wontfix） |

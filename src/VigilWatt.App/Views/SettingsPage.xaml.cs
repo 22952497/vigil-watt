@@ -115,6 +115,7 @@ public sealed partial class SettingsPage : Page
             }
         }
         LogLevelHintText.Text = LogLevelOptions.Describe(level);
+        LogRetentionBox.Value = s.LogRetentionDays;
 
         // 插件开关动态生成：新插件（IBatteryPlugin 实现）自动出现在设置页
         bool first = true;
@@ -228,6 +229,7 @@ public sealed partial class SettingsPage : Page
         s.UpdateUrl = UpdateSourceBox.Text.Trim();
         s.WindowBackdrop = (BackdropCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? WindowBackdrop.Auto;
         s.LogLevel = LogLevelNames.Normalize((LogLevelCombo.SelectedItem as ComboBoxItem)?.Tag as string);
+        s.LogRetentionDays = (int)LogRetentionBox.Value;
         foreach (var (name, toggle) in _pluginToggles)
         {
             s.PluginEnabled[name] = toggle.IsOn;
@@ -363,7 +365,7 @@ public sealed partial class SettingsPage : Page
         var dialog = new ContentDialog
         {
             Title = "清空日志？",
-            Content = "将删除 logs 目录下的 app.log、滚动历史（app.N.log）与 log-error.txt，且不可恢复。",
+            Content = "将删除 logs 目录下的全部按日日志（app-日期.log）与 log-error.txt，且不可恢复。",
             PrimaryButtonText = "清空",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,
@@ -373,11 +375,12 @@ public sealed partial class SettingsPage : Page
 
         try
         {
-            // 先释放 app.log 句柄，否则删不掉；之后的日志会重新开一个新文件
+            // 先释放日志句柄，否则删不掉；之后的日志会重新开一个新文件
             Log.Shutdown();
             var dir = Path.Combine(AppPaths.RootDir, "logs");
             if (Directory.Exists(dir))
             {
+                // app*.log 同时覆盖按日日志 app-日期.log 与旧版 app.log / app.N.log
                 foreach (var file in Directory.EnumerateFiles(dir, "app*.log"))
                     File.Delete(file);
                 var err = Path.Combine(dir, "log-error.txt");

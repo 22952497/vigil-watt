@@ -135,8 +135,9 @@ public partial class App : Application
         }
 
         Services = new AppServices();
-        // 日志级别：启动时应用（重启生效，不追求热更新）
+        // 日志级别与按日保留天数：启动时应用（重启生效，不追求热更新）
         Log.MinLevel = LogLevelNames.Parse(Services.Settings.LogLevel);
+        Log.RetentionDays = Services.Settings.LogRetentionDays;
 
         Log.Info($"启动 VigilWatt，参数: {args.Arguments}");
         Services.Manager.Start();

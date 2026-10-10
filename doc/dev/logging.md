@@ -1,28 +1,29 @@
 # 日志设计
 
-> **状态：已实施（2026-10-09，提交 `d68b6d5` 起）。** 本文描述当前形态；
-> 实施过程与取舍见 §9 变更历史（原《日志改造方案》已归档到那里）。
+> **状态：已实施（2026-10-09 起；2026-10-10 改为按日分文件）。** 本文描述当前形态；
+> 实施过程与取舍见 §10 变更历史（原《日志改造方案》已归档到那里）。
 
 ## 1. 概述
 
 全部日志走**自研的极简静态类** `src/VigilWatt.Core/Utils/Log.cs`（**没有**引入 Serilog / NLog / `ILogger`）：
 
-- 输出位置：`%LOCALAPPDATA%\VigilWatt\logs\app.log`（`AppPaths.RootDir` + `logs`）
+- 输出位置：`%LOCALAPPDATA%\VigilWatt\logs\app-yyyy-MM-dd.log`（`AppPaths.RootDir` + `logs`）——**按本地日期每天一个文件**
 - 行格式：`2026-10-09 21:15:21.808 [INFO] 雷柏 状态帧: ...`
 - 分级：`Debug < Info < Warn < Error`，外加 `Off`（全关哨兵），默认 `Info`
-- 落盘：常驻一个 `StreamWriter`（`AutoFlush = true`，UTF-8 **无 BOM**）；单文件超 **2 MB** 滚动，保留 2 份历史
+- 落盘：常驻一个 `StreamWriter`（`AutoFlush = true`，UTF-8 **无 BOM**）；写入时比对日期，**跨天自动切换**到新文件（长驻应用无需重启）
+- 保留：默认保留最近 **14 天**（`AppSettings.LogRetentionDays`，**重启生效**），启动与跨天时清理超期文件；旧版 `app.log` / `app.N.log` 已废弃，一并清掉
 - 写失败不静默：连续 3 次失败写兜底文件 `logs/log-error.txt`（带节流与上限）
-- `Log.RedirectTo(logDir)` 供单测重定向目录（不重定向会污染真实 `app.log`）
+- `Log.RedirectTo(logDir)` 供单测重定向目录（不重定向会污染真实日志目录）
 
 相关文件：
 
 | 文件 | 职责 |
 |---|---|
 | `src/VigilWatt.Core/Utils/LogLevel.cs` | 级别枚举 + 名称解析（未知值回落 `Info`） |
-| `src/VigilWatt.Core/Utils/Log.cs` | 日志实现（分级 / 滚动 / 兜底 / 退避 / 降噪入口） |
+| `src/VigilWatt.Core/Utils/Log.cs` | 日志实现（分级 / 按日分文件 / 保留清理 / 兜底 / 退避 / 降噪入口） |
 | `src/VigilWatt.App/Services/LogLevelOptions.cs` | 设置页下拉框档位（取值 → 中文标签 / 说明） |
-| `src/VigilWatt.App/Views/SettingsPage.xaml(.cs)` | 「日志」分区：级别下拉框 + 打开目录 + 清空日志 |
-| `src/tests/VigilWatt.Core.Tests/LogTests.cs` | 单测（级别过滤 / 滚动 / 兜底 / 多行前缀 / 转义 / 降噪） |
+| `src/VigilWatt.App/Views/SettingsPage.xaml(.cs)` | 「日志」分区：级别下拉框 + 保留天数 + 打开目录 + 清空日志 |
+| `src/tests/VigilWatt.Core.Tests/LogTests.cs` | 单测（级别过滤 / 按日命名 / 保留清理 / 兜底 / 多行前缀 / 转义 / 降噪） |
 
 ## 2. 分级与标签
 
@@ -57,11 +58,14 @@ Debug < Info < Warn < Error          （Off = 全关哨兵）
   （与 `WidgetDisplayMode` / `WindowBackdrop` 写法一致）。
 - 启动时 `Log.MinLevel = LogLevelNames.Parse(Services.Settings.LogLevel)`；**重启生效**（不追求热更新，
   避免跨线程读静态字段引入 `volatile`）。
+- `AppSettings.LogRetentionDays`（`int`，默认 **14**）：按日日志的保留天数，`0` 表示不清理；
+  启动时 `Log.RetentionDays = Settings.LogRetentionDays`，**重启生效**。
 - 设置页「日志」分区：
   - **级别下拉框**（5 档：关闭 / 详细 / 信息 / 警告 / 错误，见 `LogLevelOptions`）
+  - **保留天数**（`NumberBox`，1~365，默认 14）
   - 「打开日志目录」按钮
-  - **「清空日志」按钮**（删 `app*.log` + `log-error.txt`）
-  - 副标题**明确标注"改后需重启应用生效"**——避免重蹈"点了没反应"的老坑
+  - **「清空日志」按钮**（删 `app*.log`——含按日文件与旧版单文件——+ `log-error.txt`）
+  - 级别与保留天数均**明确标注"改后需重启应用生效"**——避免重蹈"点了没反应"的老坑
 - `log-error.txt` 自身**带上限（64 KB）与节流（30 s）**，否则兜底通道也会涨爆。
 
 ## 4. 格式契约
@@ -78,7 +82,7 @@ Debug < Info < Warn < Error          （Off = 全关哨兵）
 
 ## 5. 降噪
 
-轮询型代码（每 15 秒 / 每分钟重跑）经常在同一状态上重复打日志，把 `app.log` 冲爆。
+轮询型代码（每 15 秒 / 每分钟重跑）经常在同一状态上重复打日志，把日志文件冲爆。
 去重逻辑**收拢到 `Log` 的公共入口**，不要在调用点自己攒字段：
 
 | 入口 | 语义 |
@@ -97,16 +101,22 @@ Debug < Info < Warn < Error          （Off = 全关哨兵）
 
 ## 6. 稳定性与管控
 
-### 6.1 滚动（带序号保留）
+### 6.1 按日分文件与保留
 
-单文件超 `MaxBytes`（默认 **2 MB**，按**字节**计，与 `FileInfo.Length` 同口径）触发滚动：
+按**本地日期**每天一个文件：`app-yyyy-MM-dd.log`。写入前比对日期，跨天自动切换（长驻应用不重启也能切）。
+**不再按大小滚动**——一天就是一个文件（Debug 档单日文件可能较大，靠保留天数控制总量）。
 
 ```
-app.log → app.1.log → app.2.log     （最旧的被丢弃，共 3 个文件）
+app-2026-10-09.log
+app-2026-10-10.log   ← 当天
 ```
 
-用 `File.Move(overwrite: true)`，**不整文件删除**——刚复现的问题日志不会因一次滚动被清空。
-`app.log` 永远是"当前"文件，`grep` 习惯不变。
+保留最近 `Log.RetentionDays` 天（默认 **14**）：启动与跨天打开新文件时清理超期文件
+（文件名日期早于 `今天 - 保留天数`）；`0` = 不清理。旧版单文件 `app.log` / `app.N.log` 已不再写入，
+清理时一并删除——留着只会让人以为"日志没更新"。
+
+> ⚠️ doc 里 `grep ... app.log` 的考古命令请改成 `grep ... app-*.log`（覆盖全部日期），
+> 或 `grep ... app-$(date +%F).log`（只看当天）。
 
 ### 6.2 写失败兜底与退避
 
@@ -116,7 +126,7 @@ app.log → app.1.log → app.2.log     （最旧的被丢弃，共 3 个文件�
 
 ### 6.3 并发
 
-`FileShare.ReadWrite` 打开 `app.log` —— **仅保证并发不互相阻塞，不保证不交错**。
+`FileShare.ReadWrite` 打开当天日志文件 —— **仅保证并发不互相阻塞，不保证不交错**。
 单实例 `Mutex` 才是主防线（§6.4）。
 
 ### 6.4 退出收尾
@@ -146,7 +156,8 @@ app.log → app.1.log → app.2.log     （最旧的被丢弃，共 3 个文件�
 `src/tests/VigilWatt.Core.Tests/LogTests.cs`（`RedirectTo` 到临时目录，每个用例独立目录）：
 
 - 级别过滤（低于阈值不写 / `Off` 连 Error 也不写）
-- 滚动后生成 `app.1.log` 且不清空、不丢最新行
+- 按当天日期命名（写入落到 `app-yyyy-MM-dd.log`）
+- 超过保留天数的旧日志被清理、保留天数内的不清理、旧版 `app.log` 被清理
 - 多行异常每行都有前缀
 - 换行与控制符转义（不产生假行）
 - 文件首行写时间基准声明
@@ -159,7 +170,7 @@ app.log → app.1.log → app.2.log     （最旧的被丢弃，共 3 个文件�
 
 ## 8. 默认 `Info` 的边界（实测依据）
 
-对某次真实 `app.log`（2 天，11516 行）按类别统计：
+对某次真实的日志文件（当时仍是单文件 `app.log`，2 天，11516 行）按类别统计：
 
 | 类别 | 2 天行数 | 占比 | 归属 |
 | --- | --- | --- | --- |
@@ -172,8 +183,8 @@ app.log → app.1.log → app.2.log     （最旧的被丢弃，共 3 个文件�
 
 **噪音合计 9000 行（78%）**。默认 `Info` 后预期 2 天日志量 **~11500 → ~2500 行**。
 
-> 注：上表数字来自某次真实 `app.log`，**仓库内无该文件，无法自动验证**。复现：取
-> `%LOCALAPPDATA%\VigilWatt\logs\app.log`，按上表各簇 `grep -c` 统计。
+> 注：上表数字来自某次真实日志文件，**仓库内无该文件，无法自动验证**。复现：取
+> `%LOCALAPPDATA%\VigilWatt\logs\` 下的按日日志（`app-*.log`），按上表各簇 `grep -c` 统计。
 > 行示例修正：实际是 `收到托盘回调: 0x{mouseMessage:X4}`（`TrayService.cs`），非 `NxN`。
 
 **补充归类（原表遗漏，均归 Debug）**：`[探测]`（`HidWriteProbe.cs`）、`[Elan 探测]`（`ElanHeadsetPlugin.cs`）、
@@ -198,7 +209,8 @@ Mchose 逐帧/握手簇（`MchosePlugin.cs`）、`雷柏 电量越界丢弃`（`
 | **合并 Trace 与 Debug，只留一个 `Debug`** | Debug 本就是最低监测档，不再往下细分 |
 | **`Off` = 关掉全部输出（含 Error）** | 它是"全关哨兵"，不是"只留 Error" |
 | **格式向后兼容** | `[INFO]` / `[WARN]` / `[ERR ]` 一个都不改，只新增 `DBG `；doc/ 里所有 grep 考古命令继续可用 |
-| **不做日志按天分文件** | 滚动按大小触发，只是保留多份 |
+| **日志按天分文件**（2026-10-10 起，**推翻** 2026-10-09 的"不做按天分文件"） | 一天一个文件、跨天自动切：定位某天的日志更快，历史也不会被大小滚动冲掉。代价是 doc 里 `grep app.log` 要改成 `app-*.log` |
+| **按天保留天数可配**（默认 14 天） | 个人工具，日志总量可控；`LogRetentionDays=0` 可关掉自动清理 |
 | **不做结构化 / JSON 日志** | grep 考古是本项目主力手段，纯文本格式价值高于可解析性 |
 | **不做日志上报 / 遥测** | 个人自用工具，不引入任何外发通道 |
 | **不做设备名 / MAC 脱敏** | 个人本机自用，设备名/路径进日志是**有意为之**（脱敏收益低） |
@@ -224,9 +236,20 @@ Mchose 逐帧/握手簇（`MchosePlugin.cs`）、`雷柏 电量越界丢弃`（`
 - **阶段 3**：`Log.InfoOnChange` / `Log.InfoThrottled` 泛化 + 迁移纯日志用途调用点 + 文档同步。
   `LogConfig` 收敛按方案标注**砍掉**（可选）。
 
+### 2026-10-10 改为按日分文件（推翻 §9 的"不做按天分文件"）
+
+- **诉求**：日志不要全挤在一个文件里，按自然日输出。
+- **改动**：文件名 `app.log` → `app-yyyy-MM-dd.log`（本地日期）；写入前比对日期，跨天自动切换；
+  移除按大小滚动（`MaxBytes` / `MaxRollFiles` / `Roll` / `RotateFiles`）。
+- **新增**：`AppSettings.LogRetentionDays`（默认 14，重启生效）→ `Log.RetentionDays`；
+  启动与跨天打开新文件时清理超期文件；旧版 `app.log` / `app.N.log` 一并清掉。
+- **UI**：设置页「日志」分区新增"日志保留天数"；「清空日志」文案与匹配改为 `app*.log`。
+- **格式契约不变**（行首时间戳 / 标签宽 6 / 一行一事件 / UTF-8 无 BOM / 首行时间基准），
+  只是**文件名**变了 → doc 里 `grep ... app.log` 全部改为 `grep ... app-*.log`。
+
 ### 回滚
 
 - 格式**向后兼容**：只新增 `[DBG ]`，`[INFO]` / `[WARN]` 不变 → 回滚 = `git revert` 该提交，doc/ 的 grep 命令无需回改。
 - **唯一破坏性变更**：`[ERR ]` 异常由单行改多行前缀（§4）。若确有依赖旧单行格式的脚本，回滚需一并还原该改动。
-- 新文件名 `app.N.log` / `log-error.txt` **不影响旧命令**（`app.log` 仍是"当前"文件）。
+- 2026-10-10 的按日改名**会**影响旧命令：回滚该轮即恢复 `app.log`，doc 里改成 `app-*.log` 的命令需一并回改。
 - `log-error.txt` / 时间基准行均为**新增**，回滚后自然消失。

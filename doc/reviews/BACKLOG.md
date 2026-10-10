@@ -138,6 +138,8 @@
 | **CR-47** | **16ms 拍频的常驻代价未测**：抬 Z 序从 100ms 改成 16ms 后，UI 线程每秒被唤醒约 62 次（每次一次 `SetWindowPos`，已在最上层时是空操作）。桌面机可忽略，但本项目是**电池工具**，长时间不深睡是否影响笔记本续航**没有实测**。可选优化：只在"检测到被盖住"后进入 16ms 快档，否则回落慢档 | `TaskbarBatteryWindow.xaml.cs:FollowTickMs` / `:EnsureAbove` | `open` | 10-10 第三轮（性能与手感的取舍） |
 | **CR-48** | **贴片拖动未真机手测**：本轮为透明给窗口加了 `DwmExtendFrameIntoClientArea(-1)`，它理论上会把客户区当"边框"处理、可能被系统拖拽接管。**已用 `WM_NCHITTEST` 排除**（中心与四角都返回 `HTCLIENT(1)`），但"实际拖起来顺不顺、松手能否记住位置"仍需人手试 | `Services/TaskbarTransparency.cs:ClearWin32Background`、`TaskbarBatteryWindow.xaml.cs:Root_PointerPressed` | `open` | 10-10 第三轮（收工自审） |
 | **CR-49** | `TaskbarTransparency._prevProc` 是**静态单份**，隐含"同一时刻只有一个贴片窗口"的假设。当前成立（设置页切换是先 `Close()` 再重建），但若日后允许同屏两个贴片，第二个窗口的 `CallWindowProcW` 会调到错的旧窗口过程 | `Services/TaskbarTransparency.cs:_prevProc` / `:ClearWin32Background` | `open` | 10-10 第三轮（收工自审） |
+| **CR-50** | 日志**跨天切换分支无单测覆盖**：`Log.EnsureWriter` 靠 `_currentDate != today` 判断换文件，但 `today` 取自 `DateTime.Now`，测试无法注入时钟，只能覆盖"首写落到当天文件"，覆盖不到"真实跨午夜"。逻辑简单（比对 + 关旧开新），风险低；若日后要测，需给 `Log` 加可注入的时间源（会引入静态可变状态，收益待评估） | `Utils/Log.cs:EnsureWriter` / `:Emit` | `open` | 10-10 第二十一轮（收工自审） |
+| **CR-51** | 日志**一天一个文件、无大小上限**：Debug 档下单日文件可能很大（雷柏单设备被动心跳实测可达约 2.8 万行/天，见 CR-28）。用户明确选择"一天一个文件"，故不设大小滚动；总量靠 `LogRetentionDays`（默认 14 天）兜底 | `Utils/Log.cs:EnsureWriter`（无 `MaxBytes`） | `wontfix` | 10-10 第二十一轮（用户决策） |
 
 ### wontfix 理由（CR-30 / CR-31）
 
@@ -150,6 +152,10 @@
 ### wontfix 理由（CR-44）
 
 - **CR-44**：`WS_EX_LAYERED` 这条路**实测无效**（四种写法逐个试过，见条目）。唯一见效的 colorkey 变体有两条硬伤：深色主题下贴片文字本身就是白色、会被键色一起挖掉；键中像素变点击穿透，贴片留白拖不动，而它又紧挨任务栏按钮区、误点会启动别的程序。而 extend-frame 路线已能做到**像素级完全透明**，没有理由为更差的方案引入这两条硬伤。
+
+### wontfix 理由（CR-51）
+
+- **CR-51**：用户诉求就是"按自然日分文件、不要全挤一个文件"，明确选择了"一天一个文件"。再加一层大小滚动会重新引入 `app-日期.1.log` 这类文件名，与"一天一个文件"的直觉冲突。日志总量由保留天数（默认 14 天）控制；`LogLevel` 默认 `Info` 时单日量很小，只有临时切 `Debug` 才会放大。
 
 ## Info · 记录备查（非缺陷）
 

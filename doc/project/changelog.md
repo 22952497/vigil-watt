@@ -574,3 +574,23 @@
 
 **用户复看确认**（2026-10-10 21:28）："哇哦，很棒 是我需要的效果"——**白框与整体观感确认无误**，
 本轮核心诉求闭环；用户未再提及闪动。CR-47/48/49 与竖向任务栏/多显示器/自动隐藏/深色主题仍待真机。
+
+### 第二十一轮：日志改为按日分文件
+
+**诉求**："重构日志输出方式——日志按日输出到文件，不能全到一个文件里"。**推翻了 2026-10-09 第十五轮 `dev/logging.md` §9 的"不做日志按天分文件"决策**。
+
+**用户确认的三个选择**：① 纯按日命名 `app-日期.log`（不再保留 `app.log`）；② 保留天数进配置、默认 **14 天**；③ 一天一个文件，**不再按大小滚动**。
+
+**改动**：
+
+- `Utils/Log.cs`：当前文件由固定 `app.log` 改为按**本地日期** `app-yyyy-MM-dd.log`；`Emit` 取 `DateTime.Now.Date`，`EnsureWriter(today)` 发现与 `_currentDate` 不符即换文件（长驻应用跨天自动切）；删除 `MaxBytes` / `MaxRollFiles` / `Roll` / `RotateFiles` / `_bytesWritten`。
+- 新增 `Log.RetentionDays`（默认 14）+ `CleanupOldFiles`：在**打开新文件时**（启动 / 跨天）删超期文件（文件名日期 ≤ `今天 - 保留天数`）；`0` = 不清理。旧版 `app.log` / `app.N.log` 无法解析出日期 → 一并删除（否则留着让人误以为"日志没更新"）。
+- `AppSettings.LogRetentionDays`（int，默认 14）+ `App.OnLaunched` 里 `Log.RetentionDays = ...`（重启生效，与 `LogLevel` 同一套路）。
+- 设置页「日志」分区：新增"日志保留天数" `NumberBox`（1~365）；「日志文件」副标题与「清空日志」对话框文案更新（清空仍用 `app*.log`，同时覆盖按日文件与旧版单文件）。
+- **格式契约不变**（行首时间戳 / 标签宽 6 / 一行一事件 / UTF-8 无 BOM / 首行时间基准），只是文件名变了。
+
+**文档同步**：`dev/logging.md`（§1/§3/§6.1/§7/§9/§10，含决策表推翻旧行 + 回滚说明）、`doc/README.md`、`architecture.md`（§文件速查 + 文件位置表）、`hardware/debugging.md`（§0 与两处 grep 示例 `app.log` → `app-*.log`）、`handoff.md`（§1 + §5.13 + §6）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；`LogTests` **14/14**（含新增"按当天日期命名 / 超期清理 / 保留期内不清理 / 旧版单文件清理"），`HistoryStoreTests` + `LogLevelNamesTests` **33/33**。
+
+**未做**：任何 git 操作；**未真机验证跨天切换**（逻辑靠 `_currentDate` 比对，无单测覆盖真实午夜跨越）。

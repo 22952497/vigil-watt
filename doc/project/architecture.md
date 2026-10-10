@@ -36,7 +36,7 @@ VigilWatt.sln
 │   ├── Settings/AppSettings           # settings.json 读写
 │   ├── Storage/HistoryStore           # SQLite（Microsoft.Data.Sqlite）：写入/查询/按设备删除/VACUUM
 │   ├── Utils/LogLevel                 # 日志级别枚举（Debug<Info<Warn<Error + Off 哨兵）与名称解析
-│   └── Utils/Log                      # 分级文本日志：%LOCALAPPDATA%\VigilWatt\logs\app.log（按大小滚动，详见 dev/logging.md）
+│   └── Utils/Log                      # 分级文本日志：%LOCALAPPDATA%\VigilWatt\logs\app-yyyy-MM-dd.log（按日分文件，详见 dev/logging.md）
 └── src/VigilWatt.App/             # WinUI 3 前端（net8.0-windows10.0.19041.0，非打包）
     ├── App.xaml.cs                    # AppServices 容器 + 启动序列 + 全局异常兜底
     ├── MainWindow(.xaml)              # NavigationView 三页导航；关窗=隐藏到托盘
@@ -103,13 +103,13 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 
 | 位置 | 内容 |
 |---|---|
-| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关（**即写入授权**）/MonitorSystemBattery/**LogLevel**） |
+| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关（**即写入授权**）/MonitorSystemBattery/**LogLevel**/**LogRetentionDays**） |
 | `%LOCALAPPDATA%\VigilWatt\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts)。**ts = UTC 毫秒**（`DateTimeOffset.ToUnixTimeMilliseconds`） |
-| `%LOCALAPPDATA%\VigilWatt\logs\app.log` | 当前运行日志（协议原始报文也在）。行首为**本地时间**；文件首行是"时间基准"声明，用于与 history.db 的 UTC 时间对齐 |
-| `%LOCALAPPDATA%\VigilWatt\logs\app.1.log` / `app.2.log` | 滚动保留的历史日志（单文件超 2MB 触发，保留 2 份历史 + 当前 `app.log`） |
-| `%LOCALAPPDATA%\VigilWatt\logs\log-error.txt` | 兜底文件：连续写 `app.log` 失败时记录（带节流与上限），正常运行时不产生 |
+| `%LOCALAPPDATA%\VigilWatt\logs\app-yyyy-MM-dd.log` | **按本地日期每天一个文件**的运行日志（协议原始报文也在）。行首为**本地时间**；文件首行是"时间基准"声明，用于与 history.db 的 UTC 时间对齐 |
+| `%LOCALAPPDATA%\VigilWatt\logs\log-error.txt` | 兜底文件：连续写日志失败时记录（带节流与上限），正常运行时不产生 |
 
-> 日志分级：`Debug < Info < Warn < Error`，外加 `Off`（全关）；默认 `Info`，在设置页用下拉框选，**改后需重启应用生效**。
+> 日志按日分文件，跨天自动切换；默认保留最近 **14 天**（`LogRetentionDays`，`0` = 不清理），超期文件在启动/跨天时清理。
+> 日志分级：`Debug < Info < Warn < Error`，外加 `Off`（全关）；默认 `Info`，在设置页选，**改后需重启应用生效**。
 > 完整设计见 [dev/logging.md](../dev/logging.md)。
 
 ## 6. 约定（改代码前先看）
