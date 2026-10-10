@@ -27,6 +27,12 @@ internal sealed class HidppIO : IDisposable
     /// 在请求等待与空闲 Pump 时都会触发；订阅方必须快速返回、不重入 Request。</summary>
     public Action<byte, byte[]>? NotificationReceived;
 
+    /// <summary>
+    /// 写入许可（安全闸门）：返回 false 时 <see cref="Request"/> **一帧都不发**、直接返回 null。
+    /// 这是罗技插件唯一的写入收口（safety.md §3 规则 1/2），由插件按用户开关刷新。
+    /// </summary>
+    public Func<bool>? WritesAllowed;
+
     public HidppIO(HidDeviceHandle handle)
     {
         _handle = handle;
@@ -60,6 +66,13 @@ internal sealed class HidppIO : IDisposable
 
         lock (_ioGate)
         {
+            // 写入闸门（安全规则 R1）：这是本插件唯一的写点，许可关闭时连一次 WriteOutput 都不发。
+            if (WritesAllowed != null && !WritesAllowed())
+            {
+                Log.Debug($"HID++ 写入被开关挡住 dev={devIndex} req=0x{requestId:X4}");
+                return null;
+            }
+
             if (!_handle.WriteOutput(packet, TimeSpan.FromMilliseconds(500)))
             {
                 Log.Warn($"HID++ 写失败 dev={devIndex} req=0x{requestId:X4} report=0x{_reportId:X2}");

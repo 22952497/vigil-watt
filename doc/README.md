@@ -7,17 +7,18 @@
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|
 | [handoff.md](project/handoff.md) | **会话交接快照：当前状态、设备清单、待办、给下一个 AI 的注意事项** | 新会话开工第一件事 |
-| [changelog.md](project/changelog.md) | 逐轮变更历史（2026-10-04 → 10-09，第一轮~第十六轮）：每轮做了什么、为什么这么做 | 查某个决定/某段代码的来历时；**新会话不必读** |
+| [changelog.md](project/changelog.md) | 逐轮变更历史（2026-10-04 → 10-10，第一轮~第十七轮）：每轮做了什么、为什么这么做 | 查某个决定/某段代码的来历时；**新会话不必读** |
 | [architecture.md](project/architecture.md) | 项目结构、模块职责、设计决策与理由、线程模型、数据存储 | 了解/修改整体结构时 |
 | [code-flow.md](project/code-flow.md) | 运行时代码流程（启动、轮询主循环、BLE/插件链路、UI 更新、托盘） | 改任何一条链路前 |
-| [experience.md](project/experience.md) | 项目经验复盘：走对的路、弯路、调试直觉、重开项目 checklist（**不含待办**，待办在 handoff §4） | 接手/规划下一阶段时 |
+| [experience.md](project/experience.md) | 项目经验复盘：走对的路、弯路、调试直觉、重开项目 checklist（**不含待办**，待办在 handoff §4 与 reviews/BACKLOG.md） | 接手/规划下一阶段时 |
 
 ## 📁 dev/ — 开发避坑
 
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|
 | [comment-style.md](dev/comment-style.md) | **注释规范：代码里该写什么、长内容放哪、内容该进哪份文档** | 写/改注释前，以及每次 AI 开工前 |
-| [build.md](dev/build.md) | 构建与环境坑（XamlCompiler 静默崩溃、双输出路径、发布流程） | 编译失败、换机器重装环境 |
+| [review-standard.md](dev/review-standard.md) | **代码审查标准与流程：严重级、R 红线 / S 建议清单、三层闸门、按场景的流程、报告格式、发现闭环** | 改代码前（对号入座）、提交前自查、做审查时 |
+| [build.md](dev/build.md) | 构建与环境坑（XamlCompiler 静默崩溃、双输出路径、测试用法、发布流程） | 编译失败、换机器重装环境 |
 | [logging.md](dev/logging.md) | 日志设计：分级口径、滚动与兜底、去重/节流、各级别该打什么 | 加日志、调日志级别、排障找日志时 |
 | [runtime-pitfalls.md](dev/runtime-pitfalls.md) | 运行时坑（HID 读取模型、BLE 属性、托盘、DPI、XAML 事件时序） | UI/设备读写行为诡异时 |
 
@@ -29,13 +30,15 @@
 | [protocols.md](hardware/protocols.md) | 2.4G 协议手册（迈从 G87 已打通、QHW 新协议、北通手柄、雷柏/Elan 现状） | 动 Mchose/Logitech/Betop/Elan 插件、接入新设备 |
 | [debugging.md](hardware/debugging.md) | 调试手法（抓官方软件的包、HID 直测、日志考古、验证清单） | 协议不通、要校准新设备时 |
 
-## 📁 reviews/ — 审查报告（已归档）
+## 📁 reviews/ — 审查跟踪与报告
 
-> 三份都是**一次性静态审查产物**（带文件行号，会随代码漂移），已收进 `archive/`：保留备查，不参与日常导航。
-> 结论若已落地，以专题文档（protocols / code-flow / logging）为准。
+> **`BACKLOG.md` 是审查发现的唯一跟踪载体**（`open → doing → done / wontfix`），日常只读它；
+> 它和 `project/handoff.md` §4 的分工是：BACKLOG = 未修项**全集**，handoff §4 = **当前这一轮在做的那几条**。
+> `archive/` 里是一次性静态审查产物（带文件行号，会随代码漂移），保留备查，不参与日常导航。
 
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|
+| [BACKLOG.md](reviews/BACKLOG.md) | **审查发现跟踪（唯一载体）**：P0/P1/P2 分级的未修项、证据（`文件:符号`）、状态、来源 | 每次审查收工时；想知道"还有什么没修"时 |
 | [archive/code-review-2026-10-06.md](reviews/archive/code-review-2026-10-06.md) | 全仓代码/架构静态审查（基线 `ddd3b39`）：硬件写入边界、状态同步、BLE 判定、体验与测试缺口，含修复顺序 | 规划重构/排优先级（注意行号已漂移） |
 | [archive/code-review-followup-2026-10-06.md](reviews/archive/code-review-followup-2026-10-06.md) | 对上条的独立复核：哪些属实、哪 3 处需修正、报告遗漏了什么（罗技无写入闸门等），以及四阶段优化路线图 | 排长期重构顺序 |
 | [archive/comment-audit-2026-10-09.md](reviews/archive/comment-audit-2026-10-09.md) | 全仓注释审计与 doc 归并映射（基线 2026-10-09 工作树）：逐块处置表（保留/压缩/归纳/删除）、9 条 doc 归纳清单、"不能删"清单 | 想知道某段注释为什么被删或被搬走时 |
@@ -46,7 +49,7 @@
 |---|---|---|
 | 编译失败 MSB3073 退出码 1、零输出 | XAML 写了不存在的属性 | dev/build.md §1 |
 | 跑起来是旧版行为 | 双输出路径，启动错目录 | dev/build.md §2 |
-| 写入成功但永远收不到设备响应 | 会话没开 / 悬空读被吃 / 会话被别的进程占死 | hardware/protocols.md §1.3、dev/runtime-pitfalls.md §1、hardware/safety.md §2.2 |
+| 写入成功但永远收不到设备响应 | 会话没开 / 悬空读被吃 / 会话被别的进程占死 | hardware/protocols.md §1.3、dev/runtime-pitfalls.md §1、hardware/safety.md §2 |
 | 读到的电量恒为 100% | 走了 feat8 接口（[3..5] 恒 0x64，不是电量） | hardware/protocols.md §3 |
 | 控件在初始化时 NRE | XAML 解析期事件触发 | dev/runtime-pitfalls.md §4 |
 | 托盘菜单点不动 | 用了 H.NotifyIcon | dev/runtime-pitfalls.md §5 |
@@ -57,7 +60,7 @@
 | 设备休眠时电量突然变 1/0 并误报低电量 | dongle 推的休眠帧**类型位是 0x02**（不是电量），旧代码误读 [6] 当电量；现已按类型位识别 + 三层过滤 | dev/runtime-pitfalls.md §12、hardware/protocols.md §1.3 |
 | Windows 能看到某属性但代码读不到 | 那是 PnP 设备节点属性，要用 SetupAPI 读，不是 WinRT AEP 属性 | scripts/probe-devnode-battery.py |
 | 若水时砂炽天使（38FF:0001）2.4G 恒无电量 | 硬件无通道：dongle 仅「USB 音频 + consumer HID」，HID 的 OUT/FEATURE=0、输入报文无电量字段，官方 RoseLink 亦无电量命令 | hardware/protocols.md §3（已结案，勿再查） |
-| 北通手柄（VID_20BC）列表里没有 / 电量恒 `--` | ① 手柄休眠（按一下任意按键）；② **report ID 硬编码**——T9 是 `0x01`/`0x04`/`0x05` 不是 `0x02`，必须从接口 caps 读；③ 厂商接口被官方客户端独占；④ `BetopProbingEnabled` 被关 | hardware/protocols.md §4 |
+| 北通手柄（VID_20BC）列表里没有 / 电量恒 `--` | ① 手柄休眠（按一下任意按键）；② **report ID 硬编码**——T9 是 `0x01`/`0x04`/`0x05` 不是 `0x02`，必须从接口 caps 读；③ 厂商接口被官方客户端独占；④ 设置页里"北通"插件开关被关（它同时是写入授权） | hardware/protocols.md §4 |
 | 经典蓝牙设备名显示成一长串 `Bluetooth#Bluetooth…` ID | WinRT 的 `DeviceInformation.Name` 在友好名没解析出来时**会把 AEP 设备 ID 当名字**返回；已加占位名识别 + 注册表配对名兜底 | project/changelog.md「2026-10-06 经典蓝牙设备显示名修成原始 ID」 |
 | 配对但没连接的耳机出现在列表里（还显示着上次的电量） | `Added` 首帧的 `Aep.IsConnected` 可能缺失，旧代码拿"读到电量"当在线依据——而 HFP 节点的电量**断开后仍在**。现已改为查"已连接"集合 | project/changelog.md「2026-10-06 第二轮真机复测」 |
 | 北通图标像键盘 / 显示名带 `For Keyboard & Mouse` | 显示名是 USB product string；图标按名字匹配时 keyboard/mouse 排在手柄前面被先命中 | project/changelog.md「2026-10-06 第二轮真机复测」 |

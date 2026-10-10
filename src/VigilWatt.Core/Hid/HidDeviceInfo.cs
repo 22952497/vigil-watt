@@ -172,8 +172,12 @@ public sealed class HidDeviceHandle : IDisposable
             Array.Copy(_readBuffer, result, n);
             return result;
         }
-        catch
+        catch (Exception ex)
         {
+            // 读失败多半是设备拔出/句柄失效（预期），但完全静默会连"句柄异常"一起掩盖——
+            // 记 Debug 留痕即可，别升级成 Warn 制造噪声（CR-21）。
+            if (Utils.Log.IsEnabled(Utils.LogLevel.Debug))
+                Utils.Log.Debug($"ReadInput 失败: {ex.Message}");
             _pendingRead = null; // 读失败（设备拔出等），下次重建
             return null;
         }

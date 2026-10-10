@@ -1,0 +1,195 @@
+# 审查发现 BACKLOG（唯一跟踪载体）
+
+> **本文件是审查发现的唯一载体**：审查报告只承载证据与推理，条目本体在这里，走完 `open → doing → done / wontfix`。
+> **与 `doc/project/handoff.md` §4 的分工**：这里 = 审查发现的**未修项全集**；handoff §4 = **当前这一轮在做的那几条**。
+> 同一件事只在这里留条目，handoff 只放指针——**不要抄第二份**。
+>
+> 标准与流程见 `doc/dev/review-standard.md`。证据一律写 `文件:符号`，**不写行号**（行号会漂移）。
+> **编号规则：关闭后不重排、不复用**——旧编号永远查得到。
+>
+> 首次建库：2026-10-10，来源是 `doc/reviews/archive/` 两份 2026-10-06 报告（每条回到当前代码重新核对过）。
+> **2026-10-10 上线前全检**（4 人协作：安全审计 / QA / 代码审查 / 可维护性专项）对 CR-01~CR-17 逐条复核，
+> 并新增 CR-19~CR-33 与"重构/去重候选"分区。全检证据与推理见 `deliverables/gstack/pre-launch-check-2026-10-10.md`。
+> **2026-10-10 修复轮**（用户批准"全部调整"）：4 条 P0 + 7 条 P1 + 大部分 P2 已修并验证，见 `doc/project/changelog.md`。
+
+## 状态图例
+
+| 状态 | 含义 |
+|---|---|
+| `open` | 已确认，未开始修 |
+| `doing` | 正在修（应同时在 handoff §4 出现指针） |
+| `done` | 已修并验证（"怎么验证的"记进 `doc/project/changelog.md`） |
+| `wontfix` | 决定不修，**必须写理由** |
+
+> **2026-10-10 起的一条约定**：修复轮关闭的条目**就地标 `done`**、不搬运到"已关闭"表——
+> 搬运会让"证据 / 来源"两列与条目分离，查起来反而费劲。下方"已关闭"表只保留更早轮次关闭的条目。
+
+## 变更记录
+
+- **2026-10-10（首次建库）**：从两份 2026-10-06 报告逐条回到代码核对建库（CR-01~CR-17 open + CR-D1~D3 done）。
+- **2026-10-10（第十七轮 · 文档一致性）**：CR-11、CR-18 修掉并关闭（见 `doc/project/changelog.md` 第十七轮）。
+- **2026-10-10（上线前全检）**：
+  - CR-01/02/03/04/05/06/08/12/13/14/15/16/17 → 复核后**仍成立**（CR-03 定性加重、CR-05/06 加重、CR-17 表述收紧）。
+  - **CR-09 → 上调 P0**（运行时真泄漏：反复开关小组件累积）。
+  - **CR-07 维持 P1**（退出路径，进程终止后 OS 回收句柄，不累积；与 §1「资源泄漏=P0」的字面存在张力，见条目内说明）。
+  - **CR-10 → 重新定性**为"扫描代码未从正常执行路径剥离"（只读 `GetFeature`，非硬件误写），级别维持 P1。
+  - **CR-11 → done**（复核确认第十七轮已修）。
+  - 新增 **CR-19~CR-33**；新增「重构/去重候选」分区（D1~D10）。
+- **2026-10-10（修复轮 · 全部调整）**：本轮关闭 **CR-01/02/03/04/05/06/07/08/09/10/12/14/15/17/19/20/21/22/23/24/25/26/27/28/29** 与
+  **D2/D7/D8/D9/D10**（就地标 done）；**CR-13 部分关闭**（逐字节相同的属性读取已抽离，基类化待做）；
+  **CR-30/31/32/33 → wontfix（各带理由）**；**CR-16 与 D1/D3/D4/D5/D6 保留 open**（理由见条目）。
+  验证方式：`dotnet build` 0 警告 0 错误；测试项目 **253 用例全绿**（基线 177 → 新增 76）。
+- **2026-10-10（修复轮 · 收工 L2 轻审查）**：对本轮改动面做轻审查（报告 `doc/reviews/archive/fix-round-2026-10-10.md`），
+  新增 **CR-34/35/36**——均为"当前不触发"的 P2 潜在陷阱，保留 `open`，未修理由见报告 §5。
+- **2026-10-10（第十九轮 · 取消独立写入许可）**：用户实测罗技 2.4G 鼠标找不到 → **CR-37**（罗技被当新插件默认关，静默功能回归）。
+  按用户要求把所有插件统一为"**插件开关即写入授权**"：
+  - 删除 `WritePermission` 机制（`Plugins/WritePermission.cs`、`IBatteryPlugin.WritePermission`、基类虚属性）；
+  - 删除 `MchoseProbingEnabled` / `BetopProbingEnabled` / `LogitechProbingEnabled` 三个设置项；
+  - 基类 `WritesEnabled => IsWritesEnabled(Name)` 直读 `PluginEnabled[Name]`；新增 `protected static IsWritesEnabled(string)`，供插件的 static 辅助方法（迈从的 `TryQhw` / `TryKeyboardV1` 等）使用；
+  - 设置页不再生成「写入许可」子行（`AddWritePermissionRow` / `_writePermissionRows` 已删）；
+  - **D10 随之作废**（其"插件声明写入许可"方案被更彻底的"插件开关即授权"取代）；**CR-12 的 UI 交付物（写入许可子行）已回退**，但 CR-12 的根因（`MchoseProbingEnabled` 无控件）已由"取消该设置项"解决；
+  - 顺带补掉 **CR-22 的漏项**：`LogitechPlugin.Detach` 原先无条件打"罗技插件已卸载"（不继承基类故没被 CR-22 覆盖），改为只在真释放会话时记。
+  验证：`dotnet build` 0 警告 0 错误；测试 **253 用例全绿**。
+
+## P0 · 安全 / 数据损坏
+
+| 编号 | 一句话 | 证据（`文件:符号`） | 状态 | 来源 |
+|---|---|---|---|---|
+| **CR-01** | `LogitechPlugin` 直接实现 `IBatteryPlugin`，绕过基类全部安全机制：无 `WritesEnabled`、无 `CanWrite`、无熔断退避；`HidppIO` 的唯一写入点**无条件**发帧；插件默认启用（`PluginEnabled["Logitech"]`），且 `AppSettings` 里**根本不存在** `LogitechProbingEnabled`。连续失败只标离线、永不停止写入 | `Plugins/Logitech/LogitechPlugin.cs`（`: IBatteryPlugin`、`Poll`）、`Plugins/Logitech/HidppIO.cs`（唯一 `WriteOutput` 调用点）、`Settings/AppSettings.cs`（无 Logitech 开关项） | `done` | 10-06 复核 §4.1；10-10 全检复核仍成立 |
+| **CR-02** | 北通**探测路径**没有写入闸门：`BetopPlugin.Probe` 以 `dev: null` 调 `Query` 直接发帧，`BatteryPluginBase.RunProbe` 不检查 `CanWrite`（闸门只在 `PollDevice` 首行）。因 `ProbeCooldown`(30s) < 轮询周期(60s)，探测失败后**每轮必重探、每轮必写一帧**。**精确条件**：候选接口完全静默（`Query` 超时返 null）时成立 | `Plugins/Betop/BetopPlugin.cs:Probe` / `:Query`、`Plugins/BatteryPluginBase.cs:RunProbe` / `CanWrite` | `done` | 10-06 复核 §3.1；10-10 全检复核仍成立（条件收紧） |
+| **CR-03** | **共享可变 `DeviceStatus` 让"变化判定"恒为假**（定性**加重**：不止插件推送路径，**所有数据源**都持同一实例）。链路：数据源（BLE/经典/本机电源/插件）原地改**同一个** `DeviceStatus` 后传给 `Upsert`；首建时 `GetOrAdd(id, _ => incoming)` 存的就是这个实例 → `changed = status.BatteryPercent != incoming.BatteryPercent` 比较同一对象**恒 false**。后果：① 历史"变化即写"对已有设备永不触发（曲线只靠 `SafeSample` 定时采样，跳变丢点）；② `DeviceUpdated` 永不触发（UI 只靠 `DevicesChanged` 全量刷新）；③ 骤降保护 `previousPercent` 读到已改写的新值 → **恒不成立**。**例外**：设备若先由墓碑建立条目，则与数据源是不同实例，判定正常——表现取决于"启动时是否有 24h 内历史"，更隐蔽。**根因即 R3** | `Devices/DeviceManager.cs:Upsert`（`GetOrAdd` + `changed` + `previousPercent`）与 `p.StatusPushed += Upsert`、`Plugins/BatteryPluginBase.cs:TryApplyReading` / `RaiseStatusPushed`、`Ble/BleBatteryWatcher.cs:HandleDevice`、`Ble/BluetoothClassicWatcher.cs:HandleDevice`、`Power/SystemBatteryWatcher.cs:Apply` | `done` | 10-06 复核 §2.1；10-10 全检复核**加重**（波及面更广、更隐蔽） |
+| **CR-09** | 小组件的事件订阅是三个捕获 `this` 的匿名 lambda，**全文件无解绑**，`WidgetWindow` 非 `IDisposable` → 窗口关闭后仍被管理器强引用。**反复开关小组件会累积泄漏 + 回调叠加**（运行时真泄漏，非退出路径） | `WidgetWindow.xaml.cs`（`DeviceUpdated` / `DevicesChanged` / `Root.ActualThemeChanged` 订阅）、`Views/SettingsPage.xaml.cs:Save_Click`（`Widget.Close(); Widget=null` 后旧实例仍被引用） | `done` | 10-06 §3.3；10-10 全检**上调 P0** |
+
+> CR-03 附带一条注释失实：`Upsert` 里写着「覆盖前记下上一次已知电量……（**同一对象的情况也成立**）」，
+> 而恰恰是同一对象的情况**不成立**。属 `doc/dev/comment-style.md` §5 第 3 条禁止的"漂亮的谎"——**已随 CR-03 一并改掉**。
+
+## P1 · 用户可感知的功能错误
+
+| 编号 | 一句话 | 证据（`文件:符号`） | 状态 | 来源 |
+|---|---|---|---|---|
+| **CR-04** | 历史保留策略只在手动保存设置时执行，**没有定时任务**；UI 文案却写"自动清理"。超期记录从不自行过期 | `Devices/DeviceManager.cs:CleanupHistoryNow`（全仓唯一调用点在 `Views/SettingsPage.xaml.cs` 的保存流程）、`Devices/DeviceManager.cs:StartTimers`（三个 Timer 无清理） | `done` | 10-06 §2.4；10-10 复核仍成立 |
+| **CR-05** | `HistoryStore` 未开 WAL、未设 `busy_timeout`，读写共用一把 `_writeGate` → UI 查询会阻塞在写锁上，写入被放大成每条一次隐式事务。**加重**：`Views/HistoryPage.xaml.cs:DeleteAsync` 还在 UI 线程同步跑 `History.Compact()`（VACUUM 全表重写） | `Storage/HistoryStore.cs`（全文件无任何 `PRAGMA`） | `done` | 10-06 §4.4；10-10 复核**加重** |
+| **CR-06** | 历史页与统计页在 **UI 线程同步**跑 SQLite 全表统计，无 `Task.Run` | `Views/HistoryPage.xaml.cs:Reload` / `:DeleteAsync`、`Views/StatsPage.xaml.cs:ReloadDeviceList` / `:RenderChart` | `done` | 10-06 §4.4；10-10 复核**加重**（含 VACUUM） |
+| **CR-07** | 退出路径不释放资源：`TrayService.Exit()` 只摘托盘图标 + `ShutdownLogging()` + `Environment.Exit(0)`，**`AppServices.Dispose`（含 `Manager.Dispose` / `History.Dispose`）全仓无人调用** → HID 句柄、3 个 Timer、DB 都不确定性释放。**级别说明**：维持 P1 而非 P0——发生在进程终止路径，OS 会回收句柄、不累积；`review-standard.md` §1「资源泄漏=P0」的字面与"退出路径不释放"存在张力，建议后续修订 §1 措辞（区分"累积型泄漏"与"退出型未释放"） | `Services/TrayService.cs:Exit`、`App.xaml.cs:AppServices.Dispose` | `done` | 10-06 §4.4；10-10 复核仍成立（级别经裁决维持 P1） |
+| **CR-08** | 全局异常一律 `e.Handled = true` 吞掉，无计数熔断 → 应用会带病继续运行，用户只看到"点了没反应" | `App.xaml.cs` 的 `UnhandledException` 处理器 | `done` | 10-06 §4.4；10-10 复核仍成立 |
+| **CR-10** | Elan 插件的只读 feature 扫描**留在正常执行路径上**，违反 `doc/hardware/safety.md` §3 规则 7（"任何诊断/扫描代码不得留在正常执行路径上，哪怕有开关"）。**重新定性**：`FeatureSweep` / `FindBatteryFeature` 均为 `GetFeature`（**只读，不写帧**），故**不是硬件误写**，违规点是"扫描代码未剥离"。`ProbeCooldown` 5 分钟，插件默认启用 | `Plugins/Elan/ElanHeadsetPlugin.cs:Probe` 的 `HidWriteProbe.FeatureSweep` / `FindBatteryFeature` | `done` | 10-06 §1.3 + 复核 §4.1；10-10 重新定性 |
+| **CR-12** | 写入许可开关没有 UI：设置页只有 4 个手写 `ToggleSwitch` + 动态生成的**品牌级** `PluginEnabled` 行，`MchoseProbingEnabled` 与 `BetopProbingEnabled` 无控件，只能手改 `settings.json`。**加重**：`BetopProbingEnabled` 默认 true → 写入闸门默认敞开且用户关不掉 | `Views/SettingsPage.xaml`（`PluginPanel`）、`Views/SettingsPage.xaml.cs:AddPluginRow` / `Save_Click`、`Settings/AppSettings.cs` | `done` | 10-06 §3.1；10-10 复核**加重** |
+| **CR-37** | **罗技插件被当成"新插件"默认关闭，导致静默功能回归**：第十八轮给罗技新增独立的 `LogitechProbingEnabled`（默认 false），而罗技的发现/读数**全靠写帧、没有可用的"只被动"模式** → "插件开着但写入许可关着"这一组合让罗技**完全发现不了设备**，UI 上还看不出任何异常。根因：`safety.md` 规则 2 的"**新**插件默认关闭"被误用到**既有**功能插件上。**修法**：取消独立写入许可，所有插件统一"**插件开关即写入授权**"（见变更记录第十九轮） | `Plugins/Logitech/LogitechPlugin.cs:DiscoverDevices`（`if (!WritesEnabled) continue;`）、`Settings/AppSettings.cs:LogitechProbingEnabled` | `done` | 10-10 用户实测（罗技 2.4G 鼠标找不到） |
+
+## P2 · 可维护性
+
+| 编号 | 一句话 | 证据（`文件:符号`） | 状态 | 来源 |
+|---|---|---|---|---|
+| **CR-13** | `ReadConnected` 在 BLE 与经典蓝牙两个 watcher 里各写了一份（**逐字节相同**，均 `bool?`）；`Start()` 的属性探测循环 / `HandleRemoved` / `Snapshot()` 也高度重复。判定逻辑已修（CR-D1），**重复本身还在，且面比原条目更大** | `Ble/BleBatteryWatcher.cs:ReadConnected`、`Ble/BluetoothClassicWatcher.cs:ReadConnected` | `open` | 10-06 §2.2；10-10 复核（面扩大） |
+| **CR-14** | `HidWriteProbe` 的写入变体矩阵（`Run` / `PingVariants` / `MchoseClassicVariants`）**无任何调用点**（死代码），但仍是潜在写入路径；该类目前只有 `FeatureSweep` 被 Elan 使用 | `Hid/HidWriteProbe.cs`（全仓仅 `ElanHeadsetPlugin` 引用该类） | `done` | 10-06 复核 §4.1；10-10 复核仍成立 |
+| **CR-15** | 低电量提醒的档位只降不升：`_lastNotifiedPercent` 记录精确百分比且**永不复位**，判据是 `slot < lastSlot`。阈值 20 时在 20% 提醒一次后，19% 会**再提醒一次**（逐 1% 刷屏），而充满到 100% 再放电到 20% **不会提醒**。**附带 CR-23**：该表不随设备移除/禁用清理 | `Devices/DeviceManager.cs:CheckLowBattery` 的 `_lastNotifiedPercent`、`DropDevicesOf` / `ApplySystemBatterySetting` | `done` | 10-06 §4.2；10-10 复核仍成立（需真机确认影响面） |
+| **CR-16** | 文件超出 400 行建议上限（S1）。**实测精确吻合**：`WidgetWindow.xaml.cs` 679 / `Plugins/Logitech/LogitechPlugin.cs` 634 / `Plugins/BatteryPluginBase.cs` 599 / `Plugins/Mchose/MchosePlugin.cs` 584 / `Devices/DeviceManager.cs` 499；**清单补漏**：`Views/BatteryChartControl.xaml.cs` 405 亦超限 | 见左 | `open` | 10-06（S1）；10-10 复核 + 补漏 |
+| **CR-17** | 罗技会话一旦打开失败就**永不重试**：`OpenFailed` 置位后不清、`DiscoverDevices` 受 `Io != null` 门控、`HidppIO` 无重连/冷却。**表述收紧**：仅对"接口仍在位但打开失败"（会话被占/权限）成立；**物理拔出接收器再插回**会因 session 被 `TryRemove` 而重建、可重试 | `Plugins/Logitech/LogitechPlugin.cs:Attach` / `DiscoverDevices`、`Plugins/Logitech/HidppIO.cs` | `done` | 10-06 §3.2；10-10 复核（表述收紧，仍需真机验证） |
+| **CR-19** | 基类写入开关**默认 true**（`WritesEnabled => true`），新插件不显式覆盖即默认开启写入——与 `safety.md` R1"新插件默认关闭"方向相反，属 fail-open 设计隐患 | `Plugins/BatteryPluginBase.cs:WritesEnabled` | `done` | 10-10 全检（安全） |
+| **CR-20** | `settings.json` 用 `File.WriteAllText` **整文件覆盖、非原子写**（无临时文件 + rename），且文件写入在 `lock (CacheGate)` **之外**。进程写一半崩溃/断电 → 文件截断，下次 `Load` 反序列化失败**静默回落默认值**，用户设置丢失 | `Settings/AppSettings.cs:Save` | `done` | 10-10 全检（安全） |
+| **CR-21** | 多处 `catch { /* 忽略 */ }` 无日志留痕。多数是关停/竞态/预期失败可接受；但 `ReadInput` 吞掉读失败会掩盖"设备拔出/句柄异常" | `Hid/HidDeviceInfo.cs:ReadInput`、`Plugins/BatteryPluginBase.cs:StopPassiveListen`、`Plugins/Logitech/LogitechPlugin.cs:StopListening`、`Ble/BleBatteryWatcher.cs`、`Ble/ClassicDevNodeReader.cs` | `done` | 10-10 全检（安全） |
+| **CR-22** | `Detach` 末尾**无条件**打 `Log.Info("...插件已卸载")`；插件禁用期间 `PollOnceAsync` 每轮调 `Detach()` → **每 60s 刷一条"已卸载"假日志** | `Plugins/BatteryPluginBase.cs:Detach` | `done` | 10-10 全检（代码审查） |
+| **CR-23** | 低电量提醒档位表 `_lastNotifiedPercent` 在设备移除/禁用时不清理，条目常驻（与 CR-15 一并修） | `Devices/DeviceManager.cs`（`DropDevicesOf` / `ApplySystemBatterySetting` 未清 `_lastNotifiedPercent`） | `done` | 10-10 全检（代码审查） |
+| **CR-24** | 设备状态文案/配色格式化三处各写一份：充电/离线文案、`--%`、"主题色 vs 状态色"判断 | `ViewModels/DeviceRowModel.cs:From`、`WidgetWindow.xaml.cs:BuildRow`、`Services/TrayService.cs:ShowContextMenu` | `done` | 10-10 全检（代码审查） |
+| **CR-25** | `MchosePlugin` 自建日志去重三件套（`LogOnceByKey` / `ShouldLogOnce` / `ResetLogOnce`），与 `Utils/Log.cs:InfoOnChange`（自认"通用版"）重复 | `Plugins/Mchose/MchosePlugin.cs`、`Utils/Log.cs:InfoOnChange` | `done` | 10-10 全检（代码审查） |
+| **CR-26** | `LogitechPlugin.StableHash` 是 `=> PluginUtils.StableHash(s)` 的无谓直通包装（死代码，S6） | `Plugins/Logitech/LogitechPlugin.cs:StableHash` | `done` | 10-10 全检（代码审查） |
+| **CR-27** | `doc/dev/logging.md` §2.1 要求热路径先 `Log.IsEnabled(level)` 短路省 `$"..."` 插值，但 `Log.IsEnabled` **全仓 0 个调用点**；被过滤时仍先做插值 | `Utils/Log.cs:IsEnabled`（0 调用点） | `done` | 10-10 全检（可维护性） |
+| **CR-28** | 雷柏被动心跳路径每条状态帧打 Info + `Log.Hex`，活动期约 3s 一条 → 单设备可达约 2.8 万行/天，配合 2MB 滚动快速冲掉历史 | `Plugins/Rapoo/RapooPlugin.cs:TryParsePassiveInput` | `done` | 10-10 全检（可维护性） |
+| **CR-29** | 小组件与设备页**无合并/防抖**：每个 `DeviceUpdated` 触发一次 `TryEnqueue` 全量重建（`ChipStack.Children.Clear()` / 重建 `ItemsSource`）；一轮轮询 N 次 `Upsert` → N+1 次全量重建。对照 `TrayService.RequestUpdate` 已用 `Interlocked` 合并 | `WidgetWindow.xaml.cs` 订阅、`Views/DevicesPage.xaml.cs:Refresh` / `OnDevicesChanged` | `done` | 10-10 全检（可维护性） |
+| **CR-30** | `HidDeviceScanner.Inspect` 每次扫描对**每个** HID 接口以 `GENERIC_READ\|GENERIC_WRITE` 开句柄只为读元数据；15s 发现节拍 + 60s 主轮询 → 约 96+ 次打开/分。无需写权限时应用只读打开或缓存接口元数据 | `Hid/HidDeviceScanner.cs:Inspect` | `wontfix` | 10-10 全检（可维护性） |
+| **CR-31** | 自动更新走 Velopack，更新源由**用户可编辑的** `settings.json.UpdateUrl` 决定，**无签名验证、无来源白名单**。本地可写 settings.json 者可指向恶意 feed → 以当前用户身份任意代码执行 | `Services/UpdateService.cs`、`Settings/AppSettings.cs:UpdateUrl`、`Views/SettingsPage.xaml.cs:CheckUpdate_Click` | `wontfix` | 10-10 全检（安全） |
+| **CR-34** | `SettingsPage.Load()` **不可重入**：`PluginPanel.Children` / `_pluginToggles` / `_writePermissionRows` 只增不清（`WidgetMaxCombo.Items` / `LogLevelCombo.Items` 同）。当前仅构造函数调用一次故**不触发**；隐患是 `_pluginToggles` 用字典索引器（重复 key 覆盖、不累积）而 `_writePermissionRows` 用 `List.Add`（累积）——**两者行为不一致**，一旦有人加"重新加载"就会同时出现"UI 重复行 + 保存回写走旧行" | `Views/SettingsPage.xaml.cs:Load` / `:AddPluginRow` / `:_writePermissionRows` | `open` | 10-10 修复轮（收工自审） |
+| **CR-35** | `LogitechPlugin` 成功打开接口后**只清 `Io`、不清 `OpenFailed`**。因 `CanRetryOpen` 仅在 `Io == null` 时求值、且 `OpenFailedAt` 过期后恒真，当前**无实际后果**；残留语义会让后续改这段的人误判会话仍处打开失败态 | `Plugins/Logitech/LogitechPlugin.cs:MarkOpenFailed` / `CanRetryOpen` / `Attach` | `open` | 10-10 修复轮（收工自审） |
+| **CR-36** | `RequestRefresh` 的 `_refreshQueued` 只在 `TryEnqueue` 回调里复位；`TryEnqueue` 返回 false（窗口/队列已关）时永久卡在 1。当前 `Closed` 已解绑事件、关闭后不再收请求，**无实际后果** | `WidgetWindow.xaml.cs:RequestRefresh`、`Views/DevicesPage.xaml.cs:RequestRefresh` | `open` | 10-10 修复轮（收工自审） |
+
+### wontfix 理由（CR-30 / CR-31）
+
+- **CR-30**：收益被高估了。句柄打开/关闭是纯 CPU 的本地系统调用（每次亚毫秒级），96 次/分 ≈ 0.1~0.2% CPU，**没有可观测收益**。而"改成只读打开"会**改变枚举面**——`GENERIC_READ` 能打开 `GENERIC_READ|GENERIC_WRITE` 打不开的受保护 collection（键盘/鼠标），即设备列表会变多，等于在**无法真机验证**的前提下改变发现行为。本项目已因写入事故立过两次安全条款，用"扩大枚举面"换 0.2% CPU 不划算。
+  least-privilege 的诉求实际由插件层的严格过滤承担（`IsCandidate` 按 VID/usage/报告长度三重过滤，"多滤不会漏设备，少滤可能碰别家硬件"）。
+  **若日后要修，正确做法是"按 DevicePath 缓存接口元数据"（把 96 次/分降到 24 次/分），而不是改打开权限**——那条路不改枚举面，但收益同样有限。
+- **CR-31**：个人自用工具，更新源由用户自己填写，且 `CheckUpdate_Click` 在下载前有明确的确认对话框（不是静默更新）。真正的缓解手段是**给发布包做代码签名**——那属于发布流程（`scripts/build-installer.ps1`）而不是应用代码，不在本次修复范围。
+  风险本身真实：任何能写 `settings.json` 的人都能让应用拉一个恶意 feed。**已知风险、接受**。
+
+## Info · 记录备查（非缺陷）
+
+| 编号 | 一句话 | 证据（`文件:符号`） | 状态 | 来源 |
+|---|---|---|---|---|
+| **CR-32** | `.vpk-github-token`（GitHub PAT）**存在于仓库根工作目录**，但**未入库**（`git check-ignore` 命中 `.gitignore`）。风险：若仓库目录被同步/备份/打包分发会泄露。建议改用环境变量 `VPK_GITHUB_TOKEN` | `.gitignore:.vpk-github-token`、`scripts/publish-github.ps1` | `wontfix` | 10-10 全检（安全，Info） |
+| **CR-33** | 单实例互斥量用**本地命名 Mutex**（无 `Global\` 前缀），同会话进程可抢先占名 → 应用无法启动（本地 DoS）。个人工具可接受 | `App.xaml.cs:_singleInstanceMutex` | `wontfix` | 10-10 全检（安全，Info） |
+
+### wontfix 理由（CR-32 / CR-33）
+
+- **CR-32**：文件**未入库**（`.gitignore` 已覆盖），风险只存在于"仓库目录被同步/备份/打包分发"这一非默认场景。改环境变量的收益是把密钥从磁盘移走，但会让发布脚本多一个"环境变量没设"的失败模式，对个人工具不划算。**已知风险、接受**；若日后要分享仓库目录，先删该文件。
+- **CR-33**：本地命名互斥的"抢占"需要同一用户会话里已有恶意进程——那种前提下攻击者能做的事远多于占个互斥量名。改 `Global\` 反而会引入跨会话（含服务/其他用户）可见性，收益为负。**已知风险、接受**。
+
+## 重构 / 去重候选（非缺陷，对标 S1–S6；收益降序）
+
+> 这些是"可抽离封装 / 去重"的具体方案，不构成 bug；做的时候按行执行。完整论证见全检报告第 3 节。
+
+| 编号 | 抽什么 | 抽到哪 | 收益 / 风险 | 关联 |
+|---|---|---|---|---|
+| **D1** | 两个 watcher 的 `ReadConnected` + `HandleRemoved`（标离线/时间戳/日志/Invoke）+ `Start()` 属性探测循环 + `Snapshot()` | `Ble/WatcherProps.cs`（纯静态）或 `Ble/DeviceWatcherHost` 基类 | 消除 S3、堵"语义再分叉"（10-06 P0 根因）、`ReadConnected` 可单测（R8）；风险低 | CR-13 |
+| **D2** | 设备状态文案/配色格式化（充电/离线文案、`--%`、主题色 vs 状态色） | `Models/DeviceStatusFormatter`（Core 纯逻辑 → 可单测） | S3/DRY + 可测（R8）；风险低-中（UI 回归） | CR-24 |
+| **D3** | `BatteryChartControl` 几何/刻度/命中（`TimeToX` / `PctToY`、X 轴档数、`OnPointerMoved` 最近点查找） | `Views/ChartGeometry.cs`（纯函数 → 可进测试项目） | S2 + S1（405 行）；hover 命中可单测；风险低 | CR-16 |
+| **D4** | `WidgetWindow` 业务逻辑（设备排序、行宽估算、显示条数封顶） | `ViewModels/WidgetLayoutModel`（纯逻辑） | S2 + S1（679 行，最大超限）；风险低-中 | CR-16 |
+| **D5** | `SettingsPage.Save_Click` 的副作用编排（autostart 注册表、小组件开关生命周期、backdrop、`CleanupHistoryNow`） | `ViewModels/SettingsViewModel` | S2（355 行）；风险中（窗口生命周期需回归） | CR-16 |
+| **D6** | 插件"发帧→窗口内读→解析"骨架（`RapooPlugin.ListenStatus`、`MchosePlugin.ListenCzPush` / `TryKeyboardV1` / `PollKeyboardV1` / `PollQhw`、`BetopPlugin.Query` 的 deadline+读循环） | `Plugins/HidReadLoop.cs`（`static T? ReadUntil<T>(...)`） | S3、统一读窗口语义；风险中（日志/首帧计数需参数化） | 新增 |
+| **D7** | Mchose 日志去重三件套 → `Log.InfoOnChange` | — | S3/DRY；风险低 | CR-25 |
+| **D8** | 充电状态映射（`MchosePlugin.MapCharging` / `ParseKeyboardV1Charge`、`BetopPlugin.MapCharging`、"100%→Full"） | `Models/ChargingStateMap.cs`（纯函数） | S3；风险低 | 新增 |
+| **D9** | 删除 `LogitechPlugin.StableHash` 直通包装 | — | S6/S3；风险低 | CR-26 |
+| **D10** | ~~插件写入许可读取模式统一（基类加 `ProbingFlag(Func<AppSettings,bool>)`）~~ **已作废** | — | 第十九轮取消独立写入许可，"插件开关即授权"取代了本方案 | CR-12 |
+
+### 本轮（2026-10-10 修复轮）对重构候选的处理
+
+| 编号 | 状态 | 说明 |
+|---|---|---|
+| **D2** | `done` | 抽出 `Models/DeviceStatusFormatter`（`IsCharging` / `IsChargingOrFull` / `PercentText` / `ChargeSuffix`），列表页 / 小组件 / 托盘 / `DeviceManager` 四处改用；补 `DeviceStatusFormatterTests`。**色值仍留在 App 层 `UiPalette`**（要 `Windows.UI.Color`，Core 不能碰）。 |
+| **D7** | `done` | 三件套收进 `Log.Once(level, key, message)` / `Log.ResetOnce(key)`（**带级别**，因为"非 QHW 通道"那条原本是 Debug 级）。语义保持"一次 + 显式复位"，**没有**硬套 `InfoOnChange`——后者是"状态变化才记"，无法表达"恢复正常后再记一条"。 |
+| **D8** | `done` | 抽出 `Models/ChargingStateMap.FromChargingFlag`；`BetopPlugin.MapCharging` 与 `MchosePlugin.ParseKeyboardV1Charge` 改为薄封装（协议位掩码 `0x10` 留在插件里）；补 `ChargingStateMapTests`。 |
+| **D9** | `done` | 直通包装已在修复轮删除。 |
+| **D10** | **作废** | 修复轮曾改为"插件声明写入许可"（`IBatteryPlugin.WritePermission` + 基类 `WritesEnabled => WritePermission?.Get() ?? false`）。**第十九轮整体取消该机制**——改为"插件开关即写入授权"（`WritesEnabled => IsWritesEnabled(Name)`），见变更记录第十九轮。 |
+| **D1** | `open`（部分落地） | **逐字节相同的部分已抽离**：`Ble/WatcherProps.cs`（`Name` / `Connected` 常量、`ReadConnected`、`ReadBattery`），两个 watcher 共用并补 `WatcherPropsTests`。**基类化（`Start()` 探测循环 / `HandleRemoved` / `Snapshot()`）未做**——理由见下。 |
+| **D3/D4/D5/D6** | `open` | 未做，理由见下。 |
+
+### 为什么 D1（完整形态）/ D3 / D4 / D5 / D6 与 CR-16 本轮没做
+
+这几条**都是纯结构调整**（不修 bug、不改行为），共同点是：
+
+1. **收益是"可维护性"，成本是"回归风险"**，而本项目**没有任何 UI 自动化测试**——`WidgetWindow`（679 行）、`SettingsPage`（355 行）、`BatteryChartControl`（405 行）的拆分只能靠人工点检回归，而我这一轮**不能启动应用、不能碰真机**（`safety.md` §2：会话被占会粘住 dongle）。
+2. **D1 完整形态要动两个 watcher 的 550+ 行**（`Start` 的事件接线、`HandleDevice` 的差异分支），而这两处正是 10-06 那次 P0 的现场——在无法运行时验证的情况下重排，属于"用新的不确定性换掉旧的不确定性"。
+3. **CR-16 是结果不是原因**：文件超长本身不产生缺陷；它的拆法依赖 D1/D3/D4/D5/D6 落地。先拆 D1 再拆文件才对，顺序反了会白拆两次。
+
+**建议的下一轮顺序**：D1 完整形态（含补 R8 单测）→ D3（纯函数，可单测，零 UI 风险）→ D8 已做 → D4/D5 → 最后按 D1~D5 的结果一次性处理 CR-16。
+
+## 已关闭（保留记录，说明闭环确实有产出）
+
+| 编号 | 一句话 | 证据 | 状态 | 关闭方式 |
+|---|---|---|---|---|
+| **CR-D1** | BLE 三条互相矛盾的在线判定路径（默认 `false` 覆盖现状、`Removed` 不发离线） | `Ble/BleBatteryWatcher.cs` 的 `HandleDevice` / `HandleRemoved` | `done` | 已改为 `bool? connected`（属性缺失时沿用现状）+ `Removed` 发布离线 |
+| **CR-D2** | `Upsert` 合并时漏拷 `Kind` / `Protocol`，导致设备图标被后续更新保留旧值 | `Devices/DeviceManager.cs:Upsert` | `done` | 改由 `Devices/DeviceStatusMerger.Apply` 统一合并（见 `doc/project/changelog.md` 对应轮次） |
+| **CR-D3** | 插件禁用后设备不下线，托盘/小组件继续显示 | `Devices/DeviceManager.cs` 的插件卸载路径 | `done` | 插件禁用时立即移除/下线设备（见 `doc/project/changelog.md` 对应轮次） |
+| **CR-11** | `doc/hardware/safety.md` §3 规则 2 与实现**完全脱节**：规则原文写"一切写入受 `MchoseProbingEnabled` 开关控制（默认 false）"，实际北通走 `BetopProbingEnabled`（**默认 true**）、罗技无任何开关 | `doc/hardware/safety.md` §3 规则 2 vs `Settings/AppSettings.cs`、`Plugins/Betop/BetopPlugin.cs` | `done` | 2026-10-10 第十七轮：`safety.md` §3 规则 2 已重写为"每插件写入必须有自己的开关，判定入口唯一 `CanWrite`→`WritesEnabled`"，并新增 §3.1 逐插件对照表。**文档与实现的脱节已消除**；规则想保护的缺口本体是 CR-01，与本条分开跟踪。全检复核确认已修 |
+| **CR-18** | 文档假指针：`README.md` / `handoff.md` / `experience.md` / `changelog.md` / `debugging.md` 共 6 处把 `safety.md` 的会话排他内容引成**不存在的子节 §2.2**（该文件只有 §1–§4） | 上述 5 个文档 | `done` | 2026-10-10 第十七轮：6 处全部改为 `§2`（事故二）；并脚本核验全仓 `§N` 引用，其余指针全部真实（见 `doc/project/changelog.md` 第十七轮） |
+
+> **2026-10-10 修复轮关闭的 25 条（CR-01~CR-09/10/12/14/15/17/19~CR-29 + D2/D7/D8/D9/D10）就地标 `done`**，
+> 见上方各表的"状态"列；关闭方式统一记在 `doc/project/changelog.md` 的修复轮小节，不在此重复。
+
+## 待办：本次未核实的部分
+
+2026-10-10 全检已把上一版遗留的四条**全部核实**，结论如下（不再列为"未核实"）：
+
+1. ~~`SafeSample` 无去重/节流~~ → **属实**（每轮凡在线且有读数一律 `Insert`，设计意图即"无变化也写点保曲线连续"，非 bug；但每次抢 `_writeGate`，见 CR-05）。
+2. ~~跨线程共享对象无锁导致 `int?` 撕裂读取~~ → **部分属实**（写写/读写确无锁保护，数据竞争属实；x64 上 `int?` 撕裂罕见，主导后果是 CR-03 的变化判定失效而非撕裂）。
+3. ~~小组件刷新无合并~~ → **属实**（见 CR-29，已修）。
+4. ~~BLE `PollConnectedAsync` 串行 `await` 拖长整轮~~ → **属实**（`foreach … await ReadBatteryViaGattAsync`，且 `PollOnceAsync` 持 `_passGate`；受 `_lastGattAttempt` 2 分钟节流限制影响面）。
+
+**仍未实测（需真机，不阻塞静态结论）**：
+
+- `history.db` 的实际日增速与 UI 卡顿程度（CR-05/06 修完后应明显缓解）；
+- CR-15（低电量档位）修完后的实际提醒次数——**改的是纯逻辑，但仍建议插拔一次真机确认**；
+- CR-17（罗技会话）10 分钟退避重试的真机表现——本机无 VID_046D 设备，**无法验证**；
+- CR-02 的"每轮必写一帧"依赖"接口完全静默"前提；
+- **第十九轮需真机确认**：罗技在"插件开关打开"后能否恢复发现设备（用户配置 `PluginEnabled.Logitech=true`，理论上应恢复）；**迈从的行为变化**——第十八轮"`MchoseProbingEnabled=false` ⇒ 只被动监听"在第十九轮变为"插件开 ⇒ 允许写帧"，用户当前 `PluginEnabled.Mchose=true`，需确认主动写帧可接受（迈从的探测写入有干扰设备的先例）。
+- **UI 路径全部无自动化覆盖**：`RequestRefresh` 合并刷新、设置页插件行生成——只能靠真机点检。
+  CR-34/35/36 正是"静态可见、运行时不可验"的一类，故收工自审只记录不修（理由见 `doc/reviews/archive/fix-round-2026-10-10.md` §5）。
+  CR-34 里的 `_writePermissionRows` 已随第十九轮删除，但 `Load()` 不可重入本身仍在。

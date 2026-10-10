@@ -21,12 +21,16 @@ public sealed class DeviceManager : IDisposable
     private readonly List<IBatteryPlugin> _plugins;
     private readonly DeviceClaimRegistry _claims = new();
     private readonly ConcurrentDictionary<string, DeviceStatus> _devices = new();
-    private readonly ConcurrentDictionary<string, int> _lastNotifiedPercent = new();
+
+    /// <summary>每台设备"是否已就低电量提醒过"。电量回到阈值之上（或充电）就复位，下次跌破再提醒一次；
+    /// 设备条目被移除时也一并清掉（见 <see cref="ExpireTombstones"/> / <see cref="DropDevicesOf"/>，CR-23）。</summary>
+    private readonly ConcurrentDictionary<string, bool> _lowBatteryNotified = new();
     /// <summary>由历史记录补出的离线占位条目（见 <see cref="RestoreOfflineTombstones"/>）；过期剔除时只能删这些，不能误删"在位但读不到"的真实设备。</summary>
     private readonly HashSet<string> _tombstoneIds = new();
     private System.Threading.Timer? _pollTimer;
     private System.Threading.Timer? _sampleTimer;
     private System.Threading.Timer? _discoveryTimer;
+    private System.Threading.Timer? _cleanupTimer;
     private readonly object _pollSync = new();
     /// <summary>所有 pass（整轮轮询 / 快速发现）串行执行——插件内部的字典不是线程安全的。</summary>
     private readonly SemaphoreSlim _passGate = new(1, 1);
@@ -170,6 +174,7 @@ public sealed class DeviceManager : IDisposable
         {
             _devices.TryRemove(id, out _);
             _tombstoneIds.Remove(id);
+            _lowBatteryNotified.TryRemove(id, out _);
         }
         Log.Info($"离线占位已过期移除 {expired.Count} 台");
         DevicesChanged?.Invoke();
@@ -188,6 +193,10 @@ public sealed class DeviceManager : IDisposable
             FastDiscoveryInterval, FastDiscoveryInterval);
         _sampleTimer = new Timer(_ => SafeSample(), null,
             TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(Math.Max(1, _settings.SampleIntervalMinutes)));
+        // 历史保留定时执行：以前只在手动保存设置时清理，UI 文案写"自动清理"却是空话（CR-04）。
+        // 启动后 30 秒首跑（避开启动高峰），之后每 6 小时一次。
+        _cleanupTimer = new Timer(_ => CleanupHistoryNow(), null,
+            TimeSpan.FromSeconds(30), TimeSpan.FromHours(6));
     }
 
     /// <summary>快速发现节拍。15 秒 = 雷柏心跳(3.04s)的约 5 倍（发现时延上界 ~15s）；迈从 ProbeCooldown 必须 &lt; 15s 才能每拍重探。</summary>
@@ -216,6 +225,7 @@ public sealed class DeviceManager : IDisposable
         if (_devices.TryRemove(SystemBatteryWatcher.DeviceId, out _))
         {
             _tombstoneIds.Remove(SystemBatteryWatcher.DeviceId);
+            _lowBatteryNotified.TryRemove(SystemBatteryWatcher.DeviceId, out _);
             Log.Info("已关闭本机电量监控，移除系统电量条目");
             DevicesChanged?.Invoke();
         }
@@ -301,6 +311,7 @@ public sealed class DeviceManager : IDisposable
         {
             _devices.TryRemove(id, out _);
             _tombstoneIds.Remove(id);
+            _lowBatteryNotified.TryRemove(id, out _);
         }
         Log.Info($"插件 {pluginName} 已禁用，移除其 {dropped.Count} 台设备");
         DevicesChanged?.Invoke();
@@ -379,13 +390,14 @@ public sealed class DeviceManager : IDisposable
         }
     }
 
-    /// <summary>立即按保留天数清理历史（设置保存后调用）。</summary>
+    /// <summary>立即按保留天数清理历史。设置保存后调用，也由 6 小时定时任务调用。</summary>
     public void CleanupHistoryNow()
     {
         try
         {
             var removed = _history.CleanupOlderThan(DateTimeOffset.Now.AddDays(-_settings.HistoryRetentionDays));
-            Log.Info($"历史清理完成，删除 {removed} 条");
+            // 定时任务大多数时候删 0 条，只有真删了才记一行，避免每 6 小时刷一条无信息量日志
+            if (removed > 0) Log.Info($"历史清理完成，删除 {removed} 条");
         }
         catch (Exception ex)
         {
@@ -412,26 +424,26 @@ public sealed class DeviceManager : IDisposable
 
     private void Upsert(DeviceStatus incoming)
     {
+        // 数据源（插件/watcher）会复用并原地改写同一个 DeviceStatus 实例。直接把它存进 _devices，
+        // 后续再比较就变成"同一对象和自己比"，changed 恒为假（历史即写 / DeviceUpdated / 骤降保护全失效）。
+        // 所以先快照 incoming 当"新值"，库里存的始终是独立副本当"旧值"——详见 doc/project/architecture.md §6。
+        var snapshot = incoming.Clone();
+        var status = _devices.GetOrAdd(incoming.Id, snapshot);
+        bool isNew = ReferenceEquals(status, snapshot);
+
         // 新设备立即通知 UI（watcher/插件首轮上报不等下一分钟轮询）
-        bool isNew = !_devices.ContainsKey(incoming.Id);
-        var status = _devices.GetOrAdd(incoming.Id, _ => incoming);
         if (isNew)
         {
             DevicesChanged?.Invoke();
             DeviceUpdated?.Invoke(status);
         }
 
-        // 覆盖前记下上一次已知电量，供低电量提醒做骤降保护（同一对象的情况也成立）
         int? previousPercent = isNew ? null : status.BatteryPercent;
         var previousKind = status.Kind;
 
-        // 充电标志必须参与变化判定：设备改口 充电中↔放电 时电量往往不变（如拔线瞬间停在 99%），
-        // 漏判会让 UI/托盘/小组件一直显示"充电中"，直到下一次电量跳动才自愈（2026-10-06 用户复报）。
-        bool changed = status.BatteryPercent != incoming.BatteryPercent
-                    || status.Charging != incoming.Charging
-                    || status.IsOnline != incoming.IsOnline;
-        // 原地同步（同一对象的情况也统一字段）；Kind/Protocol 的"声明覆盖猜测"规则见 DeviceStatusMerger
-        DeviceStatusMerger.Apply(status, incoming);
+        bool changed = DeviceChangeDetector.HasChanged(status, snapshot);
+        // 原地同步（Kind/Protocol 的"声明覆盖猜测"规则见 DeviceStatusMerger）
+        DeviceStatusMerger.Apply(status, snapshot);
 
         // 占位条目一旦被真实来源接管（重新上线），就不再按占位规则过期剔除
         if (status.IsOnline) _tombstoneIds.Remove(status.Id);
@@ -458,24 +470,35 @@ public sealed class DeviceManager : IDisposable
     private void CheckLowBattery(DeviceStatus status, int? previousPercent)
     {
         int threshold = _settings.LowBatteryThreshold;
-        if (threshold <= 0 || !status.IsOnline) return;
-        if (status.BatteryPercent is not { } percent || percent > threshold) return;
-        if (status.Charging == ChargingState.Charging || status.Charging == ChargingState.Full) return;
-
-        // 骤降保护：键盘休眠/关机瞬间的伪读数（1%/0%）会让电量瞬间"掉"到阈值以下。
-        // 真掉电不可能一次掉 20 个点，所以这种降幅先不提醒，等下次读数确认。
-        if (previousPercent is { } prev && prev - percent > ImplausibleDropPoints)
+        if (threshold <= 0)
         {
-            Log.Warn($"低电量提醒暂缓: {status.DisplayName} {prev}%→{percent}% 降幅异常，等下次读数确认");
+            // 关掉提醒时复位，重新开启后第一条低电量读数就能正常提醒
+            _lowBatteryNotified.TryRemove(status.Id, out _);
+            return;
+        }
+        if (!status.IsOnline) return;
+        if (status.BatteryPercent is not { } percent) return;
+
+        // 回到阈值之上（或充电/满电）→ 复位"已提醒"标记，下次跌破再提醒一次。
+        // 旧实现记的是"精确百分比且永不复位"，导致 20% 提醒后 19% 又提醒（逐 1% 刷屏），
+        // 而充满到 100% 再放电到 20% 反而不提醒（CR-15）。
+        if (percent > threshold || DeviceStatusFormatter.IsChargingOrFull(status.Charging))
+        {
+            _lowBatteryNotified.TryRemove(status.Id, out _);
             return;
         }
 
-        // 每跨过阈值只提醒一次：记录上次提醒时的档位
-        int slot = percent; // 精确到个位百分比
-        int lastSlot = _lastNotifiedPercent.GetValueOrDefault(status.Id, int.MaxValue);
-        if (slot < lastSlot)
+        // 骤降保护：键盘休眠/关机瞬间的伪读数（1%/0%）会让电量瞬间"掉"到阈值以下。
+        // 真掉电不可能一次掉 20 个点，所以这种降幅先不提醒，等下次读数确认。
+        if (DeviceChangeDetector.IsImplausibleDrop(previousPercent, percent, ImplausibleDropPoints))
         {
-            _lastNotifiedPercent[status.Id] = slot;
+            Log.Warn($"低电量提醒暂缓: {status.DisplayName} {previousPercent}%→{percent}% 降幅异常，等下次读数确认");
+            return;
+        }
+
+        // 跨过阈值只提醒一次（TryAdd 兼任"未提醒过"的判定，天然幂等）
+        if (_lowBatteryNotified.TryAdd(status.Id, true))
+        {
             LowBatteryDetected?.Invoke(status);
             Log.Info($"低电量提醒: {status.DisplayName} {percent}%");
         }
@@ -486,6 +509,7 @@ public sealed class DeviceManager : IDisposable
         _pollTimer?.Dispose();
         _sampleTimer?.Dispose();
         _discoveryTimer?.Dispose();
+        _cleanupTimer?.Dispose();
         foreach (var p in _plugins)
         {
             p.StatusPushed -= Upsert;

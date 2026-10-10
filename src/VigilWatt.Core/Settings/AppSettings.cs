@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using VigilWatt.Core.Utils;
@@ -37,22 +38,16 @@ public class AppSettings
     /// <summary>窗口背景材质。取值见 <c>VigilWatt.App.Services.WindowBackdrop</c>：Auto（跟随系统能力）/ Mica（云母，仅 Win11，不满足自动降级）/ Acrylic（磨砂，Win10 1809+）/ Solid（纯色分层底）；未知取值按 Auto。</summary>
     public string WindowBackdrop { get; set; } = "Auto";
 
-    /// <summary>2.4G 插件开关（品牌级）。</summary>
+    /// <summary>2.4G 插件开关（品牌级）。**这就是该插件的写入授权**：开插件即允许它发送工作所需的帧，
+    /// 不再有独立的"写入许可"开关（CR-37）。会写帧的插件默认关闭（见各项注释）。</summary>
     public Dictionary<string, bool> PluginEnabled { get; set; } = new()
     {
-        ["Logitech"] = true,
-        ["Mchose"] = false,   // 迈从 dongle 协议未破解，且探测写入可能干扰设备，默认关闭
+        ["Logitech"] = false,   // 罗技 HID++ 的发现与读数全靠写帧（自建闸门见 CR-01）
+        ["Mchose"] = false,   // 迈从 dongle 协议未破解，探测写入可能干扰设备
         ["Rapoo"] = true,     // 雷柏走纯被动心跳读取，零写入，默认开启
-        ["Elan"] = true,
+        ["Elan"] = true,      // Elan 只占位不探测，零写入
         ["Betop"] = true,     // 北通手柄：发官方同款只读状态查询（cmd=0x5），默认开启
     };
-
-    /// <summary>是否允许向迈从 dongle 发送探测/查询写入（有干扰设备的风险，需用户显式开启）。</summary>
-    public bool MchoseProbingEnabled { get; set; } = false;
-
-    /// <summary>是否允许向北通手柄接收器发送电量查询。该帧是官方客户端自己使用的只读状态查询（cmd=0x5，不碰写配置/固件/灯效），风险低，默认开启。
-    /// ⚠️ 关掉**只挡住轮询写入**，不挡探测：探测路径 RunProbe→Probe 目前仍会写帧（待修）。</summary>
-    public bool BetopProbingEnabled { get; set; } = true;
 
     /// <summary>是否把本机（笔记本）电池也纳入监控。默认关闭——它是"另一类设备"，不像外设那样需要盯着，用户明确要时才开（见设置页「监控本机电量」）。
     /// 注意：纯 bool，老 settings.json 缺该字段时反序列化直接用属性默认值 false，不需要像 <see cref="PluginEnabled"/> 那样手动补键。</summary>
@@ -107,17 +102,31 @@ public class AppSettings
         }
     }
 
+    /// <summary>
+    /// 原子写：先写同目录临时文件并**刷盘**，再整体 rename 覆盖（CR-20）。
+    /// 旧实现直接 <c>File.WriteAllText</c> 覆盖原文件，进程写一半崩溃/断电会留下截断的 JSON，
+    /// 下次 <see cref="Load"/> 反序列化失败就**静默回落默认值**——用户全部设置丢失且无任何提示。
+    /// 同卷 rename 在 NTFS 上是原子替换，读端只会看到"旧的完整文件"或"新的完整文件"。
+    /// </summary>
     public void Save()
     {
+        var tmp = SettingsPath + ".tmp";
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, JsonOpts));
+            var bytes = new UTF8Encoding(false).GetBytes(JsonSerializer.Serialize(this, JsonOpts));
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                fs.Write(bytes, 0, bytes.Length);
+                fs.Flush(flushToDisk: true);
+            }
+            File.Move(tmp, SettingsPath, overwrite: true);
             lock (CacheGate) _cached = this;
         }
         catch (Exception ex)
         {
             Log.Error("settings.json 保存失败", ex);
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* 清不掉临时文件不致命，忽略 */ }
         }
     }
 }

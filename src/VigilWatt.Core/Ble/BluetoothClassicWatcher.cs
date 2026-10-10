@@ -17,15 +17,12 @@ public sealed class BluetoothClassicWatcher : IDisposable
 
     public event Action<DeviceStatus>? DeviceUpdated;
 
-    private const string PropName = "System.ItemNameDisplay";
-    private const string PropConnected = "System.Devices.Aep.IsConnected";
-
     /// <summary>电量属性候选：AepBattery_Level 在本机 BLE selector 下不可用（runtime-pitfalls §3），
     /// 经典蓝牙 selector 下值得实测一次；抛异常就自动回退到只显示连接状态，无副作用。</summary>
     private static readonly string[][] BatteryPropCandidates =
     {
-        new[] { PropName, "System.Devices.AepBattery_Level", PropConnected },
-        new[] { PropName, PropConnected },
+        new[] { WatcherProps.Name, "System.Devices.AepBattery_Level", WatcherProps.Connected },
+        new[] { WatcherProps.Name, WatcherProps.Connected },
     };
 
     private string? _batteryProp;
@@ -70,7 +67,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
         string id, IReadOnlyDictionary<string, object> props, string? name, bool connectionVerified = false)
     {
         // Updated 事件只带变化的属性：IsConnected 缺失时沿用现状，不能当成断开
-        bool? connected = ReadConnected(props);
+        bool? connected = WatcherProps.ReadConnected(props);
 
         if (connected == false)
         {
@@ -96,16 +93,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
         // 设备节点信息一次取全：电量 + Windows 设备类别 + 服务 UUID（类型判定要用；整表 5 秒缓存）
         var nodeInfo = TryGetDevNodeInfo(id);
 
-        int? percent = null;
-        if (_batteryProp != null && props.TryGetValue(_batteryProp, out var batteryObj))
-        {
-            try
-            {
-                int v = Convert.ToInt32(batteryObj);
-                if (v is > 0 and <= 100) percent = v;
-            }
-            catch { /* 类型不对就忽略 */ }
-        }
+        int? percent = WatcherProps.ReadBattery(props, _batteryProp);
 
         // AEP 属性拿不到时，走 HFP 网关设备节点的 DEVPKEY_Device_BatteryLevel
         percent ??= nodeInfo?.BatteryPercent;
@@ -148,7 +136,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
     private async Task VerifyConnectionAndAddAsync(
         string id, IReadOnlyDictionary<string, object> props, string? name)
     {
-        bool? aep = ReadConnected(props);
+        bool? aep = WatcherProps.ReadConnected(props);
         if (aep == false)   // AEP 明说断开，不用再问
         {
             Log.Info($"经典蓝牙设备未连接，不进列表: {id}");
@@ -160,7 +148,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
         {
             var list = await DeviceInformation.FindAllAsync(
                 BluetoothDevice.GetDeviceSelectorFromConnectionStatus(BluetoothConnectionStatus.Connected),
-                new[] { PropConnected }, DeviceInformationKind.AssociationEndpoint);
+                new[] { WatcherProps.Connected }, DeviceInformationKind.AssociationEndpoint);
             connected = list.Any(d => string.Equals(d.Id, id, StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex)
@@ -180,12 +168,6 @@ public sealed class BluetoothClassicWatcher : IDisposable
         HandleDevice(id, props, name, connectionVerified: true);
     }
 
-    private static bool? ReadConnected(IReadOnlyDictionary<string, object> props)
-    {
-        if (!props.TryGetValue(PropConnected, out var obj)) return null;
-        try { return Convert.ToBoolean(obj); } catch { return null; }
-    }
-
     /// <summary>取显示名，来源按可靠性排序：WinRT 名字 → <c>ItemNameDisplay</c> → 注册表配对名 → 格式化 MAC；每个候选都过 <see cref="ClassicDeviceName.IsPlaceholder"/>（WinRT 在友好名未解析时会把 AEP 设备 ID 当名字返回）。</summary>
     private static void ApplyName(
         DeviceStatus status, string aepId, string? infoName, IReadOnlyDictionary<string, object> props)
@@ -196,7 +178,7 @@ public sealed class BluetoothClassicWatcher : IDisposable
             return;
         }
 
-        if (props.TryGetValue(PropName, out var nameObj) &&
+        if (props.TryGetValue(WatcherProps.Name, out var nameObj) &&
             !ClassicDeviceName.IsPlaceholder(nameObj?.ToString()))
         {
             status.Name = nameObj!.ToString()!.Trim();

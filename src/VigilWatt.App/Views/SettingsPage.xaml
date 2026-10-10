@@ -176,7 +176,7 @@
                             <StackPanel x:Name="PluginPanel" />
                             <Border Style="{StaticResource RowDividerStyle}" />
                             <TextBlock Margin="0,12,0,6" Style="{StaticResource RowDescStyle}"
-                                       Text="2.4G 协议按品牌适配。识别不到设备时，可查看日志 %LOCALAPPDATA%\VigilWatt\logs\app.log" />
+                                       Text="2.4G 协议按品牌适配。开启插件即授权它发送工作所需的帧（没有独立的「写入许可」开关）；会写帧的插件默认关闭。识别不到设备时，可查看日志 %LOCALAPPDATA%\VigilWatt\logs\app.log" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

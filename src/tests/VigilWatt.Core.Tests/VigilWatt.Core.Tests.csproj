@@ -32,18 +32,24 @@
   -->
   <ItemGroup>
     <Compile Include="..\..\VigilWatt.Core\Plugins\BatteryReadingFilter.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Plugins\PluginUtils.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Plugins\DeviceClaimRegistry.cs" />
     <Compile Include="..\..\VigilWatt.Core\Plugins\OfflinePolicy.cs" />
     <Compile Include="..\..\VigilWatt.Core\Plugins\Mchose\MchoseV1Codec.cs" />
     <Compile Include="..\..\VigilWatt.Core\Plugins\Rapoo\RapooCodec.cs" />
     <Compile Include="..\..\VigilWatt.Core\Plugins\Betop\BetopCodec.cs" />
     <Compile Include="..\..\VigilWatt.Core\Plugins\Logitech\HidppCodec.cs" />
     <Compile Include="..\..\VigilWatt.Core\Ble\ClassicDeviceName.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Ble\WatcherProps.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceKind.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceKindGuesser.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\ClassicDeviceKindResolver.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceSourceInfo.cs" />
     <Compile Include="..\..\VigilWatt.Core\Models\DeviceStatus.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Models\DeviceStatusFormatter.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Models\ChargingStateMap.cs" />
     <Compile Include="..\..\VigilWatt.Core\Devices\DeviceStatusMerger.cs" />
+    <Compile Include="..\..\VigilWatt.Core\Devices\DeviceChangeDetector.cs" />
     <Compile Include="..\..\VigilWatt.Core\Power\SystemPowerReader.cs" />
     <Compile Include="..\..\VigilWatt.Core\Power\SystemBatteryWatcher.cs" />
     <Compile Include="..\..\VigilWatt.Core\Storage\HistoryStore.cs" />

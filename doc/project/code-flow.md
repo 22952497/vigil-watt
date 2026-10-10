@@ -145,7 +145,7 @@ BatteryPluginBase.Attach(hidDevices, claims)
     │   │   （2026-10-08 实修：旧代码失败即 TryRemove 并回落完整探测，于是每 15 秒发现节拍
     │   │    都白写一次 QHW 握手 + 重试一遍 keyboard-v1，写入翻倍、WARN 刷屏）
     │   ├── TryQhw：                    # 新世代 dongle 协议（本机不命中）
-    │   │   被动监听 CZ 推送 3s →（ProbingEnabled?）握手 0x4D+AA55… → getBattery(0x0904) → 解析
+    │   │   握手 0x4D+AA55… → getBattery(0x0904) → 解析（未授权写入时退化为被动监听 CZ 推送 3s）
     │   │   握手写用 quiet: true —— 非 QHW 通道必然 ERROR_INVALID_PARAMETER，那是判据不是故障
     │   └── TryKeyboardV1：             # 本机 G87 dongle 协议 ✅
     │       SendKeyboardV1Frame(0x05,0x01) 开会话 → 收 ACK/推送
@@ -154,15 +154,15 @@ BatteryPluginBase.Attach(hidDevices, claims)
     └── 成功 → 建 DeviceStatus{Id="mchose:"+路径哈希, Protocol="keyboard-v1"} 存表
 ```
 
-**探测期的日志一律"状态变化才记"**（`MchosePlugin.LogOnceByKey` + `ShouldLogOnce` / `ResetLogOnce`，
-2026-10-08 加）：发现节拍每 15 秒重探一次，而设备睡着 / 关了写入许可时这些路径**永远走不到成功**，
-逐次记录会把 app.log 刷满且没有新信息。现在三个位置各只记第一次——
-"这条通道不是 QHW"、"没开写入许可"、"keyboard-v1 两次询问无响应"，
-恢复正常时 `ResetLogOnce` 清标记，于是"好了之后又出问题"会重新记一条（与北通占位帧同一记法）。
+**探测期的日志一律"状态变化才记"**（`Log.Once` / `Log.ResetOnce`，key = `MchosePlugin.LogKey(handle, 用途)`
+即 `路径|用途`；2026-10-08 加，2026-10-10 收拢到 `Log` 公共入口）：发现节拍每 15 秒重探一次，
+而设备睡着 / 未授权写入时这些路径**永远走不到成功**，逐次记录会把 app.log 刷满且没有新信息。
+现在三个位置各只记第一次——"这条通道不是 QHW"、"未授权写入"、"keyboard-v1 两次询问无响应"，
+恢复正常时 `Log.ResetOnce` 清标记，于是"好了之后又出问题"会重新记一条（与北通占位帧同一记法）。
 
 ### 4.2 轮询（Poll，基类骨架 + 子类 PollDevice）
 
-`PollDevice` 按 `dev.Protocol` 分派：`keyboard-v1` → `PollKeyboardV1`（发一条 `13 4A 01`，1.2 秒内解析 4A 响应或 `13 0A` 自发推送）。**所有帧解析走纯函数单元 `MchoseV1Codec`**（`BuildFrame`/`ParsePush`/`ParseBatteryResponse`，零依赖，单测在 `src/tests/VigilWatt.Core.Tests/`）。关键：0A 推送帧的**类型位（下标 5）必须先认**——0x05=电量（[6]=%、[7]=标志），0x02=设备状态通知（实测键盘休眠，[6] **不是电量**）。失败记账：迈从把 `OfflinePolicy.CountPollFailures` 置 false（`null` 与"没开写入 / 熔断中"不可区分），改由 `PollDevice` 在**发过帧**的分支调 `ReportPollFailure` / `ReportPollAnswered` 自己报账；**连续 `OfflinePolicy.MaxFailures`（默认 3）次 → `WritesDisabled=true` 熔断停写**，之后各协议分支只走被动监听；停写 10 分钟退避期满 `CanWrite` 自动放行一轮（对付键盘休眠唤醒，safety.md §3 规则 3）。`ProbingEnabled=false` 时轮询/探测直接短路，不写任何字节。子类判定"设备已休眠"时调基类 `RequestOffline(dev)` → 立即标离线，不等 3 次失败（省约 3 分钟）。
+`PollDevice` 按 `dev.Protocol` 分派：`keyboard-v1` → `PollKeyboardV1`（发一条 `13 4A 01`，1.2 秒内解析 4A 响应或 `13 0A` 自发推送）。**所有帧解析走纯函数单元 `MchoseV1Codec`**（`BuildFrame`/`ParsePush`/`ParseBatteryResponse`，零依赖，单测在 `src/tests/VigilWatt.Core.Tests/`）。关键：0A 推送帧的**类型位（下标 5）必须先认**——0x05=电量（[6]=%、[7]=标志），0x02=设备状态通知（实测键盘休眠，[6] **不是电量**）。失败记账：迈从把 `OfflinePolicy.CountPollFailures` 置 false（`null` 与"没开写入 / 熔断中"不可区分），改由 `PollDevice` 在**发过帧**的分支调 `ReportPollFailure` / `ReportPollAnswered` 自己报账；**连续 `OfflinePolicy.MaxFailures`（默认 3）次 → `WritesDisabled=true` 熔断停写**，之后各协议分支只走被动监听；停写 10 分钟退避期满 `CanWrite` 自动放行一轮（对付键盘休眠唤醒，safety.md §3 规则 3）。`WritesEnabled=false`（插件关闭）时轮询/探测直接短路，不写任何字节。子类判定"设备已休眠"时调基类 `RequestOffline(dev)` → 立即标离线，不等 3 次失败（省约 3 分钟）。
 
 **读数异常过滤（`BatteryReadingFilter`，每设备一个实例，基类 `BatteryPluginBase.Poll` 调用，2026-10-06 加）**：判定只做两件事——① **数值有效性**：低于 `MinValidPercent`（默认 2，即 0/1 是休眠占位帧）或 >100 → `InvalidValue`，永不采信；② **变化幅度**：与 `LastAcceptedPercent` 相比涨跌超过 `MaxPlausibleStepPercent`（默认 20 点）→ `RejectAnomaly`，本轮**不写入 status**（UI 和低电量判定都看不到），需持续 `AnomalyPersistWindow`（默认 5 分钟）才升级为 `AcceptConfirmed` 采信；读数回到基准附近则持续计时清零。基准**不随离线清空**（伪读数常出现在"刚掉线/刚回来"的窗口）。越界/异常都打 `读数异常已过滤` 日志。阈值均为 `protected virtual`，子类可覆盖。单测见 `src/tests/VigilWatt.Core.Tests/`。
 
@@ -233,7 +233,7 @@ SafeSample（每 SampleIntervalMinutes 分钟）:
 
 ## 6. 低电量提醒（DeviceManager.CheckLowBattery → App.AttachTray）
 
-条件：在线 && 电量 ≤ LowBatteryThreshold && 非充电/已充满。**按百分比档位去重**：`_lastNotifiedPercent[Id]` 记录上次提醒档位，只在电量进一步下降时再提醒（避免反复轰炸）。触发 → `LowBatteryDetected` 事件 → App 层 `DispatcherQueue.TryEnqueue` → `Tray.ShowLowBattery(device)`（Win32 NIF_INFO 气泡）。
+条件：在线 && 电量 ≤ LowBatteryThreshold && 非充电/已充满。**按设备去重 + 自动复位**：`_lowBatteryNotified[Id]` 是一个布尔量，`TryAdd` 兼任"未提醒过"的判定（天然幂等），跨过阈值只弹一次。复位点有三类——① 电量回到阈值之上、或转为充电/已充满；② 提醒阈值被设为 ≤0（关掉提醒）；③ 设备条目被移除（`ExpireTombstones` / `ApplySystemBatterySetting` / `DropDevicesOf` 三处一并 `TryRemove`）。于是"充到 100% 再放电回 20%"会重新提醒，同一轮持续掉电却不会逐 1% 刷屏（CR-15/CR-23 修的正是旧实现"精确档位且永不复位"的两个反向 bug）。触发 → `LowBatteryDetected` 事件 → App 层 `DispatcherQueue.TryEnqueue` → `Tray.ShowLowBattery(device)`（Win32 NIF_INFO 气泡）。
 
 **骤降保护（2026-10-06 加）**：`Upsert` 在覆盖前记下 `previousPercent`，若本次低电量值比上次已知值低超过 20 点，则**暂缓本轮提醒**并记日志（`低电量提醒暂缓`），等下次读数确认。这是低电量告警的最后一道闸——即使某个通道漏进了休眠伪读数，也不会立刻弹告警。
 

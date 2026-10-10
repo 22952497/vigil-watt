@@ -70,13 +70,18 @@ public static class Log
 
     // ---------- 降噪：状态变化才记 / 节流 ----------
     // 轮询型代码（每 15 秒 / 每分钟重跑）常在同一状态上重复打日志把 app.log 冲爆。
-    // 两个入口把"什么时候才值得记"从各调用点收拢到这里：
+    // 三个入口把"什么时候才值得记"从各调用点收拢到这里：
     //   - InfoOnChange：状态变了才记（托盘提示文字、HID 设备集合指纹）
     //   - InfoThrottled：同一 key 在给定间隔内最多记一条
-    // 是 MchosePlugin.ShouldLogOnce/ResetLogOnce 的通用版（见 doc/dev/logging.md §4 阶段 3）。
+    //   - Once / ResetOnce：同一 key 只记一条，直到显式复位（"设备睡着导致探测反复失败"这类
+    //     "信息量只有一次、但会随节拍无限重复"的事件）
+    // 见 doc/dev/logging.md §4。
 
     private static readonly ConcurrentDictionary<string, string> InfoStateByKey = new();
     private static readonly ConcurrentDictionary<string, long> InfoLastTicksByKey = new();
+
+    /// <summary><see cref="Once"/> 在状态表里占位用的前缀，与 <see cref="InfoOnChange"/> 的状态值隔离。</summary>
+    private const string OnceKeyPrefix = "once|";
 
     /// <summary>
     /// 只有 <paramref name="state"/> 与上次不同时才打一条 Info，并返回"是否发生变化"（调用点据此决定是否顺带 dump 一批 Debug 明细，HidDeviceScanner 就这么用）。
@@ -93,6 +98,30 @@ public static class Log
 
     /// <summary><paramref name="message"/> 自身即状态：变了才打，并返回是否变化。</summary>
     public static bool InfoOnChange(string key, string message) => InfoOnChange(key, message, message);
+
+    /// <summary>
+    /// 同一 <paramref name="key"/> 只记一条（按 <paramref name="level"/> 判启用），直到 <see cref="ResetOnce"/> 复位。
+    /// 返回本次是否真的记了。用于"同一条路径的设备睡着 → 探测反复失败"这类会随发现节拍无限重复的事件。
+    /// </summary>
+    public static bool Once(LogLevel level, string key, string message)
+    {
+        if (!IsEnabled(level)) return false;
+        if (!InfoStateByKey.TryAdd(OnceKeyPrefix + key, "")) return false;
+        Write(level, TagOf(level), message);
+        return true;
+    }
+
+    /// <summary>复位 <see cref="Once"/> 的"记过"标记，让下次再发生时重新记一条（"状态变化才记"的另一半）。</summary>
+    public static void ResetOnce(string key) => InfoStateByKey.TryRemove(OnceKeyPrefix + key, out _);
+
+    /// <summary>级别 → 行首标签。与 <see cref="Debug"/> / <see cref="Info"/> 等入口保持同一张表。</summary>
+    private static string TagOf(LogLevel level) => level switch
+    {
+        LogLevel.Debug => "DBG ",
+        LogLevel.Warn => "WARN",
+        LogLevel.Error => "ERR ",
+        _ => "INFO",
+    };
 
     /// <summary>同一 <paramref name="key"/> 在 <paramref name="interval"/> 内最多打一条 Info。</summary>
     public static void InfoThrottled(string key, string message, TimeSpan interval)

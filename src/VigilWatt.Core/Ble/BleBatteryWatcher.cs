@@ -19,15 +19,12 @@ public sealed class BleBatteryWatcher : IDisposable
 
     public event Action<DeviceStatus>? DeviceUpdated;
 
-    private const string PropName = "System.ItemNameDisplay";
-    private const string PropConnected = "System.Devices.Aep.IsConnected";
-
     /// <summary>不同 Windows 版本的电量属性名不同，逐个尝试，成功的组合记下来。</summary>
     private static readonly string[][] BatteryPropCandidates =
     {
-        new[] { PropName, "System.Devices.AepBattery_Level", PropConnected },
-        new[] { PropName, "System.Devices.Aep.Battery_Level", PropConnected },
-        new[] { PropName, PropConnected },
+        new[] { WatcherProps.Name, "System.Devices.AepBattery_Level", WatcherProps.Connected },
+        new[] { WatcherProps.Name, "System.Devices.Aep.Battery_Level", WatcherProps.Connected },
+        new[] { WatcherProps.Name, WatcherProps.Connected },
     };
 
     private string? _batteryProp;
@@ -72,18 +69,9 @@ public sealed class BleBatteryWatcher : IDisposable
     {
         // Updated 只带变化的属性：IsConnected 缺失时必须沿用现状，不能默认 false
         // （真机 2026-10-08：戴尔 WK717 已连接却被后续 Updated 误判离线，与经典蓝牙同坑）
-        bool? connected = ReadConnected(props);
+        bool? connected = WatcherProps.ReadConnected(props);
 
-        int? percent = null;
-        if (_batteryProp != null && props.TryGetValue(_batteryProp, out var batteryObj))
-        {
-            try
-            {
-                int v = Convert.ToInt32(batteryObj);
-                if (v is > 0 and <= 100) percent = v;
-            }
-            catch { /* 类型不对就忽略 */ }
-        }
+        int? percent = WatcherProps.ReadBattery(props, _batteryProp);
 
         if (connected == false)
         {
@@ -150,12 +138,6 @@ public sealed class BleBatteryWatcher : IDisposable
         }
     }
 
-    private static bool? ReadConnected(IReadOnlyDictionary<string, object> props)
-    {
-        if (!props.TryGetValue(PropConnected, out var obj)) return null;
-        try { return Convert.ToBoolean(obj); } catch { return null; }
-    }
-
     private static void ApplyName(
         DeviceStatus status, string? infoName, IReadOnlyDictionary<string, object> props)
     {
@@ -164,7 +146,7 @@ public sealed class BleBatteryWatcher : IDisposable
             status.Name = infoName!;
             return;
         }
-        if (props.TryGetValue(PropName, out var nameObj))
+        if (props.TryGetValue(WatcherProps.Name, out var nameObj))
         {
             var n = nameObj?.ToString();
             if (!string.IsNullOrEmpty(n)) status.Name = n!;

@@ -86,11 +86,14 @@ Debug < Info < Warn < Error          （Off = 全关哨兵）
 | `Log.InfoOnChange(key, state, message)` | 状态与上次不同才打一条，**返回"是否变化"**（可用来决定是否顺带 dump 一批 Debug 明细） |
 | `Log.InfoOnChange(key, message)` | message 自身即状态 |
 | `Log.InfoThrottled(key, message, interval)` | 同一 key 在 `interval` 内最多打一条 |
+| `Log.Once(level, key, message)` / `Log.ResetOnce(key)` | 同一 key 只记一条（按 `level` 判启用），直到显式复位；**返回"本次是否真的记了"**。用于"信息量只有一次、但会随节拍无限重复"的事件（如设备睡着导致探测反复失败） |
 
 - 内部用 `ConcurrentDictionary` 维护状态；并发下最坏情况是同一状态多打一条——日志去重不是正确性关键，不值得上锁。
 - 当前级别高于 `Info` 时**不更新状态**，这样用户切回 `Info` 档还能看到最新状态（不丢信息）。
-- 迁移范围**克制**：只迁**纯日志用途**的（`TrayService` 托盘提示、`HidDeviceScanner` 设备集合指纹）；
-  `Betop` / `Mchose` 里**同时承担业务语义**的状态判断（如 `ShouldLogOnce`/`ResetLogOnce` 配套的探测记忆）**保持不动**。
+- 迁移范围**克制**：只把"同一 key 重复打"的降噪收进公共入口，不在调用点自己攒字段。
+  2026-10-10 起，原来散在插件里的探测记忆三件套（`MchosePlugin.LogOnceByKey` / `ShouldLogOnce` / `ResetLogOnce`）
+  已收拢为 `Log.Once` / `Log.ResetOnce`——插件只保留 key 的拼装（`MchosePlugin.LogKey(handle, 用途)`），
+  状态表归 `Log` 统一维护。
 
 ## 6. 稳定性与管控
 

@@ -51,6 +51,8 @@
 | 经验教训、"下次接类似项目怎么做" | `doc/project/experience.md` |
 | 当前状态快照、待办 | `doc/project/handoff.md` |
 | 逐轮变更历史（某个决定为什么这么做） | `doc/project/changelog.md` |
+| 审查发现的未修项（open / doing / done / wontfix） | `doc/reviews/BACKLOG.md` |
+| 代码该守的红线、审查流程 | `doc/dev/review-standard.md` |
 
 **判断不了就先 grep `doc/`**：很多结论早就在里面了，只是代码里又抄了一遍。
 

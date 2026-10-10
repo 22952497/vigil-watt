@@ -1,6 +1,6 @@
 # 会话交接（给下一个 AI / 未来的自己）
 
-> 快照时间：2026-10-09。**先读本文，再按需查其他文档**；内容冲突时以专题文档为准（本文是快照）。
+> 快照时间：2026-10-10。**先读本文，再按需查其他文档**；内容冲突时以专题文档为准（本文是快照）。
 > 逐轮历史（2026-10-04 起每一轮做了什么、为什么这么做）已剥离到 **[changelog.md](changelog.md)**，本文只留"当前状态 + 待办 + 注意事项 + 文件速查"。
 > **维护约定**：本会话收工后——本轮记录追加进 `changelog.md`，本文件只更新 §1 状态与 §4 待办。**流水账不要写回这里**。
 
@@ -10,6 +10,9 @@
 北通 T9 手柄 73%（T9 被动状态流）、迈从 G87 键盘 65%（0x13 会话协议）、雷柏 VT3 二代鼠标 98%（status-report7 被动）；
 经典蓝牙耳机 EDIFIER W820NB 走 HFP 网关节点 `DEVPKEY_Device_BatteryLevel`（与 Windows 设置页一致）；
 插件架构完成二演化；本机电量监控（10-08）、日志分级（10-09）、经典蓝牙设备类型判定（10-09）均已落地。
+**代码审查机制（2026-10-10）已建立**：标准在 `doc/dev/review-standard.md`，发现跟踪在 `doc/reviews/BACKLOG.md`。
+**2026-10-10 又做了"上线前全检 + 全部调整"**：4 条 P0 + 7 条 P1 + 大部分 P2 已修并验证（构建 0 警告 0 错误、测试 253 用例全绿）。
+BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形态 / D3 / D4 / D5 / D6**，其余全部 `done` 或 `wontfix`（各带理由）。
 
 ## 2. 用户设备清单（勿对号入座错）
 
@@ -28,13 +31,16 @@
 
 ## 3. 最近变更
 
-完整历史（第一轮 ~ 第十六轮，2026-10-04 → 2026-10-09）见 **[changelog.md](changelog.md)**，这里只留最近三轮：
+完整历史（第一轮 ~ 第十九轮，2026-10-04 → 2026-10-10）见 **[changelog.md](changelog.md)**，这里只留最近三轮：
 
-- **2026-10-09 第十六轮 · 经典蓝牙设备类型判定**：蓝牙鼠标/键盘不再被认成耳机——按 Windows 设备类别 → 服务 UUID → 名字三级判定，猜不出就 `Unknown`（**绝不退回 `Headset`**，那是本次 bug 根因）。详见 runtime-pitfalls.md §3.1。
-- **2026-10-09 第十五轮 · 日志分级与管控**：`Log` 分级（关闭/详细/信息/警告/错误，默认 `Info`）+ 按大小滚动 + 写入异常兜底 + 去重/节流降噪。完整设计见 dev/logging.md。
-- **2026-10-08 第十四轮 · 离线判定收敛**：修掉"迈从关机后永不显示离线"的结构性根因（`CountPollFailures` 与 `SupportsPassiveListen` 曾被合成一个布尔量复用），离线参数集中收进 `OfflinePolicy`。
+- **2026-10-10 第十九轮 · 取消独立"写入许可"开关**：罗技设备发现不了（第十八轮把罗技默认关 + 新增 `LogitechProbingEnabled`，用户开了插件却找不到设备）→ 按用户要求**所有插件统一为"插件开关即写入授权"**：删除 `WritePermission` 机制与 `MchoseProbingEnabled`/`BetopProbingEnabled`/`LogitechProbingEnabled` 三个设置项，基类 `WritesEnabled => IsWritesEnabled(Name)` 直读插件开关，设置页不再有「写入许可」子行。熔断/退避不受影响。详见 changelog.md 第十九轮 + BACKLOG CR-37。
+- **2026-10-10 第十八轮 · 上线前全检 + 全部调整**：4 人全检（报告 `deliverables/gstack/pre-launch-check-2026-10-10.md`）→ 用户批"全部调整"→ 修掉 **4 条 P0**（共享可变 `DeviceStatus` 让变化判定恒假 / 罗技绕过基类安全机制 / 北通探测路径无写入闸门 / 小组件订阅泄漏）+ **7 条 P1** + 大部分 P2，并落地 D2/D7/D8/D9/D10。新增"插件声明写入许可"机制（`IBatteryPlugin.WritePermission` + 设置页自动生成子行，**已于第十九轮取消**），基类写入默认从 fail-open 改为 fail-safe。详见 changelog.md 第十八轮。
+- **2026-10-10 第十七轮 · 建立代码审查机制 + 文档一致性清理**：新增 `doc/dev/review-standard.md`（P0–P2 / R1–R8 红线 / L0–L2 闸门）与 `doc/reviews/BACKLOG.md`（唯一跟踪载体）；`AGENTS.md` §8 提交前必过三条；修掉 6 处 `safety.md` 假指针（CR-11/CR-18）。
 
 ## 4. 待办（**唯一来源**：改待办请改这里，别在 experience.md 抄第二份）
+
+> **与 `doc/reviews/BACKLOG.md` 的分工（2026-10-10 定）**：本节只放**当前这一轮在做的那几条**；
+> **审查发现的未修项全集在 BACKLOG**（open/doing/done/wontfix），不要在这里抄一份。
 
 1. **充电标志校准**：用户插充电线 → 看 app.log `状态字节` → 补全 `ParseKeyboardV1Charge` 映射（已知 0x10 位=充电中）
 2. ~~**休眠推送帧采样**~~ **已完成（2026-10-06）**：休眠帧已实测抓到并解析清楚——`13 0A 01 00 04 **02** 01 …`，下标 5 是**类型位**（0x05=电量 / 0x02=设备状态通知），旧代码没认类型位、把 payload 的 0x01 当电量 1%，这就是误报低电量的根因。现在按类型位识别，并把 0x02 当"设备已休眠"信号**立即标离线**（`RequestOffline`，省掉 3 分钟延迟）。详见 runtime-pitfalls §12、protocols.md §1。
@@ -52,8 +58,8 @@
 ## 5. 给下一个 AI 的注意事项
 
 1. **开工顺序**：doc/README.md（症状速查）→ 本文件 → 按任务查专题文档。repo 文档永远比记忆新。
-2. **硬件安全红线**（用户两次事故换来，最高优先级约束）：**绝不盲扫**；只发有出处的帧（官方抓包/公开文档）；写入全过 `MchoseProbingEnabled`；熔断+退避已在基类内建，别在子类绕过。
-3. **dongle 静音时先查会话**：本应用 / 浏览器里的 M HUB WEB / 官方桌面 HUB 互斥，谁持有会话谁工作，崩溃进程会把会话粘死（所有人静音），kill 持有者或重插拔恢复（safety.md §2.2）。这是最容易误判成"协议错了"的坑。
+2. **硬件安全红线**（用户两次事故换来，最高优先级约束）：**绝不盲扫**；只发有出处的帧（官方抓包/公开文档）；**插件开关本身就是写入授权**（`AppSettings.PluginEnabled[Name]` → 基类 `WritesEnabled => IsWritesEnabled(Name)`；会写帧的插件默认关闭）；熔断+退避已在基类内建，别在子类绕过。
+3. **dongle 静音时先查会话**：本应用 / 浏览器里的 M HUB WEB / 官方桌面 HUB 互斥，谁持有会话谁工作，崩溃进程会把会话粘死（所有人静音），kill 持有者或重插拔恢复（safety.md §2 事故二）。这是最容易误判成"协议错了"的坑。
 4. **调试主力手法**：让官方软件和硬件说话，浏览器 monkey-patch 抓包（debugging.md §1，含选择器弹窗自动化、DPI 截图坑）；验证用 `pip install hidapi` 直测（§2）。
 5. **构建**（dev/build.md）：sln 构建、从 `bin\x64\...\win-x64\` 启动；XamlCompiler 静默崩溃查 XAML 属性名；应用运行中先 taskkill。
 6. **用户偏好**：中文交流、文档中文；界面只要中英文；个人自用工具，克制功能范围（不做游戏内显示/HTTP API/账号等）。
@@ -66,7 +72,7 @@
 13. **日志（2026-10-09 第十五轮，完整设计见 dev/logging.md）**：`Log` 是**自研极简分级日志，不引 Serilog/NLog**。
     - 默认 `Info`；`Debug` 打逐帧报文/探测明细，需要时在**设置页下拉框**切"详细"（或 `settings.json` 改 `LogLevel`）**并重启应用**。
     - **新增日志前先定级别**：状态变化 / 协议解析结果 = `Info`（结果行尾带 `原始=<HEX>`）；逐帧 / 中间帧 / 明细 = `Debug`；热路径先 `Log.IsEnabled(level)` 短路，省掉 `$"..."` 插值。
-    - **别在各调用点自己攒去重字段**：轮询型重复日志用 `Log.InfoOnChange(key, state, message)` 或 `Log.InfoThrottled(key, message, interval)`。
+    - **别在各调用点自己攒去重字段**：轮询型重复日志用 `Log.InfoOnChange(key, state, message)`（状态变了才记）或 `Log.InfoThrottled(key, message, interval)`（同 key 限频）；**"同一 key 只记一条、恢复正常后再记一条"** 用 `Log.Once(level, key, message)` / `Log.ResetOnce(key)`。
     - 排障时 `app.log` 之外还有 `app.1.log` / `app.2.log`（按大小滚动）；每个文件**首行是"时间基准"**（本地时区 + UTC offset），用来和 `history.db` 的 UTC 毫秒对齐。
 
 ## 6. 关键文件速查
@@ -80,14 +86,18 @@
 | 插件"认领但离线"规则 | `BatteryPluginBase.CommitProbes` 的 `IsOnline = percent.HasValue`（探测成功但无读数 = 设备在位不可读，标离线） |
 | 经典蓝牙显示名 | `src/VigilWatt.Core/Ble/ClassicDeviceName.cs`（纯逻辑：占位名识别）+ `ClassicPairedNames.cs`（注册表配对名兜底） |
 | 蓝牙诊断 | `src/tests/VigilWatt.BleScan/`（`dotnet run --project`）：适配器能力、已配对经典/LE 设备、**每个 AEP 的 `IsConnected`/`DeviceAddress` 与"已连接"集合** |
-| 新增品牌插件 | 新建 `Plugins/xx/XxPlugin.cs` 继承 `BatteryPluginBase`，三个方法（architecture.md §3） |
+| 新增品牌插件 | 新建 `Plugins/xx/XxPlugin.cs` 继承 `BatteryPluginBase`，三个方法（architecture.md §3）；**会写帧的插件必须在 `AppSettings.PluginEnabled` 里默认关闭**（插件开关即写入授权） |
+| 插件写入授权（开关 + 闸门） | `AppSettings.PluginEnabled`（唯一入口，插件开关即授权）；基类 `WritesEnabled => IsWritesEnabled(Name)` / `CanWrite` / `RunProbe` 的 `ProbeWrites` 检查；设置页 `Views/SettingsPage.xaml.cs` 的 `AddPluginRow`（每插件一行） |
+| 设备状态文案/充电判定（三处共用） | `src/VigilWatt.Core/Models/DeviceStatusFormatter.cs`（`IsCharging` / `IsChargingOrFull` / `PercentText` / `ChargeSuffix`，有单测）+ `Models/ChargingStateMap.cs`（`FromChargingFlag`）；**色值在 App 层** `Services/UiPalette.cs` |
+| 变化判定 / 骤降保护 | `src/VigilWatt.Core/Devices/DeviceChangeDetector.cs`（纯逻辑，有单测）+ `Models/DeviceStatus.Clone()`（`Upsert` 靠它快照，别再传共享可变实例） |
+| 两个 watcher 的公共属性读取 | `src/VigilWatt.Core/Ble/WatcherProps.cs`（`ReadConnected` / `ReadBattery`，有单测；**属性缺失必须返回 null，不能当 false**） |
 | 轮询/采样/低电量节奏 | `src/VigilWatt.Core/Devices/DeviceManager.cs`（code-flow.md §2/§5/§6） |
 | 经典蓝牙发现 + 电量 | `src/VigilWatt.Core/Ble/BluetoothClassicWatcher.cs` + `Ble/ClassicAudioBattery.cs`（code-flow.md §3、runtime-pitfalls §3） |
 | 经典蓝牙电量排查 | `scripts/probe-devnode-battery.py`（`--all` dump 节点全属性） |
 | 本机电量读数/推导 | `src/VigilWatt.Core/Power/SystemPowerReader.cs`（`GetSystemPowerStatus`）+ `Power/SystemBatteryWatcher.cs`（充电推导、稳定 Id `sys:battery`） |
 | 本机电量开关 | `AppSettings.MonitorSystemBattery` + `DeviceManager.ApplySystemBatterySetting()` + `SettingsPage`「本机」分节 |
 | 托盘为何不含本机电量 | `src/VigilWatt.App/Services/TrayService.cs` 的 `Render()`：`if (d.Source == DeviceSource.System) continue;` |
-| 托盘/小组件/设置页 | `src/VigilWatt.App/Services|Views`（code-flow.md §7/§8/§9） |
+| 托盘/小组件/设置页 | `src/VigilWatt.App/Services` 与 `Views`（code-flow.md §7/§8/§9） |
 | 程序图标 | 生成器 `scripts/make-app-icon.py`（改配色/字形改它后重跑，**别手改 .ico**）→ `src/VigilWatt.App/Assets/VigilWatt.ico`；接入 = csproj `<ApplicationIcon>` + `MainWindow.ApplyWindowIcon()`（两处都要，见 runtime-pitfalls §5.2） |
 | 托盘提示/图标刷新 | `TrayService.RequestUpdate()` + `App.AttachTray` 里挂的 `DeviceUpdated`/`DevicesChanged`（见 runtime-pitfalls §5.1） |
 | 历史统计页（指标卡/曲线/hover） | `src/VigilWatt.App/Views/StatsPage.xaml(.cs)` + `Views/BatteryChartControl.xaml.cs` |
@@ -97,3 +107,5 @@
 | 日志级别配置与单测 | `AppSettings.LogLevel` + `App.OnLaunched` 里 `Log.MinLevel = LogLevelNames.Parse(...)`；退出收尾 `App.ShutdownLogging()`；单测 `src/tests/VigilWatt.Core.Tests/LogTests.cs` |
 | 语言包白名单 | `VigilWatt.App.csproj` 的 `MuiLanguagesToKeep` + `_MuiKeep` 两处（build.md §6） |
 | 某轮改动为什么这么做 | `doc/project/changelog.md`（本文件不记历史，只给指针） |
+| 审查发现还剩什么没修 | `doc/reviews/BACKLOG.md`（**唯一载体**：open/doing/done/wontfix） |
+| 代码该守的红线、审查流程 | `doc/dev/review-standard.md` |

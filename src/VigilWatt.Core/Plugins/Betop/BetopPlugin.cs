@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using VigilWatt.Core.Hid;
 using VigilWatt.Core.Models;
-using VigilWatt.Core.Settings;
 using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Plugins.Betop;
@@ -36,14 +35,6 @@ public sealed class BetopPlugin : BatteryPluginBase
     public override string Name => "Betop";
     public override string DisplayName => "北通手柄";
     public override DeviceKind Kind => DeviceKind.Gamepad;
-
-    /// <summary>探测写入许可（AppSettings.BetopProbingEnabled），默认开启——查询是官方客户端同款只读命令。</summary>
-    public static bool ProbingEnabled => AppSettings.Load().BetopProbingEnabled;
-
-    /// <summary>
-    /// 查询需要写帧。开关关掉后**轮询**不再写入；探测路径的写入目前尚未受此开关约束（待修）。
-    /// </summary>
-    protected override bool WritesEnabled => ProbingEnabled;
 
     /// <summary>
     /// T9 等型号在 Col04 上持续推状态流，认领后后台只读即可实时更新电量/离线；
@@ -244,12 +235,9 @@ public sealed class BetopPlugin : BatteryPluginBase
     }
 
     /// <summary>充电标志非 0 = 充电中；否则 100% 判充满、其余放电（充电时手柄自报 100%，故先看标志）。</summary>
+    /// <summary>充电标志只有"是否充电"一档：收尾规则（未充电且 100% ⇒ 已充满）见 <see cref="ChargingStateMap"/>。</summary>
     private static ChargingState MapCharging(int percent, bool charging)
-    {
-        if (charging) return ChargingState.Charging;
-        if (percent >= 100) return ChargingState.Full;
-        return ChargingState.Discharging;
-    }
+        => ChargingStateMap.FromChargingFlag(charging, percent);
 
     /// <summary>显示名：产品串形如 "BEITONG T9 For Keyboard & Mouse"，收拾成型号后拼成 "北通 T9"。</summary>
     protected override string BuildDisplayName(HidDeviceInfo info)

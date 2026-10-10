@@ -88,13 +88,44 @@ public sealed partial class WidgetWindow : Window
         // 层级：置顶 / 普通 / 桌面（窗口句柄已就绪，构造期就能应用）
         ApplyDisplayMode(s.WidgetDisplayMode);
 
-        App.Services.Manager.DeviceUpdated += _ => DispatcherQueue.TryEnqueue(RefreshContent);
-        App.Services.Manager.DevicesChanged += () => DispatcherQueue.TryEnqueue(RefreshContent);
+        App.Services.Manager.DeviceUpdated += OnDeviceUpdated;
+        App.Services.Manager.DevicesChanged += OnDevicesChanged;
         // 硬编码色值按主题分套，切主题要重画一遍
-        Root.ActualThemeChanged += (_, _) => RefreshContent();
+        Root.ActualThemeChanged += OnThemeChanged;
+        Closed += OnClosed;
 
         Root.Loaded += (_, _) => RefreshContent();
         RefreshContent();
+    }
+
+    // 小组件可反复开/关（设置页每次保存都 Close 后置 null）。订阅必须用命名方法并在 Closed 里解绑，
+    // 否则旧实例被 Manager 强引用、回调叠加（见 doc/reviews/BACKLOG.md CR-09）。
+    private void OnDeviceUpdated(DeviceStatus _) => RequestRefresh();
+    private void OnDevicesChanged() => RequestRefresh();
+    private void OnThemeChanged(FrameworkElement sender, object args) => RefreshContent();
+
+    private int _refreshQueued;
+
+    /// <summary>
+    /// 合并刷新请求（CR-29）：一轮轮询会对 N 台设备各发一次 DeviceUpdated、外加一次 DevicesChanged，
+    /// 逐个排队就是 N+1 次"清空 + 全量重建"。这里用 Interlocked 只保留一次待执行的刷新
+    /// （与 TrayService.RequestUpdate 同一套路）。
+    /// </summary>
+    private void RequestRefresh()
+    {
+        if (Interlocked.Exchange(ref _refreshQueued, 1) == 1) return;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            Interlocked.Exchange(ref _refreshQueued, 0);   // 先复位再刷新：刷新期间来的请求不会被吞掉
+            RefreshContent();
+        });
+    }
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        App.Services.Manager.DeviceUpdated -= OnDeviceUpdated;
+        App.Services.Manager.DevicesChanged -= OnDevicesChanged;
+        Root.ActualThemeChanged -= OnThemeChanged;
     }
 
     private double Scale => Root.XamlRoot?.RasterizationScale is > 0 ? Root.XamlRoot.RasterizationScale : 1.0;
@@ -153,7 +184,7 @@ public sealed partial class WidgetWindow : Window
         // 低电量优先：充电中/已满的排末尾，未知电量殿后，同级按名称保持稳定
         var devices = App.Services.Manager.Devices
             .Where(d => d.IsOnline)
-            .OrderBy(d => d.Charging is ChargingState.Charging or ChargingState.Full)
+            .OrderBy(d => DeviceStatusFormatter.IsChargingOrFull(d.Charging))
             .ThenBy(d => d.BatteryPercent ?? 999)
             .ThenBy(d => d.DisplayName)
             .ToList();
@@ -185,7 +216,7 @@ public sealed partial class WidgetWindow : Window
         {
             // 充电行比放电行多一列 ⚡（列宽 + 该列两侧间距）；放电行的 ⚡ 列放空串，只占列间距。
             // 来源徽标（蓝牙/2.4G/本机）所有行恒定存在。
-            double chargeW = d.Charging == ChargingState.Charging ? ChargeMarkWidth : 0;
+            double chargeW = DeviceStatusFormatter.IsCharging(d.Charging) ? ChargeMarkWidth : 0;
             double w = IconSize + IconGap + nameW + 10 + SourceTagWidth(d.Source) + 10 + chargeW + 10 + PercentWidth(d);
             if (w > rowW) rowW = w;
         }
@@ -280,7 +311,7 @@ public sealed partial class WidgetWindow : Window
     private static UIElement BuildRow(DeviceStatus d, double width, Skin skin)
     {
         var percent = d.BatteryPercent;
-        var charging = d.Charging == ChargingState.Charging;
+        var charging = DeviceStatusFormatter.IsCharging(d.Charging);
         // 进度条与百分比数字共用这一个状态色，两者永远同色（>50% 绿 / ≤50% 琥珀 / ≤20% 红 / 充电蓝）
         var stateColor = UiPalette.BatteryLevel(percent, charging);
 

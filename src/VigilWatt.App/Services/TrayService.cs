@@ -153,7 +153,7 @@ public sealed class TrayService : IDisposable
         }
 
         int? percent = lowest?.BatteryPercent;
-        bool charging = lowest?.Charging == ChargingState.Charging;
+        bool charging = lowest != null && DeviceStatusFormatter.IsCharging(lowest.Charging);
 
         using var bmp = new System.Drawing.Bitmap(32, 32);
         using (var g = System.Drawing.Graphics.FromImage(bmp))
@@ -249,7 +249,8 @@ public sealed class TrayService : IDisposable
             {
                 deviceIndex++;
                 var text = d.IsOnline
-                    ? $"{d.DisplayName}　{(d.BatteryPercent.HasValue ? $"{d.BatteryPercent}%" : "?")}{(d.Charging == ChargingState.Charging ? " ⚡" : "")}"
+                    ? $"{d.DisplayName}　{DeviceStatusFormatter.PercentText(d.BatteryPercent, "?")}" +
+                      (DeviceStatusFormatter.IsCharging(d.Charging) ? " ⚡" : "")
                     : $"{d.DisplayName}　离线";
                 Native.AppendMenuW(menu, Native.MF_STRING | Native.MF_GRAYED,
                     (IntPtr)(IdDeviceBase + deviceIndex), text);
@@ -289,8 +290,10 @@ public sealed class TrayService : IDisposable
     {
         Log.Info("用户退出应用");
         _instance?.Dispose();
-        // 退出收尾：释放单实例互斥量 + 刷盘并释放 app.log 句柄。挂在真实退出路径上
-        // （AppServices.Dispose 全仓无人调用，钩子挂那儿永远不会触发）。
+        // 释放 HID 句柄 / Timer / SQLite 连接——不释放会把 dongle 会话占死，之后必须重插拔（safety.md §2 事故二）。
+        // 以前 AppServices.Dispose 全仓无人调用（CR-07），这里是它唯一的真实退出路径。
+        try { App.Services.Dispose(); } catch (Exception ex) { Log.Warn($"退出时资源释放失败: {ex.Message}"); }
+        // 退出收尾：释放单实例互斥量 + 刷盘并释放 app.log 句柄。与 ProcessExit 兜底互为保险。
         App.ShutdownLogging();
         Environment.Exit(0);
     }

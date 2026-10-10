@@ -36,6 +36,9 @@ public sealed class RapooPlugin : BatteryPluginBase
     /// <summary>本插件不存在任何写入路径；置 false 作为纵深防御（CanWrite 恒 false）。</summary>
     protected override bool WritesEnabled => false;
 
+    /// <summary>探测只被动听心跳、不发任何字节——不受写入开关约束，否则关掉写入会连鼠标都发现不了。</summary>
+    protected override bool ProbeWrites => false;
+
     /// <summary>认领后后台只读心跳帧，插拔电/电量变化立即 StatusPushed。</summary>
     protected override bool SupportsPassiveListen => true;
 
@@ -93,8 +96,12 @@ public sealed class RapooPlugin : BatteryPluginBase
         var status = RapooCodec.Parse(input);
         if (status.Kind == RapooFrameKind.NotStatus) return null;
 
-        Log.Info($"雷柏 状态帧: 连接={status.Link} 充电标志={status.ChargeFlag} 电量={status.Percent}% " +
-                 $"RF=0x{status.RfByte:X2}(bit7连接={!status.LinkDown} RSSI={status.RfByte & 0x7F}) 原始={Log.Hex(input)}");
+        // CR-28：心跳约 3 秒一条，逐帧 Info + Hex 会冲到约 2.8 万行/天、把 2MB 滚动历史冲掉。
+        // 改成只在链路/充电/电量变化时记一条；原始帧不再进 Info（协议排错看 Debug 档的"收到报文"）。
+        Log.InfoOnChange($"rapoo-status:{dev.Status.Id}",
+            $"{status.Link}|{status.ChargeFlag}|{status.Percent}",
+            $"雷柏 状态帧: 连接={status.Link} 充电标志={status.ChargeFlag} 电量={status.Percent}% " +
+            $"RF=0x{status.RfByte:X2}(bit7连接={!status.LinkDown} RSSI={status.RfByte & 0x7F})");
 
         // 链路位与电量无关，先处理——电量越界的帧（休眠瞬态）同样要能标记/撤销候选。
         if (status.LinkDown) MarkOfflineCandidate(dev);
@@ -102,7 +109,8 @@ public sealed class RapooPlugin : BatteryPluginBase
 
         if (status.Kind == RapooFrameKind.StatusInvalidPercent)
         {
-            Log.Debug($"雷柏 电量越界/归零（疑似休眠瞬态），丢弃: {Log.Hex(input)}");
+            if (Log.IsEnabled(LogLevel.Debug))
+                Log.Debug($"雷柏 电量越界/归零（疑似休眠瞬态），丢弃: {Log.Hex(input)}");
             return null;
         }
 
@@ -117,7 +125,7 @@ public sealed class RapooPlugin : BatteryPluginBase
         {
             var input = handle.ReadInput(TimeSpan.FromMilliseconds(400));
             if (input == null) continue;
-            Log.Debug($"雷柏 收到报文: {Log.Hex(input)}");
+            if (Log.IsEnabled(LogLevel.Debug)) Log.Debug($"雷柏 收到报文: {Log.Hex(input)}");
 
             var status = RapooCodec.Parse(input);
             if (status.Kind == RapooFrameKind.Status) return (status.Percent, status.Charging);

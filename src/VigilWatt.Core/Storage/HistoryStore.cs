@@ -34,6 +34,14 @@ public class HistoryStore : IDisposable
 
     private void EnsureSchema()
     {
+        // WAL：读不再阻塞写（UI 查询与后台采样互不卡）。busy_timeout：偶发写冲突时等一会儿而不是直接报错。
+        // synchronous=NORMAL 是 WAL 下的常规折中（崩溃最多丢最近一条采样，不损坏库）。
+        using (var pragma = _connection.CreateCommand())
+        {
+            pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;";
+            pragma.ExecuteNonQuery();
+        }
+
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS samples (

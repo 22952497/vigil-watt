@@ -103,7 +103,7 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 
 | 位置 | 内容 |
 |---|---|
-| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关/MchoseProbingEnabled/MonitorSystemBattery/**LogLevel**） |
+| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关（**即写入授权**）/MonitorSystemBattery/**LogLevel**） |
 | `%LOCALAPPDATA%\VigilWatt\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts)。**ts = UTC 毫秒**（`DateTimeOffset.ToUnixTimeMilliseconds`） |
 | `%LOCALAPPDATA%\VigilWatt\logs\app.log` | 当前运行日志（协议原始报文也在）。行首为**本地时间**；文件首行是"时间基准"声明，用于与 history.db 的 UTC 时间对齐 |
 | `%LOCALAPPDATA%\VigilWatt\logs\app.1.log` / `app.2.log` | 滚动保留的历史日志（单文件超 2MB 触发，保留 2 份历史 + 当前 `app.log`） |
@@ -122,7 +122,9 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
   - 热路径先 `Log.IsEnabled(level)` 短路，省掉 `$"..."` 插值开销。
   - 轮询型重复日志用 `Log.InfoOnChange(key, state, message)`（状态变了才记，返回"是否变化"）或
     `Log.InfoThrottled(key, message, interval)` 降噪，**不要在各调用点自己攒去重字段**。
-- 插件所有硬件写入必须能被熔断/开关控制：继承 `BatteryPluginBase` 时覆盖 `WritesEnabled`（如迈从的 MchoseProbingEnabled、北通的 BetopProbingEnabled），发帧前检查 `CanWrite(dev)`；熔断（连续 3 次失败停写）由基类自动执行，见 safety.md §3。
+- 插件所有硬件写入必须能被熔断/开关控制：**授权入口就是插件开关**（`AppSettings.PluginEnabled[Name]`）——基类 `WritesEnabled => IsWritesEnabled(Name)` 直读它，发帧前再检查 `CanWrite(dev)`；熔断（连续 3 次失败停写）由基类自动执行，见 safety.md §3。**没有独立的"写入许可"开关**（2026-10-10 取消，见 CR-37）。
+  - 零写入插件（雷柏、Elan）覆盖 `WritesEnabled => false` **且** `ProbeWrites => false`——它们是机制事实声明，与用户开关无关。
+  - `LogitechPlugin` 不继承基类（会话型，自建通知泵），**故自建了等价的闸门 + 熔断 + 退避**：`HidppIO.WritesAllowed`（唯一写点内检查，读插件开关）、连续 3 次失败停写 10 分钟、打开失败 10 分钟退避。CR-01 已关闭，改动时别把这道闸门拆掉。
 - 新插件清单：加一个 `IBatteryPlugin` 实现类（最简：继承 `BatteryPluginBase`，实现 IsCandidate/Probe/PollDevice）→ 设置页自动出现开关，注册/发现/熔断/认领全自动。
   - ⚠️ **别忘了在 `AppSettings.PluginEnabled` 默认表里加该插件的键**（`AppSettings.Load` 会给老 settings.json 补缺失键，但默认表是唯一来源）。
     不加的话 `TryGetValue` 判成"关闭"，新插件默认不工作——反序列化会用 JSON 的字典整体替换默认字典，缺键就是缺键。

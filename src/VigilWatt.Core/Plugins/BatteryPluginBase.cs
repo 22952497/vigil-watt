@@ -1,5 +1,6 @@
 using VigilWatt.Core.Hid;
 using VigilWatt.Core.Models;
+using VigilWatt.Core.Settings;
 using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Plugins;
@@ -71,8 +72,23 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// </summary>
     protected virtual TimeSpan ProbeCooldown => TimeSpan.FromSeconds(30);
 
-    /// <summary>是否允许向设备写探测/查询帧。有干扰风险的插件覆盖为用户开关（如迈从的 MchoseProbingEnabled）。</summary>
-    protected virtual bool WritesEnabled => true;
+    /// <summary>
+    /// 是否允许向设备写探测/查询帧。**唯一授权入口是插件开关**（<c>AppSettings.PluginEnabled[Name]</c>）——
+    /// 开插件即授权它工作所需的写入，不再有第二个"写入许可"开关（safety.md §3 规则 2）。
+    /// 这里读插件开关而非直接返回 true，是给写点留一道纵深防御（R1：写入必须能被一个开关挡住）。
+    /// 零写入插件（雷柏）覆盖为 false。
+    /// </summary>
+    protected virtual bool WritesEnabled => IsWritesEnabled(Name);
+
+    /// <summary><see cref="WritesEnabled"/> 的静态形式：插件的探测/轮询辅助方法常写成 static，也需要读它。</summary>
+    protected static bool IsWritesEnabled(string pluginName) =>
+        AppSettings.Load().PluginEnabled.TryGetValue(pluginName, out var on) && on;
+
+    /// <summary>
+    /// <see cref="Probe"/> 是否会向设备写帧：写帧的插件（迈从会话帧 / 北通查询）保持默认 true，
+    /// 零写入探测（雷柏纯被动、Elan 只读扫描）置 false。这是**机制事实**声明，与用户开关无关。
+    /// </summary>
+    protected virtual bool ProbeWrites => true;
 
     protected sealed class TrackedDevice
     {
@@ -188,6 +204,11 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// <summary>打开句柄并跑协议探测。成功返回持有句柄 + 探测值；失败/异常返回空句柄并已释放。</summary>
     private ProbeOutcome RunProbe(HidDeviceInfo info)
     {
+        // 探测会写帧、而写入许可被关：跳过探测，一帧都不发（安全规则 R1，见 doc/hardware/safety.md §3）。
+        // 已认领设备不受影响——它们走 Poll（由 CanWrite 挡住写入），被动监听照常，即规则 2 说的"降级为只被动监听"。
+        if (ProbeWrites && !WritesEnabled)
+            return new ProbeOutcome(info, null, null);
+
         HidDeviceHandle? handle = null;
         try
         {
@@ -494,6 +515,9 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
     public virtual void Detach()
     {
+        // 插件被禁用时 DeviceManager 每轮都会调一次 Detach（CR-22）：手上没设备就别打日志，
+        // 否则禁用期间每 60 秒刷一条"插件已卸载"的假日志。
+        int released = _devices.Count;
         foreach (var dev in _devices.Values)
         {
             StopPassiveListen(dev);
@@ -501,7 +525,8 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         }
         _devices.Clear();
         _claims?.ReleaseAll(Name);
-        Log.Info($"{DisplayName} 插件已卸载");
+        if (released > 0)
+            Log.Info($"{DisplayName} 插件已卸载，释放 {released} 台设备");
     }
 
     /// <summary>该设备当前是否允许写入（总开关 + 熔断退避）。子类发帧前检查；熔断退避期满自动恢复一轮。</summary>

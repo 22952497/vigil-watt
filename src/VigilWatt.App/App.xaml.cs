@@ -41,9 +41,15 @@ public sealed class AppServices : IDisposable
 
     public void Dispose()
     {
-        Manager.Dispose();
-        History.Dispose();
+        // 幂等：退出路径（TrayService.Exit）与任何未来的显式释放都可能重复调用
+        if (_disposed) return;
+        _disposed = true;
+        // 逐个兜底：释放 HID 句柄 / Timer / SQLite 连接。任一项失败不能连累其余（CR-07）。
+        try { Manager.Dispose(); } catch (Exception ex) { Log.Warn($"DeviceManager 释放失败: {ex.Message}"); }
+        try { History.Dispose(); } catch (Exception ex) { Log.Warn($"HistoryStore 释放失败: {ex.Message}"); }
     }
+
+    private bool _disposed;
 }
 
 public partial class App : Application
@@ -51,15 +57,40 @@ public partial class App : Application
     public static AppServices Services { get; private set; } = null!;
     private static Mutex? _singleInstanceMutex;
 
+    /// <summary>全局异常熔断：窗口内累计次数（见构造里的 UnhandledException）。</summary>
+    private static int _unhandledBurst;
+    private static DateTimeOffset _lastUnhandledAt;
+
+    /// <summary>熔断统计窗口：距上次异常超过它就重新计数（"连续"= 短时间内密集发生）。</summary>
+    private static readonly TimeSpan UnhandledBurstWindow = TimeSpan.FromMinutes(1);
+
+    /// <summary>窗口内未处理异常达到这个数就停止吞异常。</summary>
+    private const int UnhandledBurstLimit = 5;
+
     public App()
     {
         InitializeComponent();
 
-        // 全局异常兜底：写日志便于排错
+        // 全局异常兜底：写日志便于排错。
+        // 熔断（CR-08）：以前一律 e.Handled=true 无限吞掉，应用会"看起来在跑、实际什么都没做"。
+        // 短窗口内连续多次未处理异常说明状态已不可信，此时不再吞、交给进程按崩溃路径退出（日志已留痕）。
         UnhandledException += (s, e) =>
         {
-            Log.Error("XAML 未处理异常", e.Exception);
-            e.Handled = true;
+            var now = DateTimeOffset.Now;
+            if (now - _lastUnhandledAt > UnhandledBurstWindow) _unhandledBurst = 0;
+            _lastUnhandledAt = now;
+            _unhandledBurst++;
+
+            Log.Error($"XAML 未处理异常（{UnhandledBurstWindow.TotalSeconds:0}s 内第 {_unhandledBurst} 次）", e.Exception);
+            if (_unhandledBurst < UnhandledBurstLimit)
+            {
+                e.Handled = true;
+            }
+            else
+            {
+                Log.Error($"未处理异常已达 {UnhandledBurstLimit} 次，不再吞掉，交给进程退出");
+                e.Handled = false;
+            }
         };
         AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             Log.Error("未处理异常", e.ExceptionObject as Exception);

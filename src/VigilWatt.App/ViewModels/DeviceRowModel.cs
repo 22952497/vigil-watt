@@ -34,13 +34,8 @@ public sealed class DeviceRowModel
         var percent = d.BatteryPercent;
         var icon = GlyphFor(d.Kind, d.DisplayName);
 
-        bool charging = d.Charging == ChargingState.Charging;
-        string state = d.Charging switch
-        {
-            ChargingState.Charging => " ⚡充电中",
-            ChargingState.Full => " 已充满",
-            _ => "",
-        };
+        bool charging = DeviceStatusFormatter.IsCharging(d.Charging);
+        string state = DeviceStatusFormatter.ChargeSuffix(d.Charging);
         if (!d.IsOnline) state = " · 离线";
 
         var progressColor = d.IsOnline
@@ -57,7 +52,7 @@ public sealed class DeviceRowModel
         {
             IconGlyph = icon,
             Name = d.DisplayName,
-            PercentText = percent.HasValue ? $"{percent}%" : "--",
+            PercentText = DeviceStatusFormatter.PercentText(percent),
             Progress = percent ?? 0,
             SourceText = DeviceSourceInfo.ShortLabel(d.Source),
             SourceBrush = UiPalette.Brush(sourceColor),

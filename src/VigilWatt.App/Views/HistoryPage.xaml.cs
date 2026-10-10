@@ -17,20 +17,20 @@ public sealed partial class HistoryPage : Page
     public HistoryPage()
     {
         InitializeComponent();
-        Reload();
+        _ = ReloadAsync();
     }
 
-    private void Refresh_Click(object sender, RoutedEventArgs e) => Reload();
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await ReloadAsync();
 
-    private void Reload()
+    /// <summary>查询放到线程池：UI 线程同步跑 SQLite 全表统计会卡住界面（S5 / CR-06）。</summary>
+    private async Task ReloadAsync()
     {
         if (DeviceList == null || SubtitleText == null) return;
 
         try
         {
             var history = App.Services.History;
-            var stats = history.GetStats();
-            var devices = history.GetDeviceStats();
+            var (stats, devices) = await Task.Run(() => (history.GetStats(), history.GetDeviceStats()));
 
             SubtitleText.Text = stats.TotalCount == 0
                 ? "暂无历史数据"
@@ -123,9 +123,13 @@ public sealed partial class HistoryPage : Page
         {
             var history = App.Services.History;
             long before = history.FileBytes();
-            int deleted = history.DeleteDevices(rows.Select(r => r.DeviceId).ToList());
-            history.Compact();   // DELETE 不还空间，必须 VACUUM 才能把文件缩回去
-            long after = history.FileBytes();
+            // 删除 + VACUUM 都是全表级操作，放线程池（VACUUM 尤其重，同步跑会明显卡 UI）
+            var (deleted, after) = await Task.Run(() =>
+            {
+                int d = history.DeleteDevices(rows.Select(r => r.DeviceId).ToList());
+                history.Compact();   // DELETE 不还空间，必须 VACUUM 才能把文件缩回去
+                return (d, history.FileBytes());
+            });
 
             ResultBar.Severity = InfoBarSeverity.Success;
             ResultBar.Title = "已删除";
@@ -143,6 +147,6 @@ public sealed partial class HistoryPage : Page
             ResultBar.IsOpen = true;
         }
 
-        Reload();
+        await ReloadAsync();
     }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using VigilWatt.Core.Hid;
 using VigilWatt.Core.Models;
+using VigilWatt.Core.Settings;
 using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Plugins.Logitech;
@@ -24,7 +25,10 @@ public sealed class LogitechPlugin : IBatteryPlugin
     /// <summary>已发现至少一台后，空槽快速扫过的超时。</summary>
     private static readonly TimeSpan FastSlotTimeout = TimeSpan.FromMilliseconds(400);
 
-    public string Name => "Logitech";
+    /// <summary>插件开关的键，与 <c>AppSettings.PluginEnabled</c> 对应（插件开关即写入开关，见 <see cref="WritesEnabled"/>）。</summary>
+    public const string SettingsKey = "Logitech";
+
+    public string Name => SettingsKey;
     public string DisplayName => "罗技";
 
     /// <summary>罗技接收器同时管鼠标和键盘，按型号分不出来 → Unknown，UI 退回按名字猜。</summary>
@@ -39,6 +43,37 @@ public sealed class LogitechPlugin : IBatteryPlugin
 
     /// <summary>HID++ 自发电量/充电通知 → DeviceManager 即时 Upsert（对照浏览器扩展的实时更新）。</summary>
     public event Action<DeviceStatus>? StatusPushed;
+
+    /// <summary>
+    /// 写入许可 = **插件开关**（<c>PluginEnabled["Logitech"]</c>）。罗技的发现、电量读取、名字/配对信息全靠写帧，
+    /// 没有可用的只读模式——"插件开着但关掉写入许可"是没有任何使用场景的组合，只会让用户以为功能坏了（CR-37）。
+    /// 闸门本身仍是唯一写点内的 <c>HidppIO.WritesAllowed</c>（CR-01）。
+    /// </summary>
+    public static bool WritesEnabled =>
+        AppSettings.Load().PluginEnabled.TryGetValue(SettingsKey, out var on) && on;
+
+    /// <summary>连续查询失败熔断的退避期，与 <c>BatteryPluginBase.WriteRetryBackoff</c> 同口径（最坏 1 帧/10 分钟）。</summary>
+    private static readonly TimeSpan WriteRetryBackoff = TimeSpan.FromMinutes(10);
+
+    /// <summary>熔断阈值：连续这么多次查询无应答就停写。</summary>
+    private const int MaxConsecutiveFailures = 3;
+
+    /// <summary>
+    /// 接口打开失败的退避期（与基类 <c>WriteRetryBackoff</c> 同口径）。接口**仍在位但打不开**
+    /// （被别的会话占着 / 无权限）时，失败不能变成"永不重试"——那会让设备插着也永远读不到，
+    /// 只有物理拔出重插才恢复（CR-17）。最坏每 10 分钟重试一次，代价可忽略。
+    /// </summary>
+    private static readonly TimeSpan OpenRetryBackoff = TimeSpan.FromMinutes(10);
+
+    /// <summary>是否该再试一次打开：从没失败过，或退避期已过。</summary>
+    private static bool CanRetryOpen(ReceiverSession session) =>
+        !session.OpenFailed || DateTimeOffset.Now - session.OpenFailedAt >= OpenRetryBackoff;
+
+    private static void MarkOpenFailed(ReceiverSession session)
+    {
+        session.OpenFailed = true;
+        session.OpenFailedAt = DateTimeOffset.Now;
+    }
 
     /// <summary>判断接口是否为 HID++ 兼容 vendor 通道。HIDP_CAPS 字段序早前写反过（已修），且各家把 vendor 页放在 usage_page 还是 usage 上不一，故对 0xFF00 / 0xFF43 两个候选值在**两个字段里都查**，避免因字段序差异漏掉设备。</summary>
     public static bool IsHidppInterface(HidDeviceInfo info) =>
@@ -60,6 +95,8 @@ public sealed class LogitechPlugin : IBatteryPlugin
         public int? RegisterBattery;        // 1.0: 0x07 或 0x0D
         public ushort? WirelessPid;         // 配对寄存器 WPID，供电压曲线覆盖
         public int ConsecutiveFailures;
+        public bool WritesDisabled;         // 熔断停写中
+        public DateTimeOffset WritesDisabledAt;
     }
 
     private sealed class ReceiverSession
@@ -67,6 +104,7 @@ public sealed class LogitechPlugin : IBatteryPlugin
         public required HidDeviceInfo Info;
         public HidppIO? Io;
         public bool OpenFailed;
+        public DateTimeOffset OpenFailedAt;             // 上次打开失败的时刻，供退避重试（CR-17）
         public bool DirectDevice;                       // true = 设备本体直连，false = 接收器
         public readonly Dictionary<byte, DevEntry> Devices = new();
         public Action<byte, byte[]>? NotifyHandler;
@@ -88,6 +126,9 @@ public sealed class LogitechPlugin : IBatteryPlugin
         {
             if (!IsHidppInterface(info))
                 continue;
+            // 写入许可关闭：HID++ 的发现与读数全靠写帧，直接不认领（safety.md §3 规则 2）。
+            // 已认领的会话不受影响——它们靠被动通知继续工作，即规则 2 说的"降级为只被动监听"。
+            if (!WritesEnabled) continue;
             var pref = HidppCatalog.ReportPreference(info.ProductId);
             if (HidppCodec.ShouldSkipInterface(
                     info.VendorId, info.ProductId, info.OutputReportLength, hidppPeers, pref))
@@ -110,21 +151,22 @@ public sealed class LogitechPlugin : IBatteryPlugin
             // 重新扫描后元数据可能更新
             session.Info = info;
 
-            if (session.Io == null && !session.OpenFailed)
+            if (session.Io == null && CanRetryOpen(session))
             {
                 try
                 {
                     session.Io = new HidppIO(info.Open());
+                    session.Io.WritesAllowed = () => WritesEnabled;   // 唯一写点的闸门（CR-01）
                     Log.Info($"罗技 HID++ 接口打开: {info} report=0x{session.Io.ReportId:X2}");
                 }
                 catch (UnauthorizedAccessException ex)
                 {
-                    session.OpenFailed = true;
+                    MarkOpenFailed(session);
                     Log.Warn($"罗技接口受保护无法访问: {info.DevicePath} ({ex.Message})");
                 }
                 catch (Exception ex)
                 {
-                    session.OpenFailed = true;
+                    MarkOpenFailed(session);
                     Log.Error("罗技接口打开失败", ex);
                 }
             }
@@ -211,7 +253,7 @@ public sealed class LogitechPlugin : IBatteryPlugin
 
         var status = new DeviceStatus
         {
-            Id = $"logitech:{StableHash(session.Info.DevicePath)}:{idx}",
+            Id = $"logitech:{PluginUtils.StableHash(session.Info.DevicePath)}:{idx}",
             Name = name,
             Source = DeviceSource.Hid24G,
             Kind = kind,
@@ -334,6 +376,9 @@ public sealed class LogitechPlugin : IBatteryPlugin
 
     public IReadOnlyList<DeviceStatus> Poll()
     {
+        // 写入许可关闭：不轮询（读数全靠写帧）。被动通知监听照常，即"降级为只被动监听"（safety.md §3 规则 2）。
+        if (!WritesEnabled) return Array.Empty<DeviceStatus>();
+
         var updated = new List<DeviceStatus>();
         foreach (var session in _sessions.Values)
         {
@@ -344,6 +389,14 @@ public sealed class LogitechPlugin : IBatteryPlugin
             {
                 try
                 {
+                    // 熔断停写：退避期满前不再查询，期满放行一轮
+                    if (dev.WritesDisabled)
+                    {
+                        if (DateTimeOffset.Now - dev.WritesDisabledAt < WriteRetryBackoff) continue;
+                        dev.WritesDisabled = false;
+                        Log.Info($"罗技 {dev.Status.DisplayName} 停写退避期满，恢复查询");
+                    }
+
                     if (RefreshBattery(session, idx, dev))
                     {
                         updated.Add(dev.Status);
@@ -352,10 +405,19 @@ public sealed class LogitechPlugin : IBatteryPlugin
                     else
                     {
                         dev.ConsecutiveFailures++;
-                        if (dev.ConsecutiveFailures >= 3 && dev.Status.IsOnline)
+                        if (dev.ConsecutiveFailures >= MaxConsecutiveFailures)
                         {
-                            dev.Status.IsOnline = false;
-                            updated.Add(dev.Status);
+                            if (!dev.WritesDisabled)
+                            {
+                                dev.WritesDisabled = true;
+                                dev.WritesDisabledAt = DateTimeOffset.Now;
+                                Log.Warn($"罗技 {dev.Status.DisplayName} 连续 {MaxConsecutiveFailures} 次查询失败，熔断停写（{WriteRetryBackoff.TotalMinutes:0} 分钟退避后重试一轮）");
+                            }
+                            if (dev.Status.IsOnline)
+                            {
+                                dev.Status.IsOnline = false;
+                                updated.Add(dev.Status);
+                            }
                         }
                     }
                 }
@@ -621,14 +683,13 @@ public sealed class LogitechPlugin : IBatteryPlugin
 
     public void Detach()
     {
+        int released = _sessions.Count;
         foreach (var session in _sessions.Values)
         {
             StopListening(session);
             session.Io?.Dispose();
         }
         _sessions.Clear();
-        Log.Info("罗技插件已卸载");
+        if (released > 0) Log.Info($"罗技插件已卸载，释放 {released} 个会话");
     }
-
-    public static string StableHash(string s) => PluginUtils.StableHash(s);
 }

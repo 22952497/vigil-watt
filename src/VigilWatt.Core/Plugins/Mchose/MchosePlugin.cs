@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using VigilWatt.Core.Hid;
 using VigilWatt.Core.Models;
-using VigilWatt.Core.Settings;
 using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Plugins.Mchose;
@@ -14,14 +13,17 @@ namespace VigilWatt.Core.Plugins.Mchose;
 /// 与 doc/hardware/protocols.md §1。
 ///
 /// 安全约束（doc/hardware/safety.md）：只发官方/实测帧，禁止任何命令扫描；写入受
-/// <see cref="ProbingEnabled"/> 控制；连续 3 次失败由基类自动停写。
+/// <see cref="WritesEnabled"/>（= 插件开关）控制；连续 3 次失败由基类自动停写。
 ///
 /// 已知固件行为：键盘空闲时 dongle 对电量查询返回**逐字节相同的缓存帧**，充电标志可能冻结很久，
 /// 唤醒后才刷新；dongle 会话被崩溃进程占住时所有查询静音，重插接收器可恢复。
 /// </summary>
 public sealed class MchosePlugin : BatteryPluginBase
 {
-    public override string Name => "Mchose";
+    /// <summary>插件开关的键，与 <c>AppSettings.PluginEnabled</c> 对应（插件开关即写入授权）。</summary>
+    private const string SettingsKey = "Mchose";
+
+    public override string Name => SettingsKey;
     public override string DisplayName => "迈从";
     public override DeviceKind Kind => DeviceKind.Keyboard;
 
@@ -30,10 +32,6 @@ public sealed class MchosePlugin : BatteryPluginBase
 
     /// <summary>无效电量下界（0/1 是设备休眠/关机的占位值），单一来源在 <see cref="MchoseV1Codec"/>。</summary>
     private const byte InvalidPercentFloor = MchoseV1Codec.InvalidPercentFloor;
-
-    /// <summary>探测写入许可（AppSettings.MchoseProbingEnabled）。未开启时只监听不写。</summary>
-    public static bool ProbingEnabled => AppSettings.Load().MchoseProbingEnabled;
-    protected override bool WritesEnabled => ProbingEnabled;
 
     /// <summary>认领后后台听 0A/CZ 推送，插拔电不必等 60 秒主动查询。</summary>
     protected override bool SupportsPassiveListen => true;
@@ -90,23 +88,15 @@ public sealed class MchosePlugin : BatteryPluginBase
     private static readonly ConcurrentDictionary<string, string> KnownProtocolByPath = new();
 
     /// <summary>
-    /// "同一条路径只记一次"的日志去重表，key = <c>路径|用途</c>。
-    /// 发现节拍每 15 秒重探一次，设备睡着时逐次记录会把 app.log 刷满且无新信息；
-    /// 配 <see cref="ResetLogOnce"/> 即"**状态变化才记**"（恢复正常时清标记）。
+    /// 日志去重 key = <c>路径|用途</c>。配合 <see cref="Log.Once"/> / <see cref="Log.ResetOnce"/>
+    /// 表达"**状态变化才记**"：发现节拍每 15 秒重探一次，设备睡着时逐次记录会把 app.log 刷满且无新信息；
+    /// 恢复正常时复位标记，下次再坏又能看到一条。
     /// </summary>
-    private static readonly ConcurrentDictionary<string, bool> LogOnceByKey = new();
+    private static string LogKey(HidDeviceHandle handle, string what) => $"{handle.Info.DevicePath}|{what}";
 
     private const string LogKeyQhwSkip = "qhw-skip";          // "这条通道不是 QHW"
     private const string LogKeyQhwNoPermit = "qhw-no-permit"; // "没开写入许可，跳过主动查询"
     private const string LogKeyKbV1Silent = "kbv1-silent";    // "keyboard-v1 问了两次都不应答"
-
-    /// <summary>该路径的这类事件还没记过 → 记一条（返回 true）；记过就跳过（返回 false）。</summary>
-    private static bool ShouldLogOnce(HidDeviceHandle handle, string what)
-        => LogOnceByKey.TryAdd($"{handle.Info.DevicePath}|{what}", true);
-
-    /// <summary>清掉"记过"标记，让下次再发生时重新记一条（"状态变化才记"的关键一半）。</summary>
-    private static void ResetLogOnce(HidDeviceHandle handle, string what)
-        => LogOnceByKey.TryRemove($"{handle.Info.DevicePath}|{what}", out _);
 
     /// <summary>协议探测：官方 QHW（新世代）→ 键盘 V1 会话协议（本机 G87）。</summary>
     protected override (string Protocol, int? Percent, ChargingState Charging)? Probe(HidDeviceHandle handle)
@@ -299,8 +289,8 @@ public sealed class MchosePlugin : BatteryPluginBase
     /// </summary>
     private static (string Protocol, int? Percent, ChargingState Charging)? TryQhw(HidDeviceHandle handle)
     {
-        // 只读模式（未开启写入许可）：不能写握手，只能被动等 dongle 自发推送
-        if (!ProbingEnabled)
+        // 未授权写入时只能被动等推送（正常情况下走不到：插件开关即授权）；保留作纵深防御
+        if (!IsWritesEnabled(SettingsKey))
         {
             var passive = ListenCzPush(handle, TimeSpan.FromSeconds(3));
             if (passive.HasValue)
@@ -309,13 +299,13 @@ public sealed class MchosePlugin : BatteryPluginBase
                 return ("qhw-push", pct0, chg0 ? ChargingState.Charging : ChargingState.Discharging);
             }
             // 只在状态变化时记：关掉写入许可后设备永远不会被认领，逐次记录会无限刷屏。
-            if (ShouldLogOnce(handle, LogKeyQhwNoPermit))
-                Log.Info($"迈从 qhw: 未开启写入许可，跳过主动查询: {handle.Info.DevicePath}");
+            Log.Once(LogLevel.Info, LogKey(handle, LogKeyQhwNoPermit),
+                $"迈从 qhw: 未开启写入许可，跳过主动查询: {handle.Info.DevicePath}");
             return null;
         }
 
         // 许可已开：清掉"没许可"的记过标记，下次再关掉时会重新记一条
-        ResetLogOnce(handle, LogKeyQhwNoPermit);
+        Log.ResetOnce(LogKey(handle, LogKeyQhwNoPermit));
 
         // 官方时序：先握手。非 QHW dongle（如本机 G87）握手写会立即以 ERROR_INVALID_PARAMETER 失败，
         // 这里直接返回，省掉旧版"先空等 3 秒被动监听"的浪费（对照实验已确认结果相同）。
@@ -323,13 +313,13 @@ public sealed class MchosePlugin : BatteryPluginBase
         // 就刷一条看着像故障的 WARN。INFO/Debug 也只记第一次，避免设备一直睡着时重复刷屏。
         if (!SendQhwHandshake(handle, quiet: true))
         {
-            if (ShouldLogOnce(handle, LogKeyQhwSkip))
-                Log.Debug($"迈从 qhw 握手写失败（非 QHW 通道，快速跳过；同路径后续不再重复记录）: {handle.Info.DevicePath}");
+            Log.Once(LogLevel.Debug, LogKey(handle, LogKeyQhwSkip),
+                $"迈从 qhw 握手写失败（非 QHW 通道，快速跳过；同路径后续不再重复记录）: {handle.Info.DevicePath}");
             return null;
         }
 
         // 握手成功说明是 QHW 通道：清掉"不是 QHW"的标记，先给一小段时间收 CZ 自发电量推送
-        ResetLogOnce(handle, LogKeyQhwSkip);
+        Log.ResetOnce(LogKey(handle, LogKeyQhwSkip));
         var result = ListenCzPush(handle, TimeSpan.FromSeconds(1));
         if (result.HasValue)
         {
@@ -399,11 +389,11 @@ public sealed class MchosePlugin : BatteryPluginBase
     /// 所有人都会静音，需重新插拔释放。
     ///
     /// "无响应"只在状态变化时记日志：发现节拍每 15 秒重探一次，键盘睡着时逐次记录会把 app.log
-    /// 刷满且无新信息。成功一次就 <see cref="ResetLogOnce"/>。
+    /// 刷满且无新信息。成功一次就 <see cref="Log.ResetOnce"/>。
     /// </summary>
     private static (int? Percent, ChargingState Charging)? TryKeyboardV1(HidDeviceHandle handle)
     {
-        if (!ProbingEnabled) return null;
+        if (!IsWritesEnabled(SettingsKey)) return null;
 
         // 开会话（官方时序），失败不影响下一步——实测 dongle 记住会话状态
         SendKeyboardV1Frame(handle, MchoseV1Codec.SessionCmd, 0x01);
@@ -417,10 +407,10 @@ public sealed class MchosePlugin : BatteryPluginBase
             if (stop)
             {
                 Log.Info($"迈从 会话期间即收到电量推送，直接采用");
-                ResetLogOnce(handle, LogKeyKbV1Silent);
+                Log.ResetOnce(LogKey(handle, LogKeyKbV1Silent));
                 return read;
             }
-            Log.Debug($"迈从 会话ACK: {Log.Hex(input)}");
+            if (Log.IsEnabled(LogLevel.Debug)) Log.Debug($"迈从 会话ACK: {Log.Hex(input)}");
         }
 
         // 电量查询，最多重试 2 次（键盘休眠时先醒来）
@@ -441,14 +431,14 @@ public sealed class MchosePlugin : BatteryPluginBase
                 var read = InterpretV1Input(input, out bool stop);
                 if (stop)
                 {
-                    ResetLogOnce(handle, LogKeyKbV1Silent);
+                    Log.ResetOnce(LogKey(handle, LogKeyKbV1Silent));
                     return read;
                 }
             }
         }
 
-        if (ShouldLogOnce(handle, LogKeyKbV1Silent))
-            Log.Debug($"迈从 keyboard-v1 两次询问无响应（键盘多半在睡；恢复应答后会再记一条）: {handle.Info.DevicePath}");
+        Log.Once(LogLevel.Debug, LogKey(handle, LogKeyKbV1Silent),
+            $"迈从 keyboard-v1 两次询问无响应（键盘多半在睡；恢复应答后会再记一条）: {handle.Info.DevicePath}");
         return null;
     }
 
@@ -510,18 +500,15 @@ public sealed class MchosePlugin : BatteryPluginBase
         }
     }
 
-    /// <summary>充电标志：0x10 位=充电中；实测 35% 放电时标志=0x01（语义待插线校准）。</summary>
+    /// <summary>充电标志：0x10 位=充电中；实测 35% 放电时标志=0x01（语义待插线校准）。
+    /// 收尾规则（未充电且 100% ⇒ 已充满）见 <see cref="ChargingStateMap"/>。</summary>
     private static ChargingState ParseKeyboardV1Charge(byte flag, int percent)
-    {
-        if ((flag & 0x10) != 0) return ChargingState.Charging;
-        if (percent >= 100) return ChargingState.Full;
-        return ChargingState.Discharging;
-    }
+        => ChargingStateMap.FromChargingFlag((flag & 0x10) != 0, percent);
 
     /// <summary>keyboard-v1 轮询：只发电量查询（会话已建立），解析 4A 响应和 0A 推送。</summary>
     private static (int? Percent, ChargingState Charging)? PollKeyboardV1(TrackedDevice dev)
     {
-        if (!ProbingEnabled) return null;
+        if (!IsWritesEnabled(SettingsKey)) return null;
 
         if (!SendKeyboardV1Frame(dev.Handle, MchoseV1Codec.BatteryQueryCmd, 0x01)) return null;
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1.2);
@@ -538,7 +525,7 @@ public sealed class MchosePlugin : BatteryPluginBase
     /// <summary>qhw 轮询：握手一次 → getBattery 一条 → 解析（含 CZ 推送兜底）。</summary>
     private static (int? Percent, ChargingState Charging)? PollQhw(TrackedDevice dev)
     {
-        if (!ProbingEnabled) return null;
+        if (!IsWritesEnabled(SettingsKey)) return null;
 
         if (!dev.HandshakeSent)
         {

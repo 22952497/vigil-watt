@@ -20,7 +20,7 @@ grep -a "ERR \|WARN " app.log | tail       # 最近错误
 grep -a "时间基准" app.log                  # 文件首行：本地时区 + UTC offset（与 history.db 的 UTC 对齐）
 ```
 
-设备/设置：`%LOCALAPPDATA%\VigilWatt\settings.json`（PluginEnabled / MchoseProbingEnabled）、history.db（SQLite，samples 表）。
+设备/设置：`%LOCALAPPDATA%\VigilWatt\settings.json`（PluginEnabled——各插件的开关，同时就是它的写入授权）、history.db（SQLite，samples 表）。
 
 ## 1. 抓官方软件的包（浏览器 WebHID monkey-patch）★主力手法
 
@@ -61,7 +61,7 @@ grep -a "时间基准" app.log                  # 文件首行：本地时区 + 
 
 ### 1.5 注意事项
 
-- **会话排他**（safety.md §2.2）：抓包时本应用必须退出；页面刷新会弄脏 dongle 会话，抓完把 Edge 整个关掉。
+- **会话排他**（safety.md §2 事故二）：抓包时本应用必须退出；页面刷新会弄脏 dongle 会话，抓完把 Edge 整个关掉。
 - CDP 驱动页面用的是独立 user-data-dir，不会污染用户浏览器配置；但 `taskkill msedge.exe` 会连用户的 Edge 一起杀——**先提醒或让用户自己关**。
 - 官方抓到的帧先和公开逆向文档（arutkowski00/mchose-hid-bridge 的 K99 V1）对照，命名/校验逻辑能对上再写进插件。
 
@@ -81,7 +81,7 @@ h.write([0x13, 0x05, 0x01, 0, ...])   # 只发手册里记载的帧
 
 ## 3. 排查"零响应"的顺序
 
-1. **谁持有会话？**（safety.md §2.2）关掉本应用、浏览器里的 M HUB、官方桌面版，再看。
+1. **谁持有会话？**（safety.md §2 事故二）关掉本应用、浏览器里的 M HUB、官方桌面版，再看。
 2. 帧校验对不对？（0x13 协议 = 前 19 字节和；QHW = 从 ver 字节起 XOR）
 3. 会话开了没有？（0x13 协议必须先 `05 01`）
 4. report ID 接受吗？（WriteFile 报"参数错误" = 描述符里没这个 ID，换通道）
@@ -97,7 +97,7 @@ h.write([0x13, 0x05, 0x01, 0, ...])   # 只发手册里记载的帧
 
 ## 5. 修改硬件交互代码前
 
-重读 safety.md。所有写帧逻辑必须有出处（本文档/protocols.md/官方抓包），并过 `MchoseProbingEnabled` 开关 + 3 次失败熔断。
+重读 safety.md。所有写帧逻辑必须有出处（本文档/protocols.md/官方抓包），并过**该插件自己的写入开关**（逐插件现状见 safety.md §3.1）+ 3 次失败熔断。**新增会写帧的插件必须显式声明 `WritesEnabled`，不许沿用基类默认值。**
 
 ## 6. 帧字节 ↔ 物理状态对照法 ★判断"某个字节到底是不是状态位"
 

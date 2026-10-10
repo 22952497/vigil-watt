@@ -17,16 +17,19 @@ public sealed partial class StatsPage : Page
     /// <summary>手动刷新进行中：挡住重复点击，也让"刷新中"状态不被后台事件提前清掉。</summary>
     private bool _refreshing;
 
+    /// <summary>渲染代次：查询移到线程池后会有并发，用它丢弃"过期的旧结果"，避免旧曲线盖掉新曲线。</summary>
+    private int _renderSeq;
+
     public StatsPage()
     {
         InitializeComponent();
-        ReloadDeviceList();
+        _ = ReloadDeviceListAsync();
         App.Services.Manager.DevicesChanged += OnDevicesChanged;
         Unloaded += (_, _) => App.Services.Manager.DevicesChanged -= OnDevicesChanged;
     }
 
     // 命名方法 + Unloaded 解绑：页面每次导航都会新建实例，构造里匿名订阅会让旧页泄漏且叠加回调
-    private void OnDevicesChanged() => DispatcherQueue.TryEnqueue(ReloadDeviceList);
+    private void OnDevicesChanged() => DispatcherQueue.TryEnqueue(() => _ = ReloadDeviceListAsync());
 
     /// <summary>当前选中的时间范围（小时）。按钮组互斥，默认 24 小时。</summary>
     private int GetSelectedHours()
@@ -51,19 +54,24 @@ public sealed partial class StatsPage : Page
             tb.IsChecked = ReferenceEquals(tb, clicked);
 
         // 时间范围变了，"有数据的设备"集合也会变，列表要跟着重算
-        ReloadDeviceList();
+        _ = ReloadDeviceListAsync();
     }
 
-    private void ReloadDeviceList()
+    /// <summary>查询放到线程池：UI 线程同步跑 SQLite 查询会卡住界面（S5 / CR-06）。</summary>
+    private async Task ReloadDeviceListAsync()
     {
         if (DeviceCombo == null || ChartHost == null) return;
 
+        int seq = ++_renderSeq;
+        int hours = GetSelectedHours();
+
             // 设备列表按历史库走：所选时间范围内有过采样的设备都在列（含已下线/换过 Id 的历史设备），
             // 不跟随当前在线设备——否则昨天用旧协议采的曲线永远选不到。
-        var entries = App.Services.History
-            .DistinctDevices(DateTimeOffset.Now.AddHours(-GetSelectedHours()))
+        var entries = await Task.Run(() => App.Services.History
+            .DistinctDevices(DateTimeOffset.Now.AddHours(-hours))
             .Select(d => new DeviceEntry(d.DeviceId, d.Name))
-            .ToList();
+            .ToList());
+        if (seq != _renderSeq) return;   // 期间又发起了新刷新，丢弃这次过期结果
 
         // 列表内容没变就不重建 ItemsSource——重建会强制关闭打开中的下拉框并把选择弹回，
         // 每 60 秒一次的轮询周期正好会打断用户切换（表现为"切换没反应"）
@@ -77,22 +85,24 @@ public sealed partial class StatsPage : Page
             DeviceCombo.SelectedItem = entries.FirstOrDefault(e => e.Id == selectedId) ?? entries.FirstOrDefault();
         }
 
-        RenderChart();
+        await RenderChartAsync();
     }
 
-    private void Device_SelectionChanged(object sender, SelectionChangedEventArgs e) => RenderChart();
+    private void Device_SelectionChanged(object sender, SelectionChangedEventArgs e) => _ = RenderChartAsync();
 
-    private void RenderChart()
+    private async Task RenderChartAsync()
     {
         // XAML 解析期事件可能先于字段赋值触发，统一判空
         if (DeviceCombo == null || ChartHost == null) return;
 
+        int seq = ++_renderSeq;
         var from = DateTimeOffset.Now.AddHours(-GetSelectedHours());
         var to = DateTimeOffset.Now;
         var device = DeviceCombo.SelectedItem as DeviceEntry;
         var samples = device is null
             ? new List<HistorySample>()
-            : App.Services.History.Query(device.Id, from, to);
+            : await Task.Run(() => App.Services.History.Query(device.Id, from, to));
+        if (seq != _renderSeq) return;   // 期间又发起了新刷新，丢弃这次过期结果
 
         UpdateKpis(device, samples);
 
@@ -205,7 +215,7 @@ public sealed partial class StatsPage : Page
             if (elapsed < minVisible)
                 await Task.Delay(minVisible - elapsed);
 
-            ReloadDeviceList();
+            await ReloadDeviceListAsync();
             SetRefreshing(false);
             _refreshing = false;
         }

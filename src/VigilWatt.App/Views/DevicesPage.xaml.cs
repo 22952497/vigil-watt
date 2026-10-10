@@ -27,7 +27,23 @@ public sealed partial class DevicesPage : Page
     // 命名方法 + Unloaded 解绑：页面每次导航都会新建实例，匿名订阅会让旧页泄漏且叠加回调
     private void OnDeviceUpdated(DeviceStatus _) => OnDevicesChanged();
 
-    private void OnDevicesChanged() => DispatcherQueue.TryEnqueue(Refresh);
+    private void OnDevicesChanged() => RequestRefresh();
+
+    private int _refreshQueued;
+
+    /// <summary>
+    /// 合并刷新请求（CR-29）：一轮轮询会对 N 台设备各发一次 DeviceUpdated、外加一次 DevicesChanged，
+    /// 逐个排队就是 N+1 次全量重建 ItemsSource。用 Interlocked 只保留一次待执行的刷新。
+    /// </summary>
+    private void RequestRefresh()
+    {
+        if (Interlocked.Exchange(ref _refreshQueued, 1) == 1) return;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            Interlocked.Exchange(ref _refreshQueued, 0);   // 先复位再刷新：刷新期间来的请求不会被吞掉
+            Refresh();
+        });
+    }
 
     private void Refresh()
     {

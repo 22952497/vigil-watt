@@ -25,8 +25,9 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 - 先读 `doc/project/handoff.md`（会话快照）+ 相关专题文档；冲突时以专题文档为准。
 - 逐轮历史在 `doc/project/changelog.md`：**本轮做了什么、为什么这么改，收工后追加到那里**，不要把流水账写回 handoff（那里只放当前状态）。
 - **UI 改版：先出方案，用户确认后再改代码。**
-- 硬件写入类改动：先读 `doc/hardware/safety.md`（零写入原则、写入闸门）。
+- 硬件写入类改动：先读 `doc/hardware/safety.md`（零写入原则、写入闸门；各插件开关现状见其 §3.1）。
 - 改读数过滤器 / 帧解析 / 历史库后，**必须重跑单测**。
+- 动代码前对照 `doc/dev/review-standard.md` 的 R 清单；**审查发现的未修项在 `doc/reviews/BACKLOG.md`**（唯一载体）。
 
 ## 4. 构建与测试
 
@@ -55,3 +56,11 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 ## 7. 沟通
 
 - 中文交流，文档中文；界面只中英文。
+
+## 8. 审查（提交前必过三条）
+
+- **L0 机械层**：构建 `0 警告 0 错误`；改了帧解析 / 读数过滤 / 历史库 / 离线判定必须重跑对应测试类
+  （用 `--no-build --filter "FullyQualifiedName~<类名>"`，全量 `dotnet test` 在本机会卡住，见 `doc/dev/build.md` §4.1）。
+- **L1 自查**：碰了红线区域（硬件写入 / 状态模型 / 线程 / 资源释放 / 异常）就对着 R 清单过一遍，
+  标准见 `doc/dev/review-standard.md`。其中 **R2「插件必须继承 `BatteryPluginBase`」** 是历史事故的唯一成因，无例外。
+- **发现必须进 `doc/reviews/BACKLOG.md`**——只写在审查报告或 changelog 里等于没记。报告只承载证据与推理。
