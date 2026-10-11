@@ -62,6 +62,9 @@
     <!-- 任务栏贴片的定位数学与取值收敛同样是零依赖纯逻辑（只碰 int/Math），定位算错必须能在单测里复现 -->
     <Compile Include="..\..\VigilWatt.App\Services\TaskbarLayout.cs" />
     <Compile Include="..\..\VigilWatt.App\Services\TaskbarBatteryMode.cs" />
+    <Compile Include="..\VigilWatt.ProtocolCapture\CaptureRecord.cs" />
+    <Compile Include="..\VigilWatt.ProtocolCapture\CaptureRecordFactory.cs" />
+    <Compile Include="..\VigilWatt.ProtocolCapture\UsbCaptureReader.cs" />
   </ItemGroup>
 
 </Project>

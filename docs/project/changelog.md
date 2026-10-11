@@ -622,3 +622,13 @@
 **验证**：`dotnet build VigilWatt.sln -c Debug` 0 警告 0 错误。
 
 **未做**：未启动应用进行 UI 手工验收；未执行任何 git 写操作。
+
+### 2026-10-11：新增通用协议采集工具
+
+**诉求**：为后续接入设备提供可复用的协议观察与记录入口。
+
+**改动**：新增独立 `VigilWatt.ProtocolCapture` CLI：USB 调用已安装的 USBPcapCMD 并可导出 pcap/pcapng 为 JSONL；WebHID 通过 Chromium DevTools 旁路记录 API 调用与 input report；BLE 只采集被动广告。新增规范化记录工厂、USB 捕获文件解析与测试，并补充 `docs/hardware/debugging.md` 使用说明。USBPcap 原生格式经官方文档核实为 classic pcap，因此保留原始 pcap，并兼容 pcapng 导入。
+
+**验证**：ProtocolCapture 项目构建 0 警告 0 错误；协议采集单测 5/5 通过；CLI `help`、`sources`、`usb roots` 可运行。完整 `dotnet build VigilWatt.sln -c Debug` 被工作树已有的 `SettingsPage.xaml` 事件绑定缺失阻塞（`SettingsScrollViewer_ViewChanged` / `SettingsScrollViewer_SizeChanged`）；未改动该设置页文件。未连接设备或执行真实 USB/浏览器/BLE 采集。
+
+**未做**：未执行任何 git 写操作。

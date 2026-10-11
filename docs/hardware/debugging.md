@@ -145,3 +145,36 @@ grep -a "启动 VigilWatt" app-*.log | tail -3       # 每次启动都有一行�
 ```
 另外：**从本仓库的 agent shell 拉起 GUI 应用会被进程树清理在 ~7 秒内带走**（日志只写到首轮扫描就断）。
 要长驻请让用户双击 `publish\VigilWatt.App.exe`；验证只求"看到首轮日志"时可以用 `cmd //c start`。
+
+## 9. 通用协议采集工具
+
+独立工具 `src/tests/VigilWatt.ProtocolCapture/` 提供 USBPcap、WebHID 与 BLE 被动广告采集，不加入 VigilWatt 主应用。使用 `dotnet run --project src/tests/VigilWatt.ProtocolCapture -- help` 查看命令。
+
+USB Root Hub 枚举只查询 Windows 设备路径；用 Wireshark 的 USBPcap 接口详情把 Root Hub 对应到实际插入位置。示例：
+
+```powershell
+dotnet run --project src/tests/VigilWatt.ProtocolCapture -- usb roots
+dotnet run --project src/tests/VigilWatt.ProtocolCapture -- usb capture --root-hub '\\.\USBPcap1' --out "$env:TEMP\device.pcap"
+dotnet run --project src/tests/VigilWatt.ProtocolCapture -- usb export --in "$env:TEMP\device.pcap" --out "$env:TEMP\device.jsonl" --device 7
+```
+
+采集调用已安装的 `USBPcapCMD.exe`。USBPcap 原生输出经典 pcap；导出器也接受 pcapng。Root Hub 级采集会包含其下其他 USB 设备的数据；导出时可按 USB device address 筛选。USBPcap 以自身方式处理权限请求，工具不安装/配置驱动。不要用 USBPcap 无参数交互模式：过滤驱动不可用时，该模式可能提示重启全部 USB 设备。
+
+WebHID 需要使用**独立 Chromium 用户配置目录**启动远程调试实例，避免复用现有浏览器进程：
+
+```powershell
+$profile = Join-Path $env:TEMP 'vw-capture-edge'
+Start-Process msedge.exe -ArgumentList @('--remote-debugging-port=9222', '--remote-allow-origins=*', "--user-data-dir=$profile", 'https://www.mchose.com.cn/#/home')
+dotnet run --project src/tests/VigilWatt.ProtocolCapture -- webhid targets --port 9222
+dotnet run --project src/tests/VigilWatt.ProtocolCapture -- webhid capture --port 9222 --target '<页面 ID、URL 片段或标题片段>' --out "$env:TEMP\webhid.jsonl"
+```
+
+采集器旁路记录 WebHID API 调用和输入报告，不自行发送设备报文；官方页面会照常与设备通信。
+
+BLE 使用 Windows Passive Advertisement watcher，只记录广播，不连接、读取 GATT 或写 CCCD：
+
+```powershell
+dotnet run --project src/tests/VigilWatt.ProtocolCapture -- ble capture --seconds 60 --out "$env:TEMP\ble.jsonl"
+```
+
+记录文件默认写到用户指定路径。USB 原始数据保存在 pcap；WebHID、BLE 和 USB 导出统一为每行一个 JSON 对象的 JSONL。USB device address 是临时地址，仅对该次采集有效。

@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VigilWatt.Core.Tests", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VigilWatt.BleScan", "src\tests\VigilWatt.BleScan\VigilWatt.BleScan.csproj", "{1A2B3C4D-0004-4A1A-9A9A-444444444444}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VigilWatt.ProtocolCapture", "src\tests\VigilWatt.ProtocolCapture\VigilWatt.ProtocolCapture.csproj", "{1A2B3C4D-0005-4A1A-9A9A-555555555555}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -32,6 +34,10 @@ Global
 		{1A2B3C4D-0004-4A1A-9A9A-444444444444}.Debug|x64.Build.0 = Debug|Any CPU
 		{1A2B3C4D-0004-4A1A-9A9A-444444444444}.Release|x64.ActiveCfg = Release|Any CPU
 		{1A2B3C4D-0004-4A1A-9A9A-444444444444}.Release|x64.Build.0 = Release|Any CPU
+		{1A2B3C4D-0005-4A1A-9A9A-555555555555}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{1A2B3C4D-0005-4A1A-9A9A-555555555555}.Debug|x64.Build.0 = Debug|Any CPU
+		{1A2B3C4D-0005-4A1A-9A9A-555555555555}.Release|x64.ActiveCfg = Release|Any CPU
+		{1A2B3C4D-0005-4A1A-9A9A-555555555555}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

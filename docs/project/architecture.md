@@ -58,7 +58,7 @@ VigilWatt.sln
 
 产物：`publish\VigilWatt.App.exe`（self-contained 单目录发布，102MB，已 gitignore）。
 
-配套目录：`src/tests/VigilWatt.Core.Tests/`（xUnit 单测，`<Compile Include>` 链接 Core 的纯逻辑真源文件）、`src/tests/VigilWatt.BleScan/`（诊断小工具）、`scripts/`（临时调试脚本，用完即删）。
+配套目录：`src/tests/VigilWatt.Core.Tests/`（xUnit 单测，`<Compile Include>` 链接 Core 的纯逻辑真源文件）、`src/tests/VigilWatt.BleScan/`（蓝牙诊断小工具）、`src/tests/VigilWatt.ProtocolCapture/`（USBPcap / WebHID / BLE 被动协议采集 CLI）、`scripts/`（临时调试脚本，用完即删）。
 
 ## 2. 关键类型与关系
 
