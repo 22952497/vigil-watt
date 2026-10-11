@@ -10,7 +10,7 @@
 北通 T9 手柄 73%（T9 被动状态流）、迈从 G87 键盘 65%（0x13 会话协议）、雷柏 VT3 二代鼠标 98%（status-report7 被动）；
 经典蓝牙耳机 EDIFIER W820NB 走 HFP 网关节点 `DEVPKEY_Device_BatteryLevel`（与 Windows 设置页一致）；
 插件架构完成二演化；本机电量监控（10-08）、日志分级（10-09）、经典蓝牙设备类型判定（10-09）均已落地。
-**代码审查机制（2026-10-10）已建立**：标准在 `doc/dev/review-standard.md`，发现跟踪在 `doc/reviews/BACKLOG.md`。
+**代码审查机制（2026-10-10）已建立**：标准在 `docs/dev/review-standard.md`，发现跟踪在 `docs/reviews/BACKLOG.md`。
 **2026-10-10 又做了"上线前全检 + 全部调整"**：4 条 P0 + 7 条 P1 + 大部分 P2 已修并验证（构建 0 警告 0 错误、测试 253 用例全绿）。
 BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形态 / D3 / D4 / D5 / D6**，其余全部 `done` 或 `wontfix`（各带理由）。
 **2026-10-10 第二十轮新增「任务栏电量贴片」**（可选开关、默认关）：把在线设备电量做成一条胶囊钉在任务栏托盘左侧，
@@ -44,11 +44,11 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 
 - **2026-10-10 第十九轮 · 取消独立"写入许可"开关**：罗技设备发现不了（第十八轮把罗技默认关 + 新增 `LogitechProbingEnabled`，用户开了插件却找不到设备）→ 按用户要求**所有插件统一为"插件开关即写入授权"**：删除 `WritePermission` 机制与 `MchoseProbingEnabled`/`BetopProbingEnabled`/`LogitechProbingEnabled` 三个设置项，基类 `WritesEnabled => IsWritesEnabled(Name)` 直读插件开关，设置页不再有「写入许可」子行。熔断/退避不受影响。详见 changelog.md 第十九轮 + BACKLOG CR-37。
 - **2026-10-10 第十八轮 · 上线前全检 + 全部调整**：4 人全检（报告 `deliverables/gstack/pre-launch-check-2026-10-10.md`）→ 用户批"全部调整"→ 修掉 **4 条 P0**（共享可变 `DeviceStatus` 让变化判定恒假 / 罗技绕过基类安全机制 / 北通探测路径无写入闸门 / 小组件订阅泄漏）+ **7 条 P1** + 大部分 P2，并落地 D2/D7/D8/D9/D10。新增"插件声明写入许可"机制（`IBatteryPlugin.WritePermission` + 设置页自动生成子行，**已于第十九轮取消**），基类写入默认从 fail-open 改为 fail-safe。详见 changelog.md 第十八轮。
-- **2026-10-10 第十七轮 · 建立代码审查机制 + 文档一致性清理**：新增 `doc/dev/review-standard.md`（P0–P2 / R1–R8 红线 / L0–L2 闸门）与 `doc/reviews/BACKLOG.md`（唯一跟踪载体）；`AGENTS.md` §8 提交前必过三条；修掉 6 处 `safety.md` 假指针（CR-11/CR-18）。
+- **2026-10-10 第十七轮 · 建立代码审查机制 + 文档一致性清理**：新增 `docs/dev/review-standard.md`（P0–P2 / R1–R8 红线 / L0–L2 闸门）与 `docs/reviews/BACKLOG.md`（唯一跟踪载体）；`AGENTS.md` §8 提交前必过三条；修掉 6 处 `safety.md` 假指针（CR-11/CR-18）。
 
 ## 4. 待办（**唯一来源**：改待办请改这里，别在 experience.md 抄第二份）
 
-> **与 `doc/reviews/BACKLOG.md` 的分工（2026-10-10 定）**：本节只放**当前这一轮在做的那几条**；
+> **与 `docs/reviews/BACKLOG.md` 的分工（2026-10-10 定）**：本节只放**当前这一轮在做的那几条**；
 > **审查发现的未修项全集在 BACKLOG**（open/doing/done/wontfix），不要在这里抄一份。
 
 1. **充电标志校准**：用户插充电线 → 看日志 `状态字节` → 补全 `ParseKeyboardV1Charge` 映射（已知 0x10 位=充电中）
@@ -75,7 +75,7 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 
 ## 5. 给下一个 AI 的注意事项
 
-1. **开工顺序**：doc/README.md（症状速查）→ 本文件 → 按任务查专题文档。repo 文档永远比记忆新。
+1. **开工顺序**：docs/README.md（症状速查）→ 本文件 → 按任务查专题文档。repo 文档永远比记忆新。
 2. **硬件安全红线**（用户两次事故换来，最高优先级约束）：**绝不盲扫**；只发有出处的帧（官方抓包/公开文档）；**插件开关本身就是写入授权**（`AppSettings.PluginEnabled[Name]` → 基类 `WritesEnabled => IsWritesEnabled(Name)`；会写帧的插件默认关闭）；熔断+退避已在基类内建，别在子类绕过。
 3. **dongle 静音时先查会话**：本应用 / 浏览器里的 M HUB WEB / 官方桌面 HUB 互斥，谁持有会话谁工作，崩溃进程会把会话粘死（所有人静音），kill 持有者或重插拔恢复（safety.md §2 事故二）。这是最容易误判成"协议错了"的坑。
 4. **调试主力手法**：让官方软件和硬件说话，浏览器 monkey-patch 抓包（debugging.md §1，含选择器弹窗自动化、DPI 截图坑）；验证用 `pip install hidapi` 直测（§2）。
@@ -92,7 +92,7 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
     - **新增日志前先定级别**：状态变化 / 协议解析结果 = `Info`（结果行尾带 `原始=<HEX>`）；逐帧 / 中间帧 / 明细 = `Debug`；热路径先 `Log.IsEnabled(level)` 短路，省掉 `$"..."` 插值。
     - **别在各调用点自己攒去重字段**：轮询型重复日志用 `Log.InfoOnChange(key, state, message)`（状态变了才记）或 `Log.InfoThrottled(key, message, interval)`（同 key 限频）；**"同一 key 只记一条、恢复正常后再记一条"** 用 `Log.Once(level, key, message)` / `Log.ResetOnce(key)`。
     - 日志**按日分文件**：`logs\app-日期.log`（本地日期），跨天自动切；默认保留 **14 天**（`AppSettings.LogRetentionDays`，设置页「日志」可改，重启生效）。每个文件**首行是"时间基准"**（本地时区 + UTC offset），用来和 `history.db` 的 UTC 毫秒对齐。
-    - 旧版 `app.log` / `app.1.log` / `app.2.log` 已废弃（2026-10-10 第二十一轮改按日），启动/跨天清理时一并删；doc 里 `grep ... app.log` 已改为 `grep ... app-*.log`。
+    - 旧版 `app.log` / `app.1.log` / `app.2.log` 已废弃（2026-10-10 第二十一轮改按日），启动/跨天清理时一并删；docs 里 `grep ... app.log` 已改为 `grep ... app-*.log`。
 
 ## 6. 关键文件速查
 
@@ -129,6 +129,6 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 | 日志实现/分级/按日分文件/保留/兜底 | `src/VigilWatt.Core/Utils/Log.cs` + `Utils/LogLevel.cs`；App 侧档位 `Services/LogLevelOptions.cs`；设置页「日志」分区（设计见 dev/logging.md） |
 | 日志级别/保留天数配置与单测 | `AppSettings.LogLevel` / `AppSettings.LogRetentionDays` + `App.OnLaunched` 里 `Log.MinLevel = ...` / `Log.RetentionDays = ...`；退出收尾 `App.ShutdownLogging()`；单测 `src/tests/VigilWatt.Core.Tests/LogTests.cs` |
 | 语言包白名单 | `VigilWatt.App.csproj` 的 `MuiLanguagesToKeep` + `_MuiKeep` 两处（build.md §6） |
-| 某轮改动为什么这么做 | `doc/project/changelog.md`（本文件不记历史，只给指针） |
-| 审查发现还剩什么没修 | `doc/reviews/BACKLOG.md`（**唯一载体**：open/doing/done/wontfix） |
-| 代码该守的红线、审查流程 | `doc/dev/review-standard.md` |
+| 某轮改动为什么这么做 | `docs/project/changelog.md`（本文件不记历史，只给指针） |
+| 审查发现还剩什么没修 | `docs/reviews/BACKLOG.md`（**唯一载体**：open/doing/done/wontfix） |
+| 代码该守的红线、审查流程 | `docs/dev/review-standard.md` |

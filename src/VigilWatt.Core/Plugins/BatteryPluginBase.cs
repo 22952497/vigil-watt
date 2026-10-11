@@ -11,7 +11,7 @@ namespace VigilWatt.Core.Plugins;
 /// 离线判定策略）由基类统一保证，子类只实现协议本身：
 /// <see cref="IsCandidate"/> / <see cref="Probe"/> / <see cref="PollDevice"/>（及可选 <see cref="TryParsePassiveInput"/>）。
 /// 会话型插件（罗技）直接实现 IBatteryPlugin，自建通知泵。
-/// 链路全貌见 doc/project/code-flow.md §4。
+/// 链路全貌见 docs/project/code-flow.md §4。
 /// </summary>
 public abstract class BatteryPluginBase : IBatteryPlugin
 {
@@ -51,7 +51,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
     /// <summary>
     /// 本插件的离线判定策略（第③层配置：机制由基类实现，插件只填参数，每插件一行）。
-    /// 第①层（协议事实）与第②层（安全声明）仍必须 per-brand，见 doc/project/code-flow.md §4.2。
+    /// 第①层（协议事实）与第②层（安全声明）仍必须 per-brand，见 docs/project/code-flow.md §4.2。
     /// </summary>
     protected virtual OfflinePolicy Offline { get; } = OfflinePolicy.Default;
 
@@ -204,7 +204,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     /// <summary>打开句柄并跑协议探测。成功返回持有句柄 + 探测值；失败/异常返回空句柄并已释放。</summary>
     private ProbeOutcome RunProbe(HidDeviceInfo info)
     {
-        // 探测会写帧、而写入许可被关：跳过探测，一帧都不发（安全规则 R1，见 doc/hardware/safety.md §3）。
+        // 探测会写帧、而写入许可被关：跳过探测，一帧都不发（安全规则 R1，见 docs/hardware/safety.md §3）。
         // 已认领设备不受影响——它们走 Poll（由 CanWrite 挡住写入），被动监听照常，即规则 2 说的"降级为只被动监听"。
         if (ProbeWrites && !WritesEnabled)
             return new ProbeOutcome(info, null, null);

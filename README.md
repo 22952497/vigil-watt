@@ -70,7 +70,7 @@ self-contained，**无需安装 .NET 运行时**。`publish/` 目录里另有解
 
 弱水时砂炽天使 2.4G（38FF:0001）已双重确认**无电量通道**（主机侧 + RoseLink 逆向），不在本表。
 
-协议字节级布局、已证伪路径、安全规则 → [doc/hardware/protocols.md](doc/hardware/protocols.md) / [doc/hardware/safety.md](doc/hardware/safety.md)（**写入类改动前必读**）。
+协议字节级布局、已证伪路径、安全规则 → [docs/hardware/protocols.md](docs/hardware/protocols.md) / [docs/hardware/safety.md](docs/hardware/safety.md)（**写入类改动前必读**）。
 
 ## 从源码构建
 
@@ -86,7 +86,7 @@ dotnet test src/tests/VigilWatt.Core.Tests
 dotnet publish src/VigilWatt.App -c Release -p:Platform=x64 -o publish
 ```
 
-构建坑（XamlCompiler 静默崩溃、双输出路径、Release 需要 `AllowUnsafeBlocks`）→ [doc/dev/build.md](doc/dev/build.md)。
+构建坑（XamlCompiler 静默崩溃、双输出路径、Release 需要 `AllowUnsafeBlocks`）→ [docs/dev/build.md](docs/dev/build.md)。
 
 ## 项目结构
 
@@ -97,21 +97,21 @@ src/
   tests/                  # xUnit 单测 + BleScan 诊断小工具
 publish/                  # 发布产物（gitignore）
 scripts/                  # 临时调试脚本（用完即删）
-doc/                      # 完整文档（见 doc/README.md）
+docs/                     # 完整文档（见 docs/README.md）
 assets/                   # README 截图
 ```
 
-插件架构（`IBatteryPlugin` + `BatteryPluginBase` + 反射发现）：新增品牌 = 加一个类文件。设计细节 → [doc/project/architecture.md](doc/project/architecture.md)。
+插件架构（`IBatteryPlugin` + `BatteryPluginBase` + 反射发现）：新增品牌 = 加一个类文件。设计细节 → [docs/project/architecture.md](docs/project/architecture.md)。
 
 ## 文档
 
-完整文档在 [doc/README.md](doc/README.md)，按「症状速查 / 开发避坑 / 硬件协议 / 审查报告」分门别类。
+完整文档在 [docs/README.md](docs/README.md)，按「症状速查 / 开发避坑 / 硬件协议 / 审查报告」分门别类。
 
 **最重要的三份**：
 
-- [doc/project/handoff.md](doc/project/handoff.md) — 会话交接快照（新会话 / 新维护者先读）
-- [doc/dev/comment-style.md](doc/dev/comment-style.md) — 注释规范：代码里只留 why + doc 指针
-- [doc/hardware/safety.md](doc/hardware/safety.md) — 硬件安全规则 + 事故复盘（**写入类改动前必读**）
+- [docs/project/handoff.md](docs/project/handoff.md) — 会话交接快照（新会话 / 新维护者先读）
+- [docs/dev/comment-style.md](docs/dev/comment-style.md) — 注释规范：代码里只留 why + docs 指针
+- [docs/hardware/safety.md](docs/hardware/safety.md) — 硬件安全规则 + 事故复盘（**写入类改动前必读**）
 
 ## 许可证
 

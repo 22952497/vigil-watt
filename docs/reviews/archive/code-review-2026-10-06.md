@@ -26,7 +26,7 @@
 
 ### 1.2 迈从候选匹配过宽：写入许可开启时可能向非迈从设备发协议帧
 
-- 位置：`src/VigilWatt.Core/Plugins/Mchose/MchosePlugin.cs:38-50,56-85,220-242,317-323`；对照 `doc/hardware/safety.md:25-33`
+- 位置：`src/VigilWatt.Core/Plugins/Mchose/MchosePlugin.cs:38-50,56-85,220-242,317-323`；对照 `docs/hardware/safety.md:25-33`
 - 触发：`IsCandidate` 仅排除罗技 / 雷柏 / 北通三个 VID，其余只要 vendor usage 且 I/O 长度为 20/20 或 64/64 就进入 `TryQhw`（0x4D 握手）、`TryKeyboardV1`（0x13 会话帧）。
 - 影响：违反"只对有出处的帧、向明确目标接口写入"的硬件安全规则。品牌插件与 `MchoseProbingEnabled` 默认均为关闭，属**用户启用后的条件风险**。
 - 修法：为已实测/明确记录的 VID/PID 与集合特征建立主动写入白名单；未知设备只被动读取或走独立、知情的诊断流程；不要把熔断退避当成白名单的替代品。
@@ -90,7 +90,7 @@
 
 ### 3.4 关键编排链路无自动测试，少量文档已漂移（P3）
 
-- 位置：`src/tests/VigilWatt.Core.Tests/VigilWatt.Core.Tests.csproj:22-45`；`README.md:34-36,61,69-72`；`doc/project/architecture.md:19,84-86`
+- 位置：`src/tests/VigilWatt.Core.Tests/VigilWatt.Core.Tests.csproj:22-45`；`README.md:34-36,61,69-72`；`docs/project/architecture.md:19,84-86`
 - 测试项目只链接帧编解码、读数过滤、名称识别、DeviceKind、SQLite 等纯逻辑文件，未覆盖 Manager 状态汇聚、插件探测许可、BLE 生命周期与设置页。
 - 文档漂移：README 仍写雷柏"实验性、需抓包校准"、测试数 65（实际 67）；`architecture.md` 仍称 `HidWriteProbe` 已退役（Elan 仍在调用）、轮询为 `SafePoll` + 2 个 Timer + `Interlocked`（现为 3 个 Timer + Task/信号量）。
 - 修法：优先补不接触硬件的假插件 / 状态汇聚回归测试，再同步权威文档。
@@ -106,6 +106,6 @@
 
 ## 5. 已知取舍（不当作新缺陷）
 
-- 北通 T9 其它候选接口每轮白等约 4~6 秒：`doc/project/handoff.md:399-403` 已记录为既有性能待办。
+- 北通 T9 其它候选接口每轮白等约 4~6 秒：`docs/project/handoff.md:399-403` 已记录为既有性能待办。
 - 托盘"退出"直接 `Environment.Exit(0)`、不做 HID 解绑：`code-flow.md:153-155` 与 `TrayService.cs:292-297` 已记录为已知行为，与"会话被占死约 2 分钟"的现象相关，建议后续优化（先停定时器、等 pass 结束再释句柄，**不要凭猜测发"关闭会话"帧**），但不算本次新发现的回归。
 - 历史删除走 SQL 参数绑定 + 二次确认 + VACUUM 串行化，存储层未发现注入风险。

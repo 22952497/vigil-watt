@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot   # scripts\ 的上一级 = 仓库根
 
-# 1) 应用运行时锁 DLL，先杀掉（见 doc/dev/build.md 第 3 条）
+# 1) 应用运行时锁 DLL，先杀掉（见 docs/dev/build.md 第 3 条）
 cmd /c "taskkill /IM VigilWatt.App.exe /F >nul 2>&1"
 
 # 2) 发布 self-contained（含 Windows App SDK 运行时，目标机器无需装任何依赖）

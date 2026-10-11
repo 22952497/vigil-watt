@@ -10,7 +10,7 @@ using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Devices;
 
-/// <summary>统一设备管理（中枢）：合并 BLE + 经典蓝牙 + 2.4G 插件状态，写历史、发变更事件；插件反射自动发现，接口认领经 DeviceClaimRegistry 防抢。详见 doc/project/architecture.md §1。</summary>
+/// <summary>统一设备管理（中枢）：合并 BLE + 经典蓝牙 + 2.4G 插件状态，写历史、发变更事件；插件反射自动发现，接口认领经 DeviceClaimRegistry 防抢。详见 docs/project/architecture.md §1。</summary>
 public sealed class DeviceManager : IDisposable
 {
     private readonly AppSettings _settings;
@@ -104,7 +104,7 @@ public sealed class DeviceManager : IDisposable
         Log.Info("DeviceManager 已启动");
     }
 
-    /// <summary>离线占位（墓碑）保留时长。存在的理由（蓝牙设备消失时从没进过列表、总数恒等无信息量）见 doc/project/code-flow.md §5.1。</summary>
+    /// <summary>离线占位（墓碑）保留时长。存在的理由（蓝牙设备消失时从没进过列表、总数恒等无信息量）见 docs/project/code-flow.md §5.1。</summary>
     private static readonly TimeSpan TombstoneWindow = TimeSpan.FromHours(24);
 
     /// <summary>把"最近 <see cref="TombstoneWindow"/> 内有历史、当前不在位"的设备补成离线条目；只在启动后跑一次。</summary>
@@ -245,7 +245,7 @@ public sealed class DeviceManager : IDisposable
     /// <summary>
     /// 快速发现：让两类插件跑一遍**只认领、不轮询电量**的发现探测（不碰 BLE / 经典蓝牙）：
     /// SupportsFastDiscovery = 纯被动零写入（雷柏）；SupportsDiscoveryProbe = 要写帧但由 ProbeCooldown 兜住（迈从）。
-    /// 把这类设备的发现时延从 ~60s 压到 ~15s；主轮询在跑时直接返回它。详见 doc/project/code-flow.md §2.1。
+    /// 把这类设备的发现时延从 ~60s 压到 ~15s；主轮询在跑时直接返回它。详见 docs/project/code-flow.md §2.1。
     /// </summary>
     public Task RequestDiscoveryAsync()
     {
@@ -426,7 +426,7 @@ public sealed class DeviceManager : IDisposable
     {
         // 数据源（插件/watcher）会复用并原地改写同一个 DeviceStatus 实例。直接把它存进 _devices，
         // 后续再比较就变成"同一对象和自己比"，changed 恒为假（历史即写 / DeviceUpdated / 骤降保护全失效）。
-        // 所以先快照 incoming 当"新值"，库里存的始终是独立副本当"旧值"——详见 doc/project/architecture.md §6。
+        // 所以先快照 incoming 当"新值"，库里存的始终是独立副本当"旧值"——详见 docs/project/architecture.md §6。
         var snapshot = incoming.Clone();
         var status = _devices.GetOrAdd(incoming.Id, snapshot);
         bool isNew = ReferenceEquals(status, snapshot);

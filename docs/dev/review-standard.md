@@ -1,15 +1,15 @@
 # 代码审查标准与流程
 
 > **一句话**：改动分三层过闸——机械层（自动）、自查清单（改的人自己过）、专家审查（按触发执行）；
-> 审查发现必须进 `doc/reviews/BACKLOG.md` 走完闭环，**不允许只写在报告里**。
+> 审查发现必须进 `docs/reviews/BACKLOG.md` 走完闭环，**不允许只写在报告里**。
 >
-> 立此文档的原因：2026-10-06 做过两份高质量全仓审查（存于 `doc/reviews/archive/`），并给出了四阶段路线图。
+> 立此文档的原因：2026-10-06 做过两份高质量全仓审查（存于 `docs/reviews/archive/`），并给出了四阶段路线图。
 > 报告归档后没有跟踪载体。2026-10-10 逐条核对，其中「罗技无写入闸门」「北通探测路径无闸门」
 > 「共享可变 `DeviceStatus` 导致 `changed` 恒假」等 P0 **全部仍然成立**，而路线图里设计的
 > `WriteBudget` / `DeviceStateTracker` / `SerialBackgroundQueue` 三个文件从未被创建。
 > **审查做了，问题没关**——这是本文档要解决的核心问题，不是"再写一份规范"。
 >
-> 与 `doc/dev/comment-style.md` 的分工：那份管**注释**，本文管**代码本身与审查动作**。
+> 与 `docs/dev/comment-style.md` 的分工：那份管**注释**，本文管**代码本身与审查动作**。
 
 ## 1. 严重级
 
@@ -31,7 +31,7 @@
 
 | 编号 | 红线 | 为什么（不写会踩什么坑） | 怎么自查 |
 |---|---|---|---|
-| **R1** | 任何 `WriteOutput` / `SetFeature` 调用点必须能被一个开关挡住，且新插件默认关闭 | 硬件写入是用户两次事故换来的最高优先级约束（`doc/hardware/safety.md`） | 全仓 grep 写入调用点，逐个确认有闸门 |
+| **R1** | 任何 `WriteOutput` / `SetFeature` 调用点必须能被一个开关挡住，且新插件默认关闭 | 硬件写入是用户两次事故换来的最高优先级约束（`docs/hardware/safety.md`） | 全仓 grep 写入调用点，逐个确认有闸门 |
 | **R2** | 插件必须继承 `BatteryPluginBase`，禁止直接实现 `IBatteryPlugin` | 基类承载熔断、退避、认领释放；绕过它 = 绕过全部安全机制。历史上唯一一次"无闸门写入"就是绕过基类造成的 | grep `: IBatteryPlugin` |
 
 > **R2 的唯一例外（2026-10-10 明确）**：会话型插件可以**直接实现 `IBatteryPlugin`**，前提是它**逐条自建**了基类提供的那几样东西，
@@ -40,9 +40,9 @@
 > 连续 3 次失败熔断 + 10 分钟退避、接口打开失败 10 分钟退避重试。**复核 R2 时看到这一例不算违规**；
 > 但它同时**不受基类后续加固的保护**——改基类安全机制时要同步检查这个文件（CR-01 就是这么来的）。
 | **R3** | 跨线程共享的可变对象：要么快照传递，要么全程加锁 | `ConcurrentDictionary` 只保证字典安全，**不保证它存的字段安全**；且共享实例会让"变化判定"恒为假（见 BACKLOG CR-03） | 搜 `GetOrAdd` / `_devices[...]` 的赋值，看存进去的是副本还是调用方本体 |
-| **R4** | 退出路径必须释放 HID 句柄 / Timer / DB 写队列 / 事件订阅 | 句柄不释放会把 dongle 会话占死，之后必须重新插拔（`doc/hardware/safety.md` §2 事故二） | 找 `Environment.Exit` 的调用点，确认它之前走了 `Dispose` |
+| **R4** | 退出路径必须释放 HID 句柄 / Timer / DB 写队列 / 事件订阅 | 句柄不释放会把 dongle 会话占死，之后必须重新插拔（`docs/hardware/safety.md` §2 事故二） | 找 `Environment.Exit` 的调用点，确认它之前走了 `Dispose` |
 | **R5** | 异常不得静默：`catch` 必须留痕（日志 + 计数）；UI 全局兜底不得无限 `Handled = true` | 静默失败会让应用"看起来在跑、实际什么都没做"，是最难排查的一类 | grep 空 `catch`；看全局兜底有没有计数熔断 |
-| **R6** | 注释配额（类头 ≤5 行 / 方法 ≤2 行 / 字段 ≤1 行）+ `doc/x.md §y` 指针必须真实存在 | 注释与行为不符时，它就从文档退化成误导。详见 `doc/dev/comment-style.md` | 读改动附近的注释，逐条对着代码验 |
+| **R6** | 注释配额（类头 ≤5 行 / 方法 ≤2 行 / 字段 ≤1 行）+ `docs/x.md §y` 指针必须真实存在 | 注释与行为不符时，它就从文档退化成误导。详见 `docs/dev/comment-style.md` | 读改动附近的注释，逐条对着代码验 |
 | **R7** | 改帧解析 / 读数过滤 / 历史库 / 离线判定，必须带回归单测 | 这几处全是纯逻辑、有现成测试类，不测没有理由 | 看测试项目里对应类有没有新用例 |
 | **R8** | 新增的纯逻辑必须零 WinRT 依赖，能被测试项目 `<Compile Include>` 链进去 | 这条治本：`DeviceManager`(499 行) 至今测不了是因为碰了 WinRT；但**别把"测不了"一律归因于 WinRT**——`BatteryPluginBase` 实测只依赖纯 P/Invoke 的 `Hid` 层、并不碰 WinRT，它测不了是因为**决策逻辑与真实 HID I/O 耦合**（正确解法是把纯决策抽成自由函数，如 `DeviceChangeDetector` / `DeviceStatusFormatter` / `WatcherProps`） | 新文件能否加进 `src/tests/VigilWatt.Core.Tests/VigilWatt.Core.Tests.csproj` |
 
@@ -63,7 +63,7 @@ R8 是前置约束而非事后补测。**写代码时就把逻辑和 WinRT 调�
 
 | 层 | 谁做 | 内容 | 成本 |
 |---|---|---|---|
-| **L0 机械层** | 改代码的人（或 agent），每次改动后 | ① 构建 `0 警告 0 错误`；② 相关测试类绿（`dotnet test --no-build --filter "FullyQualifiedName~<类名>"`，**全量 `dotnet test` 在本机会卡住**，见 `doc/dev/build.md`）；③ 注释配额；④ 未碰 `AGENTS.md §5` 禁区 | 秒级 |
+| **L0 机械层** | 改代码的人（或 agent），每次改动后 | ① 构建 `0 警告 0 错误`；② 相关测试类绿（`dotnet test --no-build --filter "FullyQualifiedName~<类名>"`，**全量 `dotnet test` 在本机会卡住**，见 `docs/dev/build.md`）；③ 注释配额；④ 未碰 `AGENTS.md §5` 禁区 | 秒级 |
 | **L1 自查清单** | 同上，提交前 | 按 §4.1 的改动类型逐条过 | 分钟级 |
 | **L2 专家审查** | 用户发起的专家会话 | 按 §5 场景触发，产出报告 + BACKLOG 条目 | 小时级 |
 
@@ -71,12 +71,12 @@ R8 是前置约束而非事后补测。**写代码时就把逻辑和 WinRT 调�
 
 | 改了什么 | 必查 |
 |---|---|
-| 硬件写入 / 新插件 | R1、R2 + `doc/hardware/safety.md` 全部规则；发帧必须有出处（官方抓包或公开文档），禁止命令枚举 |
+| 硬件写入 / 新插件 | R1、R2 + `docs/hardware/safety.md` 全部规则；发帧必须有出处（官方抓包或公开文档），禁止命令枚举 |
 | 状态模型 / 设备列表 | R3；**重点验"变化判定还能不能成立"**——若上报方与存储方是同一个对象，`changed` 会恒假 |
 | 线程 / 后台任务 | R3；事件回调是否回 UI 线程；后台循环里的异常会不会把循环静默杀掉 |
 | 资源 / 生命周期 | R4；谁订阅谁解绑；句柄、Timer、`CancellationTokenSource` 的归宿 |
 | 异常处理 | R5；`catch` 是否留痕；UI 兜底是否有计数熔断 |
-| UI / XAML | S2、S5；初始化期事件时序（`doc/dev/runtime-pitfalls.md` §4） |
+| UI / XAML | S2、S5；初始化期事件时序（`docs/dev/runtime-pitfalls.md` §4） |
 | 读数过滤 / 帧解析 / 历史库 | R7，必须带回归用例 |
 
 ## 5. 按场景的流程
@@ -84,7 +84,7 @@ R8 是前置约束而非事后补测。**写代码时就把逻辑和 WinRT 调�
 | 场景 | 触发条件 | 做什么 |
 |---|---|---|
 | **A · 日常小改** | 单文件、< 200 行 | L0 + L1 → 提交 |
-| **B · 功能轮次** | 跨模块的常规开发轮次 | L0 + L1 + **收工前 L2 轻审查**（限定改动面）→ 结论进 `doc/project/changelog.md` + BACKLOG |
+| **B · 功能轮次** | 跨模块的常规开发轮次 | L0 + L1 + **收工前 L2 轻审查**（限定改动面）→ 结论进 `docs/project/changelog.md` + BACKLOG |
 | **C · 里程碑 / 大重构前** | 用户发起 | **L2 全仓静态审查**（按 §6 格式） |
 | **D · 硬件协议改动** | 任何写帧的改动 | L0 + L1 + `safety.md` 闸门 + 真机验证计划（用户知情后另行安排） |
 
@@ -92,34 +92,34 @@ R8 是前置约束而非事后补测。**写代码时就把逻辑和 WinRT 调�
 
 ## 6. L2 审查报告的格式
 
-沿用 `doc/reviews/archive/` 那两份的优点，固定五段：
+沿用 `docs/reviews/archive/` 那两份的优点，固定五段：
 
 1. **基线与边界声明** — 基线 commit；本次是否启动应用、是否向设备发帧；哪些结论是**代码推断**而非实测。
 2. **逐条发现** — 编号 / 严重级 / 证据（`文件:符号`）/ 影响。**证据不写行号**：行号会漂移，这正是上一批报告被迫归档的原因。
 3. **需要修正或遗漏的部分** — 复核视角：哪条定级错了、哪条把轻重说反了、原报告漏了什么。
 4. **未能证实的部分** — 单独列出，注明验证方式。**不得把静态推断包装成实测结论**。
-5. **结论去向** — 条目写进 `doc/reviews/BACKLOG.md`，报告本体进 `doc/reviews/archive/`。
+5. **结论去向** — 条目写进 `docs/reviews/BACKLOG.md`，报告本体进 `docs/reviews/archive/`。
 
 ## 7. 发现闭环
 
 **规则：先更新 BACKLOG，再写报告。** 报告只承载"证据与推理"，条目本体留在 BACKLOG。
 
-- 载体：`doc/reviews/BACKLOG.md`（唯一）。字段：编号 / 级别 / 一句话 / 证据 / 状态 / 来源。
+- 载体：`docs/reviews/BACKLOG.md`（唯一）。字段：编号 / 级别 / 一句话 / 证据 / 状态 / 来源。
 - 状态机：`open` → `doing` → `done` / `wontfix`。
 - `wontfix` **必须写理由**，否则半年后同一个问题会被重新"发现"一遍，审查成本白付。
-- 与 `doc/project/handoff.md` §4 的分工（写死，别混）：
+- 与 `docs/project/handoff.md` §4 的分工（写死，别混）：
   - **BACKLOG = 审查发现的未修项全集**；
   - **handoff §4 = 当前这一轮在做的那几条**。
   - 同一件事只在 BACKLOG 留条目，handoff 只放指针。项目已经在 `experience.md` 抄待办上踩过一次，不再抄第二份。
-- 条目关闭时，把"怎么验证的"一句话写进 `doc/project/changelog.md`（历史归 changelog，状态归 BACKLOG）。
+- 条目关闭时，把"怎么验证的"一句话写进 `docs/project/changelog.md`（历史归 changelog，状态归 BACKLOG）。
 
 ## 8. 与其他文档的关系
 
 | 想知道 | 去哪 |
 |---|---|
-| 审查发现还剩什么没修 | `doc/reviews/BACKLOG.md` |
-| 注释该怎么写 | `doc/dev/comment-style.md` |
-| 硬件写入的红线 | `doc/hardware/safety.md` |
-| 构建 / 测试 / 环境坑 | `doc/dev/build.md` |
-| 某轮改动为什么这么做 | `doc/project/changelog.md` |
-| 一次性历史审查报告 | `doc/reviews/archive/` |
+| 审查发现还剩什么没修 | `docs/reviews/BACKLOG.md` |
+| 注释该怎么写 | `docs/dev/comment-style.md` |
+| 硬件写入的红线 | `docs/hardware/safety.md` |
+| 构建 / 测试 / 环境坑 | `docs/dev/build.md` |
+| 某轮改动为什么这么做 | `docs/project/changelog.md` |
+| 一次性历史审查报告 | `docs/reviews/archive/` |

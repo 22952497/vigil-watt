@@ -8,7 +8,7 @@ namespace VigilWatt.Core.Plugins;
 /// <see cref="MaxFailures"/> + <see cref="CountPollFailures"/>（发过帧却没应答）。
 /// 另有"立即核实"通道见 <see cref="BatteryPluginBase.RequestConfirm"/>。
 ///
-/// 分层理由、五条离线路径与各插件取值见 doc/project/code-flow.md §4.2。
+/// 分层理由、五条离线路径与各插件取值见 docs/project/code-flow.md §4.2。
 /// </summary>
 public sealed record OfflinePolicy
 {

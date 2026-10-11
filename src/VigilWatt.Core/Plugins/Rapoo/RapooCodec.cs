@@ -23,7 +23,7 @@ internal readonly record struct RapooStatus(
 
 /// <summary>
 /// 雷柏 2.4G 状态帧（report 0x07，19 字节）的**纯帧解析**，不碰句柄、不写日志，便于单测。
-/// 帧布局见 doc/hardware/protocols.md §3。
+/// 帧布局见 docs/hardware/protocols.md §3。
 ///
 /// <c>[18].bit7</c> 是"RF 链路是否连接"（实测：鼠标断电瞬间 dongle 主动吐一帧 <c>… 7F</c>，
 /// 随后静音约 28 秒）。它描述的是 **2.4G 链路**而不是"设备在不在"——关机、移出范围、受干扰

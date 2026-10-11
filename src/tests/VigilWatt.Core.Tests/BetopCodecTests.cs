@@ -6,7 +6,7 @@ namespace VigilWatt.Core.Tests;
     /// <summary>
     /// BetopCodec —— 北通 (BETOP) 手柄状态报告（report 0x02 / header 0x15）帧编解码。
     /// 用例使用鲲鹏20 真机原始帧（出自开源实现 oitsukiii/betop-battery）；该协议无校验和字段，
-    /// 因此只校验帧头与字段语义。帧结构见 doc/hardware/protocols.md §4。
+    /// 因此只校验帧头与字段语义。帧结构见 docs/hardware/protocols.md §4。
     /// </summary>
 public class BetopCodecTests
 {
@@ -114,7 +114,7 @@ public class BetopCodecTests
 
     /// <summary>
     /// 手柄**没连上**时 dongle 推的占位帧：byte23 = 0x50 = 80。该值不是电量。
-    /// 真机对照见 doc/hardware/protocols.md §4.4.1。
+    /// 真机对照见 docs/hardware/protocols.md §4.4.1。
     /// </summary>
     private static readonly byte[] T9StreamNotLinked =
         Hex("04 02 80 80 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 50");

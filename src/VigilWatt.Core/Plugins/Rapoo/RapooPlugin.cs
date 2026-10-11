@@ -13,7 +13,7 @@ namespace VigilWatt.Core.Plugins.Rapoo;
 ///
 /// 电量来自 dongle 每约 3 秒自发推送的 input report 0x07（19 字节）。该世代协议**没有电量查询命令**，
 /// 只能等心跳；"静音"不等于"设备不在"（休眠/停手是常态），故不据此判离线。
-/// 帧布局、充电标志编码与离线两条腿见 <see cref="RapooCodec"/> 及 doc/hardware/protocols.md §3。
+/// 帧布局、充电标志编码与离线两条腿见 <see cref="RapooCodec"/> 及 docs/hardware/protocols.md §3。
 /// </summary>
 public sealed class RapooPlugin : BatteryPluginBase
 {

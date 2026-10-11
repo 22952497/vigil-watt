@@ -22,7 +22,7 @@
 
 ## 约定
 
-- **零写入原则**：协议未摸清前只做被动监听；主动写帧前先读 `doc/hardware/safety.md`（硬件安全红线）。
-- Python 脚本依赖 `pip install hidapi`（HID 直测手法见 doc/hardware/debugging.md §2）。
+- **零写入原则**：协议未摸清前只做被动监听；主动写帧前先读 `docs/hardware/safety.md`（硬件安全红线）。
+- Python 脚本依赖 `pip install hidapi`（HID 直测手法见 docs/hardware/debugging.md §2）。
 - 脚本里的设备路径/接口号是本机实测值，换设备后以日志（按日 `app-日期.log`）的"HID 元数据"行为准。
-- 排查完的脚本：能沉淀成知识的写进 `doc/`，脚本本身可删；值得留的再进索引。
+- 排查完的脚本：能沉淀成知识的写进 `docs/`，脚本本身可删；值得留的再进索引。

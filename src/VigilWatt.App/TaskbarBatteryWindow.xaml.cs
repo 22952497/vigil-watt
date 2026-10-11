@@ -16,7 +16,7 @@ namespace VigilWatt.App;
 /// 不进 Alt-Tab、不抢焦点；高频把自己抬到任务栏之上（两者同为 topmost，谁后设谁在上）、约每秒跟随一次
 /// 任务栏的位置/厚度/自动隐藏。定位数学在 <see cref="TaskbarLayout"/>、格子外观在
 /// <see cref="TaskbarChipFactory"/>（都是独立可测/单一职责的纯逻辑），窗口表面透明在
-/// <see cref="TaskbarTransparency"/>，完整论证见 doc/dev/runtime-pitfalls.md §16 / §17。
+/// <see cref="TaskbarTransparency"/>，完整论证见 docs/dev/runtime-pitfalls.md §16 / §17。
 /// </summary>
 public sealed partial class TaskbarBatteryWindow : Window
 {

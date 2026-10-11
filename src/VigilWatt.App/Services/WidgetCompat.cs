@@ -11,7 +11,7 @@ namespace VigilWatt.App.Services;
 /// 两条通道互不通用——Win11 上 accent 策略静默失效（见 runtime-pitfalls §17）。
 ///
 /// 做成纯函数是为了让两条路径在同一处集中可见、不散落魔法数字。
-/// 具体坑与实修记录见 doc/dev/runtime-pitfalls.md §14 / §17。
+/// 具体坑与实修记录见 docs/dev/runtime-pitfalls.md §14 / §17。
 /// </summary>
 public static class WidgetCompat
 {

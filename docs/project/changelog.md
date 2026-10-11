@@ -15,7 +15,7 @@
 
 1. **G87 电量协议打通**（最大成果）：抓官方 M HUB WEB 确认 0x13 会话协议——`13 05 01` 开会话（必须，否则 dongle 全静音）→ `13 4A 01` 查电量（[5]=%，[6]=充电标志）。规格见 `hardware/protocols.md` §1。
 2. **MchosePlugin 重写**：只发官方帧，删除全部危险扫描代码（两次事故复盘见 `hardware/safety.md`）。
-3. **文档体系建立**：doc/ 三目录九份文档（project/dev/hardware）。
+3. **文档体系建立**：docs/ 三目录九份文档（project/dev/hardware）。
 4. **插件架构二次演进**：`BatteryPluginBase` 基类（冷却/熔断/生命周期/稳定 Id）+ `DeviceClaimRegistry` 中央认领 + 反射自动发现 + 设置页动态开关。新增品牌 = 一个类文件（详见 `architecture.md` §3）。
 5. **语言包裁剪**：WindowsAppSDK 自包含会全量拷 88 种语言 .mui；用官方排除口只留 en-us/zh-CN/zh-TW（`dev/build.md` §6）。
 6. **退避式熔断**：连续 3 次失败停写 → 10 分钟退避后重试一轮（键盘休眠唤醒后自愈，最坏 1 帧/10 分钟）。
@@ -254,7 +254,7 @@
 
 **诉求**：日志没有正确分级和管控——噪音把 app.log 冲爆、写失败静默、没有滚动。
 
-**做法**：先评审+补强已有方案 `doc/dev/logging.md`（修 3 处事实错误 + 补 7 项遗漏 N1–N7），用户确认后按三阶段实施，**完整设计以 `logging.md` 为准**，这里只记阶段与关键决策：
+**做法**：先评审+补强已有方案 `docs/dev/logging.md`（修 3 处事实错误 + 补 7 项遗漏 N1–N7），用户确认后按三阶段实施，**完整设计以 `logging.md` 为准**，这里只记阶段与关键决策：
 
 - **阶段 1 级别体系**：`LogLevel`（Debug < Info < Warn < Error + Off 哨兵）+ `Log.MinLevel`（默认 `Info`）+ 设置页下拉框（**重启生效**，不追求热更新）+ `Error` 多行缩进保住"一行一条"。噪音下沉 Info→Debug：逐帧报文 / 探测 / HID 扫描明细；协议解析**结果**仍是 Info（行尾带 `原始=<HEX>`）。
 - **[P0] 稳定性四件事**：写失败不再静默（`logs/log-error.txt`，阈值+节流+上限）、失败后 30s 退避（修重试风暴）、滚动改**带序号保留**（`app.log` → `app.1.log` → `app.2.log`）、按字节计量（2MB）+ `FileShare.ReadWrite` + `Log.Shutdown()` 挂**真实退出路径**。
@@ -288,10 +288,10 @@
 
 **做法（用户三问定调：标准+BACKLOG / 按轮次审 / 先立标准后修）**：
 
-- **新增 `doc/dev/review-standard.md`**：严重级 P0–P2；**R1–R8 红线**（R8 = 新增纯逻辑必须零 WinRT 依赖、可链进单测项目，治本条款）；S1–S6 建议；L0/L1/L2 三层闸门 + 按改动类型的 L1 自查表；A/B/C/D 四场景流程；L2 报告固定五段格式（**证据只写 `文件:符号`，不写行号**——行号会漂移，正是 10-06 报告被迫归档的原因）；发现闭环规则。
-- **新增 `doc/reviews/BACKLOG.md`**：审查发现的**唯一跟踪载体**，`open → doing → done / wontfix`（wontfix 必须写理由）。与 `handoff.md` §4 分工写死：**BACKLOG = 未修项全集；handoff §4 = 本轮在做的几条**。编号关闭后不重排不复用。
+- **新增 `docs/dev/review-standard.md`**：严重级 P0–P2；**R1–R8 红线**（R8 = 新增纯逻辑必须零 WinRT 依赖、可链进单测项目，治本条款）；S1–S6 建议；L0/L1/L2 三层闸门 + 按改动类型的 L1 自查表；A/B/C/D 四场景流程；L2 报告固定五段格式（**证据只写 `文件:符号`，不写行号**——行号会漂移，正是 10-06 报告被迫归档的原因）；发现闭环规则。
+- **新增 `docs/reviews/BACKLOG.md`**：审查发现的**唯一跟踪载体**，`open → doing → done / wontfix`（wontfix 必须写理由）。与 `handoff.md` §4 分工写死：**BACKLOG = 未修项全集；handoff §4 = 本轮在做的几条**。编号关闭后不重排不复用。
 - **改 `AGENTS.md`**：新增 §8「审查（提交前必过三条）」；§3 加 R 清单与 BACKLOG 指针。
-- **改 `doc/README.md` / `doc/dev/build.md` / `doc/dev/comment-style.md` / `doc/project/handoff.md`**：导航入口、测试用法、内容归置表、待办分工。
+- **改 `docs/README.md` / `docs/dev/build.md` / `docs/dev/comment-style.md` / `docs/project/handoff.md`**：导航入口、测试用法、内容归置表、待办分工。
 - **未做**：L0 检查脚本（2026-10-09 用户明确不做脚本 / hook / CI）；**本轮未改任何代码**，历史遗留按用户选择进 BACKLOG 排期。
 
 **关键结论：10-06 报告的 P0 今天全部仍然成立**（逐条回代码核对，非照抄）：
@@ -361,7 +361,7 @@
 **收尾 · 文档一致性与收工 L2 轻审查**：
 
 - **文档一致性**：全局 grep 核对已删除/重命名的符号引用，修掉 **6 处**——`code-flow.md` ×3（`LogOnceByKey`/`ShouldLogOnce`/`ResetLogOnce` → `Log.Once`/`Log.ResetOnce`；`_lastNotifiedPercent` → `_lowBatteryNotified`；流程图 `（ProbingEnabled?）` → `（写入许可?）`）、`logging.md`（降噪入口表补 `Once`/`ResetOnce` 一行 + 迁移说明改写）、`protocols.md`（Elan `ClaimEnabled` → `Probe` 恒返回 null）、`experience.md`（泛指 `ProbingEnabled` → `WritePermission`）。`safety.md` §3.1 复核后**确认准确**（`*ProbingEnabled` 设置项仍在 `AppSettings`，表头已注明经 `WritePermission` 暴露）。`archive/` 历史报告与 BACKLOG 里描述"缺陷原状"的条目**按惯例不动**——那是"发现时的证据"。
-- **收工 L2 轻审查**（`review-standard.md` §5 场景 B，限定改动面）：报告落 `doc/reviews/archive/fix-round-2026-10-10.md`。新发现 **CR-34/35/36**——均为"当前不触发"的 P2 潜在陷阱（`SettingsPage.Load()` 不可重入 / 罗技成功打开后未清 `OpenFailed` / `TryEnqueue` 失败时不复位 `_refreshQueued`），**只记录不修**（与本轮对 D1/D3~D6 的处理原则一致：要动 UI/生命周期代码、而本轮不能启动应用验证）。复核确认 **CR-03 快照传递 / CR-09 订阅解绑 / CR-19 fail-safe / CR-29 刷新合并 / CR-15+23 提醒复位** 五处修对；并修正 **CR-07 定级**（P0→P1）、**R8 归因**、**S1 超限清单补漏**（`BatteryChartControl.xaml.cs` 405 行）。
+- **收工 L2 轻审查**（`review-standard.md` §5 场景 B，限定改动面）：报告落 `docs/reviews/archive/fix-round-2026-10-10.md`。新发现 **CR-34/35/36**——均为"当前不触发"的 P2 潜在陷阱（`SettingsPage.Load()` 不可重入 / 罗技成功打开后未清 `OpenFailed` / `TryEnqueue` 失败时不复位 `_refreshQueued`），**只记录不修**（与本轮对 D1/D3~D6 的处理原则一致：要动 UI/生命周期代码、而本轮不能启动应用验证）。复核确认 **CR-03 快照传递 / CR-09 订阅解绑 / CR-19 fail-safe / CR-29 刷新合并 / CR-15+23 提醒复位** 五处修对；并修正 **CR-07 定级**（P0→P1）、**R8 归因**、**S1 超限清单补漏**（`BatteryChartControl.xaml.cs` 405 行）。
 - 构建/测试未变（文档与 BACKLOG 改动不影响产物）：仍 **0 警告 0 错误 / 253 全绿**。
 
 ### 第十九轮：取消独立"写入许可"开关（所有插件统一为"插件开关即授权"）
@@ -589,8 +589,26 @@
 - 设置页「日志」分区：新增"日志保留天数" `NumberBox`（1~365）；「日志文件」副标题与「清空日志」对话框文案更新（清空仍用 `app*.log`，同时覆盖按日文件与旧版单文件）。
 - **格式契约不变**（行首时间戳 / 标签宽 6 / 一行一事件 / UTF-8 无 BOM / 首行时间基准），只是文件名变了。
 
-**文档同步**：`dev/logging.md`（§1/§3/§6.1/§7/§9/§10，含决策表推翻旧行 + 回滚说明）、`doc/README.md`、`architecture.md`（§文件速查 + 文件位置表）、`hardware/debugging.md`（§0 与两处 grep 示例 `app.log` → `app-*.log`）、`handoff.md`（§1 + §5.13 + §6）。
+**文档同步**：`dev/logging.md`（§1/§3/§6.1/§7/§9/§10，含决策表推翻旧行 + 回滚说明）、`docs/README.md`、`architecture.md`（§文件速查 + 文件位置表）、`hardware/debugging.md`（§0 与两处 grep 示例 `app.log` → `app-*.log`）、`handoff.md`（§1 + §5.13 + §6）。
 
 **验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；`LogTests` **14/14**（含新增"按当天日期命名 / 超期清理 / 保留期内不清理 / 旧版单文件清理"），`HistoryStoreTests` + `LogLevelNamesTests` **33/33**。
 
 **未做**：任何 git 操作；**未真机验证跨天切换**（逻辑靠 `_currentDate` 比对，无单测覆盖真实午夜跨越）。
+
+### 第二十二轮：文档目录 `doc/` 改名 `docs/`
+
+**诉求**：用户"调整一下，将 doc 改成 docs"。
+
+**改动**：仓库 `doc/` → `docs/`（19 份文档，**文件系统移动、不用 `git mv`**，不碰 index）；全仓引用同步 59 个文件——`AGENTS.md`、`README.md`、`docs/**`、`src/**` 注释里的 `doc/xxx.md §y` 指针、`scripts/**`、`deliverables/**`；`README.md` 目录树的注释对齐顺带修正。
+
+**未动**：`scripts/test-rapou7.ps1` 的 `"doc frame"`（指文档里的帧，不是目录名）；`.workbuddy-ai/memory/` 四份历史日志按"只追加不改写"保留原样（其中 `doc/` 字样均指同一目录）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 警告 0 错误——本轮只改注释与路径文本，无逻辑改动，未跑单测。
+
+### 全项目架构评估（静态）
+
+**范围**：工作树 `3a0c2ad`（分支 `main`，领先 `origin/main` 16 个提交）及当前未提交改动；只读检查，没有构建、测试、启动应用或连接硬件。
+
+**结论摘要**：模块边界、插件扩展路径、纯逻辑测试策略整体成立；主要维护压力在超长中枢类、App 层 code-behind 聚集和 UI/运行时自动化覆盖不足。未把这些已由 CR-16、D1/D3/D4/D5/D6 等条目跟踪的问题重复登记。发现 `App.xaml.cs:ShutdownLogging` 中关于 `AppServices.Dispose` 未调用的注释已过期，新增 **CR-52**。
+
+**未做**：构建、测试、运行验证；未执行任何 git 写操作。

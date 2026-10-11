@@ -8,7 +8,7 @@ namespace VigilWatt.Core.Utils;
 /// 极简文件日志，按**本地日期**每天一个文件写到 %LOCALAPPDATA%\VigilWatt\logs\app-yyyy-MM-dd.log。
 /// 写入时比对日期、跨天自动切换文件（长驻应用无需重启）；启动与跨天时清理超过保留天数的旧文件。
 /// 低于 <see cref="MinLevel"/> 的调用零 IO、零分配返回；热路径可用 <see cref="IsEnabled"/> 短路。
-/// **格式契约**（行首本地时间、标签宽 6、一行一事件、UTF-8 无 BOM、首行时间基准）见 doc/dev/logging.md。
+/// **格式契约**（行首本地时间、标签宽 6、一行一事件、UTF-8 无 BOM、首行时间基准）见 docs/dev/logging.md。
 /// 注意 Debug 是**运行期过滤档位**、发布版同样编译进去——**不要**加 <c>[Conditional("DEBUG")]</c>，否则用户在 settings.json 里配 Debug 也没用。
 /// </summary>
 public static class Log
@@ -71,7 +71,7 @@ public static class Log
     //   - InfoThrottled：同一 key 在给定间隔内最多记一条
     //   - Once / ResetOnce：同一 key 只记一条，直到显式复位（"设备睡着导致探测反复失败"这类
     //     "信息量只有一次、但会随节拍无限重复"的事件）
-    // 见 doc/dev/logging.md §4。
+    // 见 docs/dev/logging.md §4。
 
     private static readonly ConcurrentDictionary<string, string> InfoStateByKey = new();
     private static readonly ConcurrentDictionary<string, long> InfoLastTicksByKey = new();

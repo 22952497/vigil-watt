@@ -12,7 +12,7 @@ namespace VigilWatt.App.Services;
 /// 内容岛 Visual 的底色（换透明 SystemBackdrop 即可）和 Win32 窗口自己擦出来的底色（才是"白框"）。
 /// 后者要先用 <c>DwmExtendFrameIntoClientArea</c> 让 DWM 改按逐像素 alpha 合成，再自己接管
 /// WM_ERASEBKGND/WM_PAINT 把客户区擦成 alpha=0。光删 XAML 里的 Background 两层都去不掉。
-/// 实测过的失败通道与实修记录见 doc/dev/runtime-pitfalls.md §17。
+/// 实测过的失败通道与实修记录见 docs/dev/runtime-pitfalls.md §17。
 /// </summary>
 public static class TaskbarTransparency
 {

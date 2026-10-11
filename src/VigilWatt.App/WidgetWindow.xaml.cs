@@ -17,7 +17,7 @@ namespace VigilWatt.App;
 ///
 /// 两套外壳按 OS 分流（判定见 <see cref="Services.WidgetCompat"/>）：Win11 用 DWM 原生圆角；
 /// Win10 没有圆角 API 且 `SetWindowRgn` 对 WinUI 3 无效，只能"透明窗口 + 圆角交给 XAML 画"，
-/// 并恢复 DWM 投影。完整论证见 doc/dev/runtime-pitfalls.md §14。
+/// 并恢复 DWM 投影。完整论证见 docs/dev/runtime-pitfalls.md §14。
 /// </summary>
 public sealed partial class WidgetWindow : Window
 {
@@ -98,7 +98,7 @@ public sealed partial class WidgetWindow : Window
     }
 
     // 小组件可反复开/关（设置页每次保存都 Close 后置 null）。订阅必须用命名方法并在 Closed 里解绑，
-    // 否则旧实例被 Manager 强引用、回调叠加（见 doc/reviews/BACKLOG.md CR-09）。
+    // 否则旧实例被 Manager 强引用、回调叠加（见 docs/reviews/BACKLOG.md CR-09）。
     private void OnDeviceUpdated(DeviceStatus _) => RequestRefresh();
     private void OnDevicesChanged() => RequestRefresh();
     private void OnThemeChanged(FrameworkElement sender, object args) => RefreshContent();
@@ -134,7 +134,7 @@ public sealed partial class WidgetWindow : Window
     /// 并恢复 DWM 投影（无边框窗口在 Win10 上会连投影一起失去）。
     ///
     /// 为什么不裁窗口形状、透明为什么只能用 <c>SetWindowCompositionAttribute</c>——
-    /// 三条路都试过的完整记录见 doc/dev/runtime-pitfalls.md §14，别重试。
+    /// 三条路都试过的完整记录见 docs/dev/runtime-pitfalls.md §14，别重试。
     /// </summary>
     private void ApplyWin10Chrome()
     {

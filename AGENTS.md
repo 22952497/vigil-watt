@@ -1,7 +1,7 @@
 # AGENTS.md
 
-> 给 AI 助手（以及未来的自己）的**行为规则**。开工前先读本文件，再读 `doc/project/handoff.md`。
-> 项目知识在 `doc/`（入口 `doc/README.md`）；本文件只写"必须遵守的约束"，不重复知识。
+> 给 AI 助手（以及未来的自己）的**行为规则**。开工前先读本文件，再读 `docs/project/handoff.md`。
+> 项目知识在 `docs/`（入口 `docs/README.md`）；本文件只写"必须遵守的约束"，不重复知识。
 
 VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用）。不做游戏内显示、HTTP API、账号体系。
 
@@ -15,19 +15,19 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 
 ## 2. 代码注释
 
-- 严格按 `doc/dev/comment-style.md`。注释只回答"**为什么**"，且只在不写就会踩坑时才写。
-- "是什么 / 曾经怎样 / 怎么验证的 / 帧长什么样" 一律进 `doc/`，代码里只留指针。
-- 硬配额：**类头 ≤ 5 行、方法/属性 ≤ 2 行、字段 ≤ 1 行**。超了说明内容该进 `doc/`。
-- 注释引用的 `doc/xxx.md §y` 必须指向真实存在的小节。
+- 严格按 `docs/dev/comment-style.md`。注释只回答"**为什么**"，且只在不写就会踩坑时才写。
+- "是什么 / 曾经怎样 / 怎么验证的 / 帧长什么样" 一律进 `docs/`，代码里只留指针。
+- 硬配额：**类头 ≤ 5 行、方法/属性 ≤ 2 行、字段 ≤ 1 行**。超了说明内容该进 `docs/`。
+- 注释引用的 `docs/xxx.md §y` 必须指向真实存在的小节。
 
 ## 3. 动代码前
 
-- 先读 `doc/project/handoff.md`（会话快照）+ 相关专题文档；冲突时以专题文档为准。
-- 逐轮历史在 `doc/project/changelog.md`：**本轮做了什么、为什么这么改，收工后追加到那里**，不要把流水账写回 handoff（那里只放当前状态）。
+- 先读 `docs/project/handoff.md`（会话快照）+ 相关专题文档；冲突时以专题文档为准。
+- 逐轮历史在 `docs/project/changelog.md`：**本轮做了什么、为什么这么改，收工后追加到那里**，不要把流水账写回 handoff（那里只放当前状态）。
 - **UI 改版：先出方案，用户确认后再改代码。**
-- 硬件写入类改动：先读 `doc/hardware/safety.md`（零写入原则、写入闸门；各插件开关现状见其 §3.1）。
+- 硬件写入类改动：先读 `docs/hardware/safety.md`（零写入原则、写入闸门；各插件开关现状见其 §3.1）。
 - 改读数过滤器 / 帧解析 / 历史库后，**必须重跑单测**。
-- 动代码前对照 `doc/dev/review-standard.md` 的 R 清单；**审查发现的未修项在 `doc/reviews/BACKLOG.md`**（唯一载体）。
+- 动代码前对照 `docs/dev/review-standard.md` 的 R 清单；**审查发现的未修项在 `docs/reviews/BACKLOG.md`**（唯一载体）。
 
 ## 4. 构建与测试
 
@@ -51,7 +51,7 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 - XAML 里写了不存在的属性（如 `NumberBox` 的 `Min`，应为 `Minimum`）会让 XamlCompiler **静默崩溃**（`MSB3073`，无任何报错输出）。
 - 项目目录下不能有多余的 `.xaml`（会被自动 glob 成编译项）。
 
-其余坑见 `README.md` 末尾"最常踩的几条速记"与 `doc/dev/`。
+其余坑见 `README.md` 末尾"最常踩的几条速记"与 `docs/dev/`。
 
 ## 7. 沟通
 
@@ -60,7 +60,7 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 ## 8. 审查（提交前必过三条）
 
 - **L0 机械层**：构建 `0 警告 0 错误`；改了帧解析 / 读数过滤 / 历史库 / 离线判定必须重跑对应测试类
-  （用 `--no-build --filter "FullyQualifiedName~<类名>"`，全量 `dotnet test` 在本机会卡住，见 `doc/dev/build.md` §4.1）。
+  （用 `--no-build --filter "FullyQualifiedName~<类名>"`，全量 `dotnet test` 在本机会卡住，见 `docs/dev/build.md` §4.1）。
 - **L1 自查**：碰了红线区域（硬件写入 / 状态模型 / 线程 / 资源释放 / 异常）就对着 R 清单过一遍，
-  标准见 `doc/dev/review-standard.md`。其中 **R2「插件必须继承 `BatteryPluginBase`」** 是历史事故的唯一成因，无例外。
-- **发现必须进 `doc/reviews/BACKLOG.md`**——只写在审查报告或 changelog 里等于没记。报告只承载证据与推理。
+  标准见 `docs/dev/review-standard.md`。其中 **R2「插件必须继承 `BatteryPluginBase`」** 是历史事故的唯一成因，无例外。
+- **发现必须进 `docs/reviews/BACKLOG.md`**——只写在审查报告或 changelog 里等于没记。报告只承载证据与推理。

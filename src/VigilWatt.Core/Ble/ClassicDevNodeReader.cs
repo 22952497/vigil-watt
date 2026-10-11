@@ -18,7 +18,7 @@ internal sealed class ClassicDevNodeInfo
 }
 
 /// <summary>枚举 <c>BTHENUM\*</c> 设备节点，按设备 MAC 归并出电量、Windows 设备类别与服务 UUID。
-/// 纯读零写入（SetupAPI P/Invoke），整表结果缓存 5 秒。详见 doc/dev/runtime-pitfalls.md §3 / §3.1。</summary>
+/// 纯读零写入（SetupAPI P/Invoke），整表结果缓存 5 秒。详见 docs/dev/runtime-pitfalls.md §3 / §3.1。</summary>
 internal static class ClassicDevNodeReader
 {
     private const uint DIGCF_PRESENT = 0x2;

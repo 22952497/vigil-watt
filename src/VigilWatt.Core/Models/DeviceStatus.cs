@@ -46,7 +46,7 @@ public class DeviceStatus
     /// <summary>参与统计曲线时用于图例显示的短名。</summary>
     public string DisplayName => string.IsNullOrEmpty(Name) ? Id : Name;
 
-    /// <summary>深拷贝。数据源会复用并原地改写自己的实例，入库前必须快照，否则变化判定比较同一对象恒为假（见 doc/project/architecture.md §6）。</summary>
+    /// <summary>深拷贝。数据源会复用并原地改写自己的实例，入库前必须快照，否则变化判定比较同一对象恒为假（见 docs/project/architecture.md §6）。</summary>
     public DeviceStatus Clone() => new()
     {
         Id = Id,

@@ -308,7 +308,7 @@ internal static class Native
     // WinUI3 的窗口有**两层**背景：① Win32 窗口自己用类背景刷擦出来的底色，② 内容岛 Visual 的底色。
     // 用户看到的"白框"是 ①：类背景刷是 COLOR_WINDOW，浅色主题下就是纯白（实测 GCLP_HBRBACKGROUND=0x6）。
     // 去掉它两步走——先让 DWM 改用窗口表面的逐像素 alpha，再让客户区被擦成 alpha=0（GDI 不写 alpha 字节）。
-    // 实测结论与失败过的通道见 doc/dev/runtime-pitfalls.md §17。
+    // 实测结论与失败过的通道见 docs/dev/runtime-pitfalls.md §17。
     public const uint WM_PAINT = 0x000F;
     public const uint WM_ERASEBKGND = 0x0014;
 

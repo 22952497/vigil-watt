@@ -85,7 +85,7 @@ public sealed class HidDeviceHandle : IDisposable
     /// <summary>
     /// 读该接口**输出报文**的 report ID（由 caps 的 ReportID 字段给出）。0 = 该接口不使用 report ID；读不到返回 null。
     /// **绝不能硬编码**（北通 T9 三个厂商集合 1/4/5、鲲鹏20 是 2）：写一个该接口没有的 report ID，驱动直接报 ERROR_INVALID_FUNCTION。
-    /// 用户态拿不到原始报告描述符（hid.dll 不导出 HidP_GetReportDescriptor），故走 caps。详见 doc/hardware/protocols.md §4.3。
+    /// 用户态拿不到原始报告描述符（hid.dll 不导出 HidP_GetReportDescriptor），故走 caps。详见 docs/hardware/protocols.md §4.3。
     /// </summary>
     public byte? GetOutputReportId()
     {

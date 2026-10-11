@@ -1,12 +1,12 @@
-# VigilWatt 注释精简审计与 doc 归并映射（2026-10-09）
+# VigilWatt 注释精简审计与 docs 归并映射（2026-10-09）
 
-> 性质：**只读静态审计**。未改动 `src/` 或 `doc/` 下任何文件，未构建、未运行。
-> 目的：为「注释精简与提炼」提供一张**可执行的逐块处置映射表**。代码里只保留「不写就会踩坑」的 why + 公共 API 一句摘要；有价值但 doc 里没有的信息归并进 `doc/`；复述代码 / 空壳摘要 / 装饰分隔线删除。**只动注释，代码逻辑一行不改。**
+> 性质：**只读静态审计**。未改动 `src/` 或 `docs/` 下任何文件，未构建、未运行。
+> 目的：为「注释精简与提炼」提供一张**可执行的逐块处置映射表**。代码里只保留「不写就会踩坑」的 why + 公共 API 一句摘要；有价值但 docs 里没有的信息归并进 `docs/`；复述代码 / 空壳摘要 / 装饰分隔线删除。**只动注释，代码逻辑一行不改。**
 > 处置口径（与已确认的「激进」力度一致）：
 > - `保留`：安全红线 / 协议魔法值 / 非显然的 why，压到 **≤2 行**，可留 1 行内联说明。
-> - `压缩`：内容 `doc/` 已有 → 压到 **1-2 行 + doc 指针**（指向 `文件名 §小节`）。
+> - `压缩`：内容 `docs/` 已有 → 压到 **1-2 行 + docs 指针**（指向 `文件名 §小节`）。
 > - `删除`：复述代码 / 空壳摘要 / 纯装饰分隔线。
-> - `归纳`：`doc/` **没有**的有价值信息 → 先补进 doc 对应章节，代码侧只留 doc 指针。
+> - `归纳`：`docs/` **没有**的有价值信息 → 先补进 docs 对应章节，代码侧只留 docs 指针。
 >
 > 行号为审计时（`src/` 当前工作树）实测值，改动后会漂移；定位到方法/常量级即可。
 
@@ -43,17 +43,17 @@
 | 15 | `Plugins/Betop/BetopPlugin.cs:70-84` | 北通 Offline 参数依据 |
 | 15 | `Plugins/Mchose/MchosePlugin.cs:43-57` | 迈从 Offline 参数依据 |
 
-**结论速览**：230 个长块中，`压缩` 占绝对多数（约 **186**）；`保留` 约 **25**（另 XAML 单行分区说明约 30 处亦按保留处理）；`归纳` **10 块 / 9 条 doc 缺失项**（见 §3）；`删除` **7**。真正需要「补进 doc」的缺失信息集中在**罗技 HID++ 报文层细节**（protocols.md §3 目前只到特征 ID 与级联顺序，未落字节级布局）与**离线墓碑 / 状态合并规则**两处。
+**结论速览**：230 个长块中，`压缩` 占绝对多数（约 **186**）；`保留` 约 **25**（另 XAML 单行分区说明约 30 处亦按保留处理）；`归纳` **10 块 / 9 条 docs 缺失项**（见 §3）；`删除` **7**。真正需要「补进 docs」的缺失信息集中在**罗技 HID++ 报文层细节**（protocols.md §3 目前只到特征 ID 与级联顺序，未落字节级布局）与**离线墓碑 / 状态合并规则**两处。
 
 ---
 
 ## 2. 长注释块逐文件处置表
 
-> 说明：同文件第一行给出文件名，后续行留空。`依据` 列为该块内容在 doc 中的已有位置（`文件名 §小节`）或「doc 无」。「doc 无」的有价值项统一在 §3 汇总。
+> 说明：同文件第一行给出文件名，后续行留空。`依据` 列为该块内容在 docs 中的已有位置（`文件名 §小节`）或「docs 无」。「docs 无」的有价值项统一在 §3 汇总。
 
 ### 2.1 `VigilWatt.Core`（168 块）
 
-| 文件 | 行号 | 行数 | 主题 | 处置 | 依据 / doc 指针 |
+| 文件 | 行号 | 行数 | 主题 | 处置 | 依据 / docs 指针 |
 |---|---|---|---|---|---|
 | `Ble/BleBatteryWatcher.cs` | 11-15 | 5 | 类头：两条数据通道 | 压缩 | code-flow.md §3；runtime-pitfalls.md §3 |
 | `Ble/BluetoothClassicWatcher.cs` | 9-18 | 10 | 类头：经典蓝牙单开一路 watcher | 压缩 | code-flow.md §3 |
@@ -66,8 +66,8 @@
 | `Ble/ClassicDeviceName.cs` | 5-13 | 9 | 占位名识别背景 | 压缩 | handoff.md「经典蓝牙设备显示名修成原始 ID」 |
 | `Ble/ClassicPairedNames.cs` | 6-14 | 9 | 注册表配对名来源 | 压缩 | handoff.md 同上 |
 | `Devices/DeviceManager.cs` | 13-17 | 5 | 类头：统一设备管理 | 压缩 | architecture.md §1 |
-| | 108-118 | 11 | **离线墓碑机制与理由**（北通 dongle 退出枚举） | **归纳** | doc 无（仅 §3 记 code-flow §5） |
-| | 121-124 | 4 | RestoreOfflineTombstones 只启动跑一次 | 归纳 | doc 无（并入上条） |
+| | 108-118 | 11 | **离线墓碑机制与理由**（北通 dongle 退出枚举） | **归纳** | docs 无（仅 §3 记 code-flow §5） |
+| | 121-124 | 4 | RestoreOfflineTombstones 只启动跑一次 | 归纳 | docs 无（并入上条） |
 | | 204-206 | 3 | 快速发现节拍 | 压缩 | code-flow.md §2.1 |
 | | 213-216 | 4 | RequestDiscoveryAsync 15s | 压缩 | code-flow.md §2.1 |
 | | 229-235 | 7 | ApplySystemBatterySetting 撤条目 | 压缩 | code-flow.md §3.1 |
@@ -78,7 +78,7 @@
 | | 340-348 | 9 | DropDevicesOf 理由 | 压缩 | architecture.md §6；code-flow.md §3.1 |
 | | 414-416 | 3 | Attach 返回值立即 Upsert | 压缩 | code-flow.md §2.1「首扫提速」 |
 | `Devices/DeviceStatusMerger.cs` | 5-7 | 3 | 类头：原地合并规则 | 压缩 | code-flow.md §5 |
-| | 10-19 | 10 | **Kind/Protocol「声明覆盖猜测」规则** | **归纳** | doc 无 |
+| | 10-19 | 10 | **Kind/Protocol「声明覆盖猜测」规则** | **归纳** | docs 无 |
 | `Hid/HidDeviceInfo.cs` | 20-23 | 4 | ReportId 语义（null / 0 约定） | 压缩 | protocols.md §4.3（部分） |
 | | 75-78 | 4 | SendFeatureReport | 删除 | 复述代码 |
 | | 90-97 | 8 | ReadReportId 论证（caps 唯一权威） | 压缩 | protocols.md §4.3；handoff.md |
@@ -147,15 +147,15 @@
 | | 60-65 | 6 | BuildFeatureIdAndFunc ⚠ | 保留（留 ⚠ 1 行） | protocols.md §3 |
 | | 69-72 | 4 | GetFeatureIndex + 旧 bug | 压缩 | protocols.md §3 |
 | | 76-79 | 4 | ParseBatteryStatus | 压缩 | protocols.md §3 |
-| | 94-97 | 4 | **Battery Voltage 0x1001 flags 位语义** | **归纳 + 保留** | doc 无 |
-| | 128-130 | 3 | **ADC 0x1F20 flags 值** | **归纳 + 保留** | doc 无 |
+| | 94-97 | 4 | **Battery Voltage 0x1001 flags 位语义** | **归纳 + 保留** | docs 无 |
+| | 128-130 | 3 | **ADC 0x1F20 flags 值** | **归纳 + 保留** | docs 无 |
 | | 157-159 | 3 | 电压曲线插值 | 删除 | 复述函数 |
-| | 182-185 | 4 | **HID++2.0 充电状态码表** | **归纳 + 保留** | doc 无 |
+| | 182-185 | 4 | **HID++2.0 充电状态码表** | **归纳 + 保留** | docs 无 |
 | | 193-196 | 4 | 配对信息 kind 字节 | 压缩 | protocols.md §3 |
-| | 213-216 | 4 | **Unifying 0x2N 配对字节布局** | **归纳 + 保留** | doc 无 |
-| | 228-231 | 4 | **Bolt 0x5N 配对字节布局** | **归纳 + 保留** | doc 无 |
+| | 213-216 | 4 | **Unifying 0x2N 配对字节布局** | **归纳 + 保留** | docs 无 |
+| | 228-231 | 4 | **Bolt 0x5N 配对字节布局** | **归纳 + 保留** | docs 无 |
 | | 243-248 | 6 | ShouldSkipInterface | 压缩 | protocols.md §3 |
-| `Plugins/Logitech/HidppIO.cs` | 6-15 | 10 | **短/长报文布局 + 错误响应 + 通知 sw** | **归纳 + 保留** | doc 无（protocols.md §3 未落字节级） |
+| `Plugins/Logitech/HidppIO.cs` | 6-15 | 10 | **短/长报文布局 + 错误响应 + 通知 sw** | **归纳 + 保留** | docs 无（protocols.md §3 未落字节级） |
 | | 31-34 | 4 | NotificationReceived | 压缩 | protocols.md §3 |
 | | 44-47 | 4 | Request | 压缩 | protocols.md §3 |
 | | 83-86 | 4 | PumpNotifications | 压缩 | protocols.md §3 |
@@ -226,7 +226,7 @@
 
 ### 2.2 `VigilWatt.App`（39 块）
 
-| 文件 | 行号 | 行数 | 主题 | 处置 | 依据 / doc 指针 |
+| 文件 | 行号 | 行数 | 主题 | 处置 | 依据 / docs 指针 |
 |---|---|---|---|---|---|
 | `App.xaml.cs` | 35-37 | 3 | 托盘事件订阅 | 压缩 | runtime-pitfalls.md §5.1 |
 | | 77-81 | 5 | ShutdownLogging（幂等） | 压缩 | logging.md §6.4 |
@@ -258,7 +258,7 @@
 | `Views/BatteryChartControl.xaml.cs` | 11-17 | 7 | 类头：自绘曲线 + domain | 压缩 | runtime-pitfalls.md §9 |
 | `Views/HistoryPage.xaml.cs` | 8-12 | 5 | 类头：删除须 VACUUM | 压缩 | architecture.md §3 |
 | `Views/SettingsPage.xaml.cs` | 127-131 | 5 | 动态生成插件行 | 压缩 | architecture.md §6 |
-| `Views/StatsPage.xaml.cs` | 61-63 | 3 | 设备下拉按历史库取 | **归纳** | doc 无（低优先，code-flow §7） |
+| `Views/StatsPage.xaml.cs` | 61-63 | 3 | 设备下拉按历史库取 | **归纳** | docs 无（低优先，code-flow §7） |
 | `WidgetWindow.xaml.cs` | 15-26 | 12 | 类头：两套外壳 | 压缩 | runtime-pitfalls.md §14 |
 | | 46-49 | 4 | Win10 圆角半径 | 压缩 | runtime-pitfalls.md §14 |
 | | 103-122 | 20 | ApplyWin10Chrome 论证 | 压缩 | runtime-pitfalls.md §14 |
@@ -270,7 +270,7 @@
 
 ### 2.3 `src/tests`（23 块）
 
-> 测试文件的块几乎全是**测试类头**：说明「这个类测什么 + 用了哪些真机帧 + 为什么必须单测」。它们承载的是**测试意图**（doc 里没有逐类对应），建议**保留但压到 ≤3 行**（删掉重复的协议解释，只留「测什么 + 真机帧来源 + 回归点」）。个别含独特取证信息的按 `归纳`。
+> 测试文件的块几乎全是**测试类头**：说明「这个类测什么 + 用了哪些真机帧 + 为什么必须单测」。它们承载的是**测试意图**（docs 里没有逐类对应），建议**保留但压到 ≤3 行**（删掉重复的协议解释，只留「测什么 + 真机帧来源 + 回归点」）。个别含独特取证信息的按 `归纳`。
 
 | 文件 | 行号 | 行数 | 主题 | 处置 | 依据 |
 |---|---|---|---|---|---|
@@ -316,23 +316,23 @@
 
 ---
 
-## 3. 归纳清单（`doc/` 确实缺失、需补进文档）
+## 3. 归纳清单（`docs/` 确实缺失、需补进文档）
 
-> 以下 9 条是审计确认**在 `doc/` 里找不到**（已逐条 grep 核对）、但代码注释里有价值的信息。按「最有价值」排序。补完 doc 后，代码侧对应块改为 1 行 + 指针即可。
+> 以下 9 条是审计确认**在 `docs/` 里找不到**（已逐条 grep 核对）、但代码注释里有价值的信息。按「最有价值」排序。补完 docs 后，代码侧对应块改为 1 行 + 指针即可。
 
 | # | 缺失信息 | 代码出处 | 建议补进 |
 |---|---|---|---|
-| **1** | **HID++ 底层报文格式**：短报文 7 字节 `[0x10, devIdx, feature, (func<<4)\|sw, p0..p2]`；长报文 20 字节 `[0x11, devIdx, feature, …, p0..p15]`；错误响应 `data[0]=0x8F(1.0)/0xFF(2.0)`、`data[1..2]` 回显、`data[3]`=错误码；设备自发通知 `sw` 低 4 位=0（请求应答 SwId=0x0B） | `Plugins/Logitech/HidppIO.cs:6-15` | `doc/hardware/protocols.md §3 罗技` |
-| **2** | **HID++ Battery Voltage (0x1001) flags 位语义**：`bit7`=充电中；低 3 位 `1`=充满；`bit5`=危急 | `Plugins/Logitech/HidppCodec.cs:94-97` | `doc/hardware/protocols.md §3 罗技` |
-| **3** | **HID++ ADC Measurement (0x1F20) flags 值**：`0x01`=放电 / `0x03`=充电 / `0x07`=充满 | `Plugins/Logitech/HidppCodec.cs:128-130` | `doc/hardware/protocols.md §3 罗技` |
-| **4** | **HID++ 2.0 统一充电状态码表**：`1/2/4`=充电中、`3`=充满、其余=放电（Unified Battery 与 Battery Status 同表） | `Plugins/Logitech/HidppCodec.cs:182-185` | `doc/hardware/protocols.md §3 罗技` |
-| **5** | **HID++ 配对信息（0xB5）字节布局**：Unifying `0x2N` 子寄存器 → 参数区 `[3..4]`=WPID、`[7]`=kind；Bolt `0x5N` → `[1]`=kind、`[2..3]`=WPID（小端，交换后成大端） | `Plugins/Logitech/HidppCodec.cs:213-216,228-231` | `doc/hardware/protocols.md §3 罗技` |
-| **6** | **离线墓碑（Tombstone）机制与存在理由**：设备「消失」有两条路径——① 2.4G 拔/关机 → 插件标离线、条目留在 `_devices`（字典从不删）；② 蓝牙/dongle 不被枚举 → **从未进过列表**（北通关机后接收器连 HID 枚举都退出，实测 19:02 后扫描再无 `VID_20BC`）。后者导致「共 N 台」恒等于「N 台在线」。解法：用历史库最近见过的记录补离线条目（`TombstoneWindow` 内有历史、当前不在位），只在启动后跑一次 | `Devices/DeviceManager.cs:108-124` | `doc/project/code-flow.md §5`（或 architecture.md） |
-| **7** | **DeviceStatus 合并的「声明覆盖猜测」规则**：离线墓碑先于插件建条目，`Kind` 只能按历史名猜（真机名一个关键字都没有 → 全 Unknown）；设备上线后插件声明的 `Kind`/`Protocol` 必须能覆盖墓碑的猜测，否则图标在进程内冻结。反向不成立：`Unknown` / 空串视为「本次未声明」，不得洗掉已知类型 | `Devices/DeviceStatusMerger.cs:10-19` | `doc/project/architecture.md §6`（或 code-flow §5） |
-| **8** | **StatsPage 设备下拉按历史库取**：所选时间范围内有过采样的设备都在列（含已下线 / 换过 Id 的历史设备），**不跟随当前在线设备**——否则旧协议采的曲线永远选不到 | `Views/StatsPage.xaml.cs:61-63` | `doc/project/code-flow.md §7`（低优先） |
-| **9** | **HID 输出 report ID 的取值约定**：`null`=读不到；`0`=接口不使用 report ID（报文首字节即数据、无 ID 前缀）；`>0`=该 ID。HID++ 长接口应 `0x11`、短接口 `0x10` | `Hid/HidDeviceInfo.cs:20-23`、`Hid/NativeHid.cs:119-122` | `doc/hardware/protocols.md §4.3`（低优先） |
+| **1** | **HID++ 底层报文格式**：短报文 7 字节 `[0x10, devIdx, feature, (func<<4)\|sw, p0..p2]`；长报文 20 字节 `[0x11, devIdx, feature, …, p0..p15]`；错误响应 `data[0]=0x8F(1.0)/0xFF(2.0)`、`data[1..2]` 回显、`data[3]`=错误码；设备自发通知 `sw` 低 4 位=0（请求应答 SwId=0x0B） | `Plugins/Logitech/HidppIO.cs:6-15` | `docs/hardware/protocols.md §3 罗技` |
+| **2** | **HID++ Battery Voltage (0x1001) flags 位语义**：`bit7`=充电中；低 3 位 `1`=充满；`bit5`=危急 | `Plugins/Logitech/HidppCodec.cs:94-97` | `docs/hardware/protocols.md §3 罗技` |
+| **3** | **HID++ ADC Measurement (0x1F20) flags 值**：`0x01`=放电 / `0x03`=充电 / `0x07`=充满 | `Plugins/Logitech/HidppCodec.cs:128-130` | `docs/hardware/protocols.md §3 罗技` |
+| **4** | **HID++ 2.0 统一充电状态码表**：`1/2/4`=充电中、`3`=充满、其余=放电（Unified Battery 与 Battery Status 同表） | `Plugins/Logitech/HidppCodec.cs:182-185` | `docs/hardware/protocols.md §3 罗技` |
+| **5** | **HID++ 配对信息（0xB5）字节布局**：Unifying `0x2N` 子寄存器 → 参数区 `[3..4]`=WPID、`[7]`=kind；Bolt `0x5N` → `[1]`=kind、`[2..3]`=WPID（小端，交换后成大端） | `Plugins/Logitech/HidppCodec.cs:213-216,228-231` | `docs/hardware/protocols.md §3 罗技` |
+| **6** | **离线墓碑（Tombstone）机制与存在理由**：设备「消失」有两条路径——① 2.4G 拔/关机 → 插件标离线、条目留在 `_devices`（字典从不删）；② 蓝牙/dongle 不被枚举 → **从未进过列表**（北通关机后接收器连 HID 枚举都退出，实测 19:02 后扫描再无 `VID_20BC`）。后者导致「共 N 台」恒等于「N 台在线」。解法：用历史库最近见过的记录补离线条目（`TombstoneWindow` 内有历史、当前不在位），只在启动后跑一次 | `Devices/DeviceManager.cs:108-124` | `docs/project/code-flow.md §5`（或 architecture.md） |
+| **7** | **DeviceStatus 合并的「声明覆盖猜测」规则**：离线墓碑先于插件建条目，`Kind` 只能按历史名猜（真机名一个关键字都没有 → 全 Unknown）；设备上线后插件声明的 `Kind`/`Protocol` 必须能覆盖墓碑的猜测，否则图标在进程内冻结。反向不成立：`Unknown` / 空串视为「本次未声明」，不得洗掉已知类型 | `Devices/DeviceStatusMerger.cs:10-19` | `docs/project/architecture.md §6`（或 code-flow §5） |
+| **8** | **StatsPage 设备下拉按历史库取**：所选时间范围内有过采样的设备都在列（含已下线 / 换过 Id 的历史设备），**不跟随当前在线设备**——否则旧协议采的曲线永远选不到 | `Views/StatsPage.xaml.cs:61-63` | `docs/project/code-flow.md §7`（低优先） |
+| **9** | **HID 输出 report ID 的取值约定**：`null`=读不到；`0`=接口不使用 report ID（报文首字节即数据、无 ID 前缀）；`>0`=该 ID。HID++ 长接口应 `0x11`、短接口 `0x10` | `Hid/HidDeviceInfo.cs:20-23`、`Hid/NativeHid.cs:119-122` | `docs/hardware/protocols.md §4.3`（低优先） |
 
-> 其余约 220 个块的内容经逐条核对**均能在 doc 中找到对应章节**（见 §2 的 `依据` 列），无需新增文档，按 `压缩` 处理即可。**没有为了凑数而编造的缺失项。**
+> 其余约 220 个块的内容经逐条核对**均能在 docs 中找到对应章节**（见 §2 的 `依据` 列），无需新增文档，按 `压缩` 处理即可。**没有为了凑数而编造的缺失项。**
 
 ---
 
@@ -396,7 +396,7 @@
 | `Plugins/Logitech/LogitechPlugin.cs:385-388` | `0x1004` func 1 才是电量、func 0=Capabilities（真机误读 15%） | **保留 1 行 why** |
 | `Plugins/Mchose/MchosePlugin.cs:135-140` / `Plugins/Rapoo/RapooPlugin.cs:90-98` | 已知协议失败不清记忆 / IsCandidate 收敛 `==19` | 保留 1 行 why（防回退） |
 
-### 5.2 日志格式契约（对外，破坏会打断 doc 的 grep 考古）
+### 5.2 日志格式契约（对外，破坏会打断 docs 的 grep 考古）
 
 | 位置 | 内容 | 处理 |
 |---|---|---|
@@ -405,15 +405,15 @@
 | `Utils/Log.cs:31` | 异常堆栈缩进前缀，保证 `grep "^20"` 只命中真日志 | **保留**（一行） |
 | `Utils/Log.cs:181-184` | Sanitize：转义换行/控制符，防外部字符串伪造假日志行 | **保留**（一行） |
 
-> ⚠ **文档指针漂移**：`Utils/Log.cs:6-23` 与 `doc/project/handoff.md:684` 都写「`doc/dev/logging.md` **§3.4** 格式契约」，但现行 `logging.md` 里「格式契约」是 **§4**（§3 是「配置」）。**核对后再改指针**（要么改代码/handoff 指向 §4，要么给 logging.md 补 §3.4 锚点）。
+> ⚠ **文档指针漂移**：`Utils/Log.cs:6-23` 与 `docs/project/handoff.md:684` 都写「`docs/dev/logging.md` **§3.4** 格式契约」，但现行 `logging.md` 里「格式契约」是 **§4**（§3 是「配置」）。**核对后再改指针**（要么改代码/handoff 指向 §4，要么给 logging.md 补 §3.4 锚点）。
 
-### 5.3 被 `doc/reviews/*` 点名的「失实注释」——须先核对行为
+### 5.3 被 `docs/reviews/*` 点名的「失实注释」——须先核对行为
 
 | 位置 | 注释原文 | 核对结果 | 处理 |
 |---|---|---|---|
 | `Plugins/Betop/BetopPlugin.cs:61` | 「查询需要写帧；用户关掉开关即**完全静默（不认领、不写入）**」 | **仍失实**：`BatteryPluginBase.RunProbe`（L189）→ `Probe(handle)`（L195）**无 `WritesEnabled`/`CanWrite` 检查**；`BetopPlugin.Probe`（L121）直接 `Query`→`WriteOutput`。关掉 `BetopProbingEnabled` 后**探测路径仍写帧**。review-followup §3.1/§4.1 已点名（基线 `ddd3b39`），截至审计仍未修 | **修正为与行为一致**（或先补探测闸门再保留原话）；勿照原样删 |
 | `Settings/AppSettings.cs:65-66` | 「…默认开启；关掉即**完全静默（不认领、不写入）**」 | 同上（同一失实承诺） | **修正** |
-| `doc/hardware/protocols.md:434`（§4.7） | 「关掉即完全静默（不认领、不写入）」 | **doc 侧重复了同一失实承诺** | **同步修正 doc** |
+| `docs/hardware/protocols.md:434`（§4.7） | 「关掉即完全静默（不认领、不写入）」 | **docs 侧重复了同一失实承诺** | **同步修正 docs** |
 | `Plugins/DeviceClaimRegistry.cs:5-9` | 类头仍写 `DeviceManager.SafePoll` | review-followup §3.3 点名「残留注释」；现为 `RequestPollAsync`/`PollOnceAsync` | **压缩 + 修正方法名** |
 
 > 另注：`BetopPlugin.cs:81-83`（Offline 注释里「待确认」段）与 `handoff.md` 待办③ 相互印证——「手柄休眠翻离线其实不会发生」，属**有意保留的诚实口子**，不应删，但可压到 1 行。
@@ -428,28 +428,28 @@
 
 ## 6. 执行提示（给逐文件精简的人）
 
-1. **顺序**：先做 §3 归纳（补 doc）→ 再做 §2 `归纳` 块改指针 → 再做 `压缩` → 最后 `删除` §4 冗余摘要。
-2. **压缩模板**：类头保留「一句话职责 + `详见 doc/xxx.md §y`」；方法保留「不写会踩坑的 why」1 行。
+1. **顺序**：先做 §3 归纳（补 docs）→ 再做 §2 `归纳` 块改指针 → 再做 `压缩` → 最后 `删除` §4 冗余摘要。
+2. **压缩模板**：类头保留「一句话职责 + `详见 docs/xxx.md §y`」；方法保留「不写会踩坑的 why」1 行。
 3. **不改逻辑**：本审计未发现任何需要改代码逻辑的点；§5.3 的「失实注释」是**注释与行为不符**，精简时要么把注释改成与现状一致，要么（另开工单）补探测闸门后再保留原话——**不要只删注释了事**。
-4. **指针核对**：凡「详见 doc/…」都要核到小节存在（本次已发现 `Log.cs` §3.4 漂移一处，见 §5.2）。
+4. **指针核对**：凡「详见 docs/…」都要核到小节存在（本次已发现 `Log.cs` §3.4 漂移一处，见 §5.2）。
 5. **验证**：精简后 `dotnet build VigilWatt.sln -c Debug` 应仍 0 错误（注释不影响编译），可顺带确认没有误删 `///` 的 XML 结构标签导致 CS1570 类警告。
 
 ---
 
-## 7. doc 归纳执行记录（2026-10-09，第二轮）
+## 7. docs 归纳执行记录（2026-10-09，第二轮）
 
-> 范围：**只改 `doc/`**，未触碰 `src/`。执行 §3 的 9 条归纳 + 两处文档修正。
+> 范围：**只改 `docs/`**，未触碰 `src/`。执行 §3 的 9 条归纳 + 两处文档修正。
 
 ### 7.1 归纳补入（§3 的 9 条）
 
 | 目标文档 / 章节 | 补入内容 | 对应 §3 条目 |
 |---|---|---|
-| `doc/hardware/protocols.md` §3 罗技（新增「HID++ 报文层」表） | 短 7B / 长 20B 布局、错误响应 `0x8F`/`0xFF`+错误码、自发通知 `sw` 低 4 位=0；点明实现 `HidppIO.cs`/`HidppCodec.cs` | 1 |
-| `doc/hardware/protocols.md` §3 罗技（新增「各特征电量/充电编码」表） | `0x1001` flags 位、`0x1F20` flags 值、`0x1004`/`0x1000` 充电状态码表、`0xB5` 配对字节布局 | 2-5 |
-| `doc/hardware/protocols.md` §4.3（新增 report ID 取值约定 bullet） | `null`/`0`/`>0` 三态；HID++ 长 `0x11`、短 `0x10` | 9 |
-| `doc/project/code-flow.md` §5（新增 §5.1「离线占位（墓碑）」） | 两条「消失」路径、北通 dongle 退出枚举实测、补离线条目解法、只启动跑一次 | 6 |
-| `doc/project/architecture.md` §6（新增 bullet） | `DeviceStatusMerger` 的「声明覆盖猜测」规则 | 7 |
-| `doc/project/code-flow.md` §7（StatsPage bullet 扩写） | 设备下拉按历史库取（含已下线/换 Id） | 8 |
+| `docs/hardware/protocols.md` §3 罗技（新增「HID++ 报文层」表） | 短 7B / 长 20B 布局、错误响应 `0x8F`/`0xFF`+错误码、自发通知 `sw` 低 4 位=0；点明实现 `HidppIO.cs`/`HidppCodec.cs` | 1 |
+| `docs/hardware/protocols.md` §3 罗技（新增「各特征电量/充电编码」表） | `0x1001` flags 位、`0x1F20` flags 值、`0x1004`/`0x1000` 充电状态码表、`0xB5` 配对字节布局 | 2-5 |
+| `docs/hardware/protocols.md` §4.3（新增 report ID 取值约定 bullet） | `null`/`0`/`>0` 三态；HID++ 长 `0x11`、短 `0x10` | 9 |
+| `docs/project/code-flow.md` §5（新增 §5.1「离线占位（墓碑）」） | 两条「消失」路径、北通 dongle 退出枚举实测、补离线条目解法、只启动跑一次 | 6 |
+| `docs/project/architecture.md` §6（新增 bullet） | `DeviceStatusMerger` 的「声明覆盖猜测」规则 | 7 |
+| `docs/project/code-flow.md` §7（StatsPage bullet 扩写） | 设备下拉按历史库取（含已下线/换 Id） | 8 |
 
 风格：全部按各文档既有写法（表格 / bullet / 代码块），未原样粘贴代码注释；每处均点明代码位置（`文件:方法名` 或类型名）。
 
@@ -457,22 +457,22 @@
 
 | 位置 | 原内容 | 改后 | 说明 |
 |---|---|---|---|
-| `doc/hardware/protocols.md` §4.7 | 「关掉即完全静默（不认领、不写入）」 | 改为「**关掉只挡住轮询写入，不挡探测**」+ ⚠️ 探测路径 `RunProbe → Probe` **仍会写帧**、「待修」（指向 `BetopPlugin.WritesEnabled`） | 与行为一致；标注为待修项 |
-| `doc/project/handoff.md:684` | 「不动 **§3.4** 格式契约」 | 「不动 **logging.md §4「格式契约」**」 | 见下 |
+| `docs/hardware/protocols.md` §4.7 | 「关掉即完全静默（不认领、不写入）」 | 改为「**关掉只挡住轮询写入，不挡探测**」+ ⚠️ 探测路径 `RunProbe → Probe` **仍会写帧**、「待修」（指向 `BetopPlugin.WritesEnabled`） | 与行为一致；标注为待修项 |
+| `docs/project/handoff.md:684` | 「不动 **§3.4** 格式契约」 | 「不动 **logging.md §4「格式契约」**」 | 见下 |
 
 **指针漂移处理选择**：选**方案 (b)——改引用到 §4**，未在 logging.md 里造 `#### 3.4` 假标题。理由：
 1. logging.md 的「格式契约」现行就是 `## 4.`，硬塞一个 `#### 3.4` 子标题与文档结构不符，反而制造新的错乱；
 2. 改引用是**一处一 token** 的最小改动，且我顺带补上了**文档名 + 小节标题**（`logging.md §4「格式契约」`）——即便将来编号再变，凭标题仍能定位，比纯数字更抗漂移。
 
-**遗留（src 侧，非本次可改）**：`src/VigilWatt.Core/Utils/Log.cs:6-23` 的类头注释仍写「doc/dev/logging.md §3.4 的『格式契约』」——应同步改为 §4（由负责 `src/` 的同事一并处理）。
+**遗留（src 侧，非本次可改）**：`src/VigilWatt.Core/Utils/Log.cs:6-23` 的类头注释仍写「docs/dev/logging.md §3.4 的『格式契约』」——应同步改为 §4（由负责 `src/` 的同事一并处理）。
 
 ### 7.3 改动文件清单
 
-- `doc/hardware/protocols.md`（§3 罗技 +2 表；§4.3 +1 bullet；§4.7 改写 1 条）
-- `doc/project/code-flow.md`（§5 +§5.1 小节；§7 StatsPage bullet 扩写）
-- `doc/project/architecture.md`（§6 +1 bullet）
-- `doc/project/handoff.md`（:684 指针修正）
-- `doc/reviews/comment-audit-2026-10-09.md`（本记录）
+- `docs/hardware/protocols.md`（§3 罗技 +2 表；§4.3 +1 bullet；§4.7 改写 1 条）
+- `docs/project/code-flow.md`（§5 +§5.1 小节；§7 StatsPage bullet 扩写）
+- `docs/project/architecture.md`（§6 +1 bullet）
+- `docs/project/handoff.md`（:684 指针修正）
+- `docs/reviews/comment-audit-2026-10-09.md`（本记录）
 
-> 未新建集中归档文件，全部按既定策略补进现有 doc 对应章节。
+> 未新建集中归档文件，全部按既定策略补进现有 docs 对应章节。
 

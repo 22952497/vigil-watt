@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>经典蓝牙显示名的纯逻辑：识别"占位名"（WinRT 在友好名未解析时会拿 AEP 设备 ID 当名字，真机实测）。详见 doc/project/handoff.md「经典蓝牙设备显示名修成原始 ID」。</summary>
+/// <summary>经典蓝牙显示名的纯逻辑：识别"占位名"（WinRT 在友好名未解析时会拿 AEP 设备 ID 当名字，真机实测）。详见 docs/project/handoff.md「经典蓝牙设备显示名修成原始 ID」。</summary>
 internal static class ClassicDeviceName
 {
     /// <summary>裸 MAC 形态：<c>0c:ae:bd:c6:cd:a7</c> 或 <c>0C-AE-BD-C6-CD-A7</c>。</summary>

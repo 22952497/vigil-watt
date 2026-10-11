@@ -1,16 +1,16 @@
 # 审查发现 BACKLOG（唯一跟踪载体）
 
 > **本文件是审查发现的唯一载体**：审查报告只承载证据与推理，条目本体在这里，走完 `open → doing → done / wontfix`。
-> **与 `doc/project/handoff.md` §4 的分工**：这里 = 审查发现的**未修项全集**；handoff §4 = **当前这一轮在做的那几条**。
+> **与 `docs/project/handoff.md` §4 的分工**：这里 = 审查发现的**未修项全集**；handoff §4 = **当前这一轮在做的那几条**。
 > 同一件事只在这里留条目，handoff 只放指针——**不要抄第二份**。
 >
-> 标准与流程见 `doc/dev/review-standard.md`。证据一律写 `文件:符号`，**不写行号**（行号会漂移）。
+> 标准与流程见 `docs/dev/review-standard.md`。证据一律写 `文件:符号`，**不写行号**（行号会漂移）。
 > **编号规则：关闭后不重排、不复用**——旧编号永远查得到。
 >
-> 首次建库：2026-10-10，来源是 `doc/reviews/archive/` 两份 2026-10-06 报告（每条回到当前代码重新核对过）。
+> 首次建库：2026-10-10，来源是 `docs/reviews/archive/` 两份 2026-10-06 报告（每条回到当前代码重新核对过）。
 > **2026-10-10 上线前全检**（4 人协作：安全审计 / QA / 代码审查 / 可维护性专项）对 CR-01~CR-17 逐条复核，
 > 并新增 CR-19~CR-33 与"重构/去重候选"分区。全检证据与推理见 `deliverables/gstack/pre-launch-check-2026-10-10.md`。
-> **2026-10-10 修复轮**（用户批准"全部调整"）：4 条 P0 + 7 条 P1 + 大部分 P2 已修并验证，见 `doc/project/changelog.md`。
+> **2026-10-10 修复轮**（用户批准"全部调整"）：4 条 P0 + 7 条 P1 + 大部分 P2 已修并验证，见 `docs/project/changelog.md`。
 
 ## 状态图例
 
@@ -18,7 +18,7 @@
 |---|---|
 | `open` | 已确认，未开始修 |
 | `doing` | 正在修（应同时在 handoff §4 出现指针） |
-| `done` | 已修并验证（"怎么验证的"记进 `doc/project/changelog.md`） |
+| `done` | 已修并验证（"怎么验证的"记进 `docs/project/changelog.md`） |
 | `wontfix` | 决定不修，**必须写理由** |
 
 > **2026-10-10 起的一条约定**：修复轮关闭的条目**就地标 `done`**、不搬运到"已关闭"表——
@@ -27,7 +27,7 @@
 ## 变更记录
 
 - **2026-10-10（首次建库）**：从两份 2026-10-06 报告逐条回到代码核对建库（CR-01~CR-17 open + CR-D1~D3 done）。
-- **2026-10-10（第十七轮 · 文档一致性）**：CR-11、CR-18 修掉并关闭（见 `doc/project/changelog.md` 第十七轮）。
+- **2026-10-10（第十七轮 · 文档一致性）**：CR-11、CR-18 修掉并关闭（见 `docs/project/changelog.md` 第十七轮）。
 - **2026-10-10（上线前全检）**：
   - CR-01/02/03/04/05/06/08/12/13/14/15/16/17 → 复核后**仍成立**（CR-03 定性加重、CR-05/06 加重、CR-17 表述收紧）。
   - **CR-09 → 上调 P0**（运行时真泄漏：反复开关小组件累积）。
@@ -39,7 +39,7 @@
   **D2/D7/D8/D9/D10**（就地标 done）；**CR-13 部分关闭**（逐字节相同的属性读取已抽离，基类化待做）；
   **CR-30/31/32/33 → wontfix（各带理由）**；**CR-16 与 D1/D3/D4/D5/D6 保留 open**（理由见条目）。
   验证方式：`dotnet build` 0 警告 0 错误；测试项目 **253 用例全绿**（基线 177 → 新增 76）。
-- **2026-10-10（修复轮 · 收工 L2 轻审查）**：对本轮改动面做轻审查（报告 `doc/reviews/archive/fix-round-2026-10-10.md`），
+- **2026-10-10（修复轮 · 收工 L2 轻审查）**：对本轮改动面做轻审查（报告 `docs/reviews/archive/fix-round-2026-10-10.md`），
   新增 **CR-34/35/36**——均为"当前不触发"的 P2 潜在陷阱，保留 `open`，未修理由见报告 §5。
 - **2026-10-10（第十九轮 · 取消独立写入许可）**：用户实测罗技 2.4G 鼠标找不到 → **CR-37**（罗技被当新插件默认关，静默功能回归）。
   按用户要求把所有插件统一为"**插件开关即写入授权**"：
@@ -75,6 +75,8 @@
   本轮 **CR-43 重写并 done（像素级实测）**、**CR-44 → wontfix（实测无效 + colorkey 变体有硬伤）**、
   **CR-45 / CR-46 复看确认**、更新 **CR-40**，新增 **CR-47/48/49**。
   验证：`dotnet build` 0 警告 0 错误；测试 **276 用例全绿**；贴片内外背景像素**逐字节相同**。
+- **2026-10-11（全项目架构评估）**：新增 **CR-52**（P2）：`App.xaml.cs:ShutdownLogging` 的注释仍称 `AppServices.Dispose` 全仓无人调用，
+  但 `TrayService.Exit` 已在调用；代码行为正确，注释已过期。
 
 ## P0 · 安全 / 数据损坏
 
@@ -86,7 +88,7 @@
 | **CR-09** | 小组件的事件订阅是三个捕获 `this` 的匿名 lambda，**全文件无解绑**，`WidgetWindow` 非 `IDisposable` → 窗口关闭后仍被管理器强引用。**反复开关小组件会累积泄漏 + 回调叠加**（运行时真泄漏，非退出路径） | `WidgetWindow.xaml.cs`（`DeviceUpdated` / `DevicesChanged` / `Root.ActualThemeChanged` 订阅）、`Views/SettingsPage.xaml.cs:Save_Click`（`Widget.Close(); Widget=null` 后旧实例仍被引用） | `done` | 10-06 §3.3；10-10 全检**上调 P0** |
 
 > CR-03 附带一条注释失实：`Upsert` 里写着「覆盖前记下上一次已知电量……（**同一对象的情况也成立**）」，
-> 而恰恰是同一对象的情况**不成立**。属 `doc/dev/comment-style.md` §5 第 3 条禁止的"漂亮的谎"——**已随 CR-03 一并改掉**。
+> 而恰恰是同一对象的情况**不成立**。属 `docs/dev/comment-style.md` §5 第 3 条禁止的"漂亮的谎"——**已随 CR-03 一并改掉**。
 
 ## P1 · 用户可感知的功能错误
 
@@ -97,7 +99,7 @@
 | **CR-06** | 历史页与统计页在 **UI 线程同步**跑 SQLite 全表统计，无 `Task.Run` | `Views/HistoryPage.xaml.cs:Reload` / `:DeleteAsync`、`Views/StatsPage.xaml.cs:ReloadDeviceList` / `:RenderChart` | `done` | 10-06 §4.4；10-10 复核**加重**（含 VACUUM） |
 | **CR-07** | 退出路径不释放资源：`TrayService.Exit()` 只摘托盘图标 + `ShutdownLogging()` + `Environment.Exit(0)`，**`AppServices.Dispose`（含 `Manager.Dispose` / `History.Dispose`）全仓无人调用** → HID 句柄、3 个 Timer、DB 都不确定性释放。**级别说明**：维持 P1 而非 P0——发生在进程终止路径，OS 会回收句柄、不累积；`review-standard.md` §1「资源泄漏=P0」的字面与"退出路径不释放"存在张力，建议后续修订 §1 措辞（区分"累积型泄漏"与"退出型未释放"） | `Services/TrayService.cs:Exit`、`App.xaml.cs:AppServices.Dispose` | `done` | 10-06 §4.4；10-10 复核仍成立（级别经裁决维持 P1） |
 | **CR-08** | 全局异常一律 `e.Handled = true` 吞掉，无计数熔断 → 应用会带病继续运行，用户只看到"点了没反应" | `App.xaml.cs` 的 `UnhandledException` 处理器 | `done` | 10-06 §4.4；10-10 复核仍成立 |
-| **CR-10** | Elan 插件的只读 feature 扫描**留在正常执行路径上**，违反 `doc/hardware/safety.md` §3 规则 7（"任何诊断/扫描代码不得留在正常执行路径上，哪怕有开关"）。**重新定性**：`FeatureSweep` / `FindBatteryFeature` 均为 `GetFeature`（**只读，不写帧**），故**不是硬件误写**，违规点是"扫描代码未剥离"。`ProbeCooldown` 5 分钟，插件默认启用 | `Plugins/Elan/ElanHeadsetPlugin.cs:Probe` 的 `HidWriteProbe.FeatureSweep` / `FindBatteryFeature` | `done` | 10-06 §1.3 + 复核 §4.1；10-10 重新定性 |
+| **CR-10** | Elan 插件的只读 feature 扫描**留在正常执行路径上**，违反 `docs/hardware/safety.md` §3 规则 7（"任何诊断/扫描代码不得留在正常执行路径上，哪怕有开关"）。**重新定性**：`FeatureSweep` / `FindBatteryFeature` 均为 `GetFeature`（**只读，不写帧**），故**不是硬件误写**，违规点是"扫描代码未剥离"。`ProbeCooldown` 5 分钟，插件默认启用 | `Plugins/Elan/ElanHeadsetPlugin.cs:Probe` 的 `HidWriteProbe.FeatureSweep` / `FindBatteryFeature` | `done` | 10-06 §1.3 + 复核 §4.1；10-10 重新定性 |
 | **CR-12** | 写入许可开关没有 UI：设置页只有 4 个手写 `ToggleSwitch` + 动态生成的**品牌级** `PluginEnabled` 行，`MchoseProbingEnabled` 与 `BetopProbingEnabled` 无控件，只能手改 `settings.json`。**加重**：`BetopProbingEnabled` 默认 true → 写入闸门默认敞开且用户关不掉 | `Views/SettingsPage.xaml`（`PluginPanel`）、`Views/SettingsPage.xaml.cs:AddPluginRow` / `Save_Click`、`Settings/AppSettings.cs` | `done` | 10-06 §3.1；10-10 复核**加重** |
 | **CR-37** | **罗技插件被当成"新插件"默认关闭，导致静默功能回归**：第十八轮给罗技新增独立的 `LogitechProbingEnabled`（默认 false），而罗技的发现/读数**全靠写帧、没有可用的"只被动"模式** → "插件开着但写入许可关着"这一组合让罗技**完全发现不了设备**，UI 上还看不出任何异常。根因：`safety.md` 规则 2 的"**新**插件默认关闭"被误用到**既有**功能插件上。**修法**：取消独立写入许可，所有插件统一"**插件开关即写入授权**"（见变更记录第十九轮） | `Plugins/Logitech/LogitechPlugin.cs:DiscoverDevices`（`if (!WritesEnabled) continue;`）、`Settings/AppSettings.cs:LogitechProbingEnabled` | `done` | 10-10 用户实测（罗技 2.4G 鼠标找不到） |
 
@@ -118,7 +120,7 @@
 | **CR-24** | 设备状态文案/配色格式化三处各写一份：充电/离线文案、`--%`、"主题色 vs 状态色"判断 | `ViewModels/DeviceRowModel.cs:From`、`WidgetWindow.xaml.cs:BuildRow`、`Services/TrayService.cs:ShowContextMenu` | `done` | 10-10 全检（代码审查） |
 | **CR-25** | `MchosePlugin` 自建日志去重三件套（`LogOnceByKey` / `ShouldLogOnce` / `ResetLogOnce`），与 `Utils/Log.cs:InfoOnChange`（自认"通用版"）重复 | `Plugins/Mchose/MchosePlugin.cs`、`Utils/Log.cs:InfoOnChange` | `done` | 10-10 全检（代码审查） |
 | **CR-26** | `LogitechPlugin.StableHash` 是 `=> PluginUtils.StableHash(s)` 的无谓直通包装（死代码，S6） | `Plugins/Logitech/LogitechPlugin.cs:StableHash` | `done` | 10-10 全检（代码审查） |
-| **CR-27** | `doc/dev/logging.md` §2.1 要求热路径先 `Log.IsEnabled(level)` 短路省 `$"..."` 插值，但 `Log.IsEnabled` **全仓 0 个调用点**；被过滤时仍先做插值 | `Utils/Log.cs:IsEnabled`（0 调用点） | `done` | 10-10 全检（可维护性） |
+| **CR-27** | `docs/dev/logging.md` §2.1 要求热路径先 `Log.IsEnabled(level)` 短路省 `$"..."` 插值，但 `Log.IsEnabled` **全仓 0 个调用点**；被过滤时仍先做插值 | `Utils/Log.cs:IsEnabled`（0 调用点） | `done` | 10-10 全检（可维护性） |
 | **CR-28** | 雷柏被动心跳路径每条状态帧打 Info + `Log.Hex`，活动期约 3s 一条 → 单设备可达约 2.8 万行/天，配合 2MB 滚动快速冲掉历史 | `Plugins/Rapoo/RapooPlugin.cs:TryParsePassiveInput` | `done` | 10-10 全检（可维护性） |
 | **CR-29** | 小组件与设备页**无合并/防抖**：每个 `DeviceUpdated` 触发一次 `TryEnqueue` 全量重建（`ChipStack.Children.Clear()` / 重建 `ItemsSource`）；一轮轮询 N 次 `Upsert` → N+1 次全量重建。对照 `TrayService.RequestUpdate` 已用 `Interlocked` 合并 | `WidgetWindow.xaml.cs` 订阅、`Views/DevicesPage.xaml.cs:Refresh` / `OnDevicesChanged` | `done` | 10-10 全检（可维护性） |
 | **CR-30** | `HidDeviceScanner.Inspect` 每次扫描对**每个** HID 接口以 `GENERIC_READ\|GENERIC_WRITE` 开句柄只为读元数据；15s 发现节拍 + 60s 主轮询 → 约 96+ 次打开/分。无需写权限时应用只读打开或缓存接口元数据 | `Hid/HidDeviceScanner.cs:Inspect` | `wontfix` | 10-10 全检（可维护性） |
@@ -140,6 +142,7 @@
 | **CR-49** | `TaskbarTransparency._prevProc` 是**静态单份**，隐含"同一时刻只有一个贴片窗口"的假设。当前成立（设置页切换是先 `Close()` 再重建），但若日后允许同屏两个贴片，第二个窗口的 `CallWindowProcW` 会调到错的旧窗口过程 | `Services/TaskbarTransparency.cs:_prevProc` / `:ClearWin32Background` | `open` | 10-10 第三轮（收工自审） |
 | **CR-50** | 日志**跨天切换分支无单测覆盖**：`Log.EnsureWriter` 靠 `_currentDate != today` 判断换文件，但 `today` 取自 `DateTime.Now`，测试无法注入时钟，只能覆盖"首写落到当天文件"，覆盖不到"真实跨午夜"。逻辑简单（比对 + 关旧开新），风险低；若日后要测，需给 `Log` 加可注入的时间源（会引入静态可变状态，收益待评估） | `Utils/Log.cs:EnsureWriter` / `:Emit` | `open` | 10-10 第二十一轮（收工自审） |
 | **CR-51** | 日志**一天一个文件、无大小上限**：Debug 档下单日文件可能很大（雷柏单设备被动心跳实测可达约 2.8 万行/天，见 CR-28）。用户明确选择"一天一个文件"，故不设大小滚动；总量靠 `LogRetentionDays`（默认 14 天）兜底 | `Utils/Log.cs:EnsureWriter`（无 `MaxBytes`） | `wontfix` | 10-10 第二十一轮（用户决策） |
+| **CR-52** | `App.xaml.cs:ShutdownLogging` 的注释仍称 `AppServices.Dispose` 全仓无人调用；实际 `TrayService.Exit` 已调用 `App.Services.Dispose()`。行为正确，但注释会误导后续维护者对退出释放链路的判断 | `App.xaml.cs:ShutdownLogging`、`Services/TrayService.cs:Exit` | `open` | 10-11 全项目架构评估 |
 
 ### wontfix 理由（CR-30 / CR-31）
 
@@ -213,13 +216,13 @@
 | 编号 | 一句话 | 证据 | 状态 | 关闭方式 |
 |---|---|---|---|---|
 | **CR-D1** | BLE 三条互相矛盾的在线判定路径（默认 `false` 覆盖现状、`Removed` 不发离线） | `Ble/BleBatteryWatcher.cs` 的 `HandleDevice` / `HandleRemoved` | `done` | 已改为 `bool? connected`（属性缺失时沿用现状）+ `Removed` 发布离线 |
-| **CR-D2** | `Upsert` 合并时漏拷 `Kind` / `Protocol`，导致设备图标被后续更新保留旧值 | `Devices/DeviceManager.cs:Upsert` | `done` | 改由 `Devices/DeviceStatusMerger.Apply` 统一合并（见 `doc/project/changelog.md` 对应轮次） |
-| **CR-D3** | 插件禁用后设备不下线，托盘/小组件继续显示 | `Devices/DeviceManager.cs` 的插件卸载路径 | `done` | 插件禁用时立即移除/下线设备（见 `doc/project/changelog.md` 对应轮次） |
-| **CR-11** | `doc/hardware/safety.md` §3 规则 2 与实现**完全脱节**：规则原文写"一切写入受 `MchoseProbingEnabled` 开关控制（默认 false）"，实际北通走 `BetopProbingEnabled`（**默认 true**）、罗技无任何开关 | `doc/hardware/safety.md` §3 规则 2 vs `Settings/AppSettings.cs`、`Plugins/Betop/BetopPlugin.cs` | `done` | 2026-10-10 第十七轮：`safety.md` §3 规则 2 已重写为"每插件写入必须有自己的开关，判定入口唯一 `CanWrite`→`WritesEnabled`"，并新增 §3.1 逐插件对照表。**文档与实现的脱节已消除**；规则想保护的缺口本体是 CR-01，与本条分开跟踪。全检复核确认已修 |
-| **CR-18** | 文档假指针：`README.md` / `handoff.md` / `experience.md` / `changelog.md` / `debugging.md` 共 6 处把 `safety.md` 的会话排他内容引成**不存在的子节 §2.2**（该文件只有 §1–§4） | 上述 5 个文档 | `done` | 2026-10-10 第十七轮：6 处全部改为 `§2`（事故二）；并脚本核验全仓 `§N` 引用，其余指针全部真实（见 `doc/project/changelog.md` 第十七轮） |
+| **CR-D2** | `Upsert` 合并时漏拷 `Kind` / `Protocol`，导致设备图标被后续更新保留旧值 | `Devices/DeviceManager.cs:Upsert` | `done` | 改由 `Devices/DeviceStatusMerger.Apply` 统一合并（见 `docs/project/changelog.md` 对应轮次） |
+| **CR-D3** | 插件禁用后设备不下线，托盘/小组件继续显示 | `Devices/DeviceManager.cs` 的插件卸载路径 | `done` | 插件禁用时立即移除/下线设备（见 `docs/project/changelog.md` 对应轮次） |
+| **CR-11** | `docs/hardware/safety.md` §3 规则 2 与实现**完全脱节**：规则原文写"一切写入受 `MchoseProbingEnabled` 开关控制（默认 false）"，实际北通走 `BetopProbingEnabled`（**默认 true**）、罗技无任何开关 | `docs/hardware/safety.md` §3 规则 2 vs `Settings/AppSettings.cs`、`Plugins/Betop/BetopPlugin.cs` | `done` | 2026-10-10 第十七轮：`safety.md` §3 规则 2 已重写为"每插件写入必须有自己的开关，判定入口唯一 `CanWrite`→`WritesEnabled`"，并新增 §3.1 逐插件对照表。**文档与实现的脱节已消除**；规则想保护的缺口本体是 CR-01，与本条分开跟踪。全检复核确认已修 |
+| **CR-18** | 文档假指针：`README.md` / `handoff.md` / `experience.md` / `changelog.md` / `debugging.md` 共 6 处把 `safety.md` 的会话排他内容引成**不存在的子节 §2.2**（该文件只有 §1–§4） | 上述 5 个文档 | `done` | 2026-10-10 第十七轮：6 处全部改为 `§2`（事故二）；并脚本核验全仓 `§N` 引用，其余指针全部真实（见 `docs/project/changelog.md` 第十七轮） |
 
 > **2026-10-10 修复轮关闭的 25 条（CR-01~CR-09/10/12/14/15/17/19~CR-29 + D2/D7/D8/D9/D10）就地标 `done`**，
-> 见上方各表的"状态"列；关闭方式统一记在 `doc/project/changelog.md` 的修复轮小节，不在此重复。
+> 见上方各表的"状态"列；关闭方式统一记在 `docs/project/changelog.md` 的修复轮小节，不在此重复。
 
 ## 待办：本次未核实的部分
 
@@ -238,7 +241,7 @@
 - CR-02 的"每轮必写一帧"依赖"接口完全静默"前提；
 - **第十九轮需真机确认**：罗技在"插件开关打开"后能否恢复发现设备（用户配置 `PluginEnabled.Logitech=true`，理论上应恢复）；**迈从的行为变化**——第十八轮"`MchoseProbingEnabled=false` ⇒ 只被动监听"在第十九轮变为"插件开 ⇒ 允许写帧"，用户当前 `PluginEnabled.Mchose=true`，需确认主动写帧可接受（迈从的探测写入有干扰设备的先例）。
 - **UI 路径全部无自动化覆盖**：`RequestRefresh` 合并刷新、设置页插件行生成——只能靠真机点检。
-  CR-34/35/36 正是"静态可见、运行时不可验"的一类，故收工自审只记录不修（理由见 `doc/reviews/archive/fix-round-2026-10-10.md` §5）。
+  CR-34/35/36 正是"静态可见、运行时不可验"的一类，故收工自审只记录不修（理由见 `docs/reviews/archive/fix-round-2026-10-10.md` §5）。
   CR-34 里的 `_writePermissionRows` 已随第十九轮删除，但 `Load()` 不可重入本身仍在。
 - **第二十轮（任务栏贴片）部分行为已实测**（2026-10-10 第三轮补测）。**已证实**：
   ① `WS_EX_NOACTIVATE` 的窗口调 `Window.Activate()` 能正常加载并显示 XAML 内容（贴片内容正常渲染）；

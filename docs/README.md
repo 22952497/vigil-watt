@@ -41,7 +41,7 @@
 | [BACKLOG.md](reviews/BACKLOG.md) | **审查发现跟踪（唯一载体）**：P0/P1/P2 分级的未修项、证据（`文件:符号`）、状态、来源 | 每次审查收工时；想知道"还有什么没修"时 |
 | [archive/code-review-2026-10-06.md](reviews/archive/code-review-2026-10-06.md) | 全仓代码/架构静态审查（基线 `ddd3b39`）：硬件写入边界、状态同步、BLE 判定、体验与测试缺口，含修复顺序 | 规划重构/排优先级（注意行号已漂移） |
 | [archive/code-review-followup-2026-10-06.md](reviews/archive/code-review-followup-2026-10-06.md) | 对上条的独立复核：哪些属实、哪 3 处需修正、报告遗漏了什么（罗技无写入闸门等），以及四阶段优化路线图 | 排长期重构顺序 |
-| [archive/comment-audit-2026-10-09.md](reviews/archive/comment-audit-2026-10-09.md) | 全仓注释审计与 doc 归并映射（基线 2026-10-09 工作树）：逐块处置表（保留/压缩/归纳/删除）、9 条 doc 归纳清单、"不能删"清单 | 想知道某段注释为什么被删或被搬走时 |
+| [archive/comment-audit-2026-10-09.md](reviews/archive/comment-audit-2026-10-09.md) | 全仓注释审计与 docs 归并映射（基线 2026-10-09 工作树）：逐块处置表（保留/压缩/归纳/删除）、9 条 docs 归纳清单、"不能删"清单 | 想知道某段注释为什么被删或被搬走时 |
 
 ## 症状速查
 

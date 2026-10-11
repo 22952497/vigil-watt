@@ -1,6 +1,6 @@
 """探针：枚举本机经典蓝牙（BTHENUM\\）设备节点，找"设备类型"的可靠信号。
 
-用途见 scripts/README.md；结论与判定规则见 doc/dev/runtime-pitfalls.md §3.1。
+用途见 scripts/README.md；结论与判定规则见 docs/dev/runtime-pitfalls.md §3.1。
 
 用法：
     python probe-classic-kind.py            # 只列 BTHENUM 节点的关键属性

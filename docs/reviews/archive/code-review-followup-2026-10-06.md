@@ -1,6 +1,6 @@
 # 审查报告复核与优化路线图（2026-10-06）
 
-> 复核对象：`doc/reviews/code-review-2026-10-06.md`（下称"原报告"）。
+> 复核对象：`docs/reviews/code-review-2026-10-06.md`（下称"原报告"）。
 > 基线：同为 `main` / `ddd3b39`。
 > 性质：**只读静态复核**——未启动应用、未向任何 HID 设备发帧、未强杀进程。
 > 与原报告一致：*"代码路径已核实"不等于"后果已在真机复现"*；涉及硬件后果的推断均已单独标注。
@@ -65,7 +65,7 @@
 ### 3.3 §3.4 文档漂移：两处小偏差
 
 - 测试数"65 vs 67"**不是单纯过时**：`README.md:23` 已写 67（正确），`:70` 仍写 65——**同一文件自相矛盾**。
-- `doc/project/code-flow.md` 是**准确的**（第 9-10 行已写"三个定时器"、300ms 首跑、第 22 行 SemaphoreSlim），
+- `docs/project/code-flow.md` 是**准确的**（第 9-10 行已写"三个定时器"、300ms 首跑、第 22 行 SemaphoreSlim），
   不应与 `architecture.md` 并列归为漂移。真正漂移的只有 `architecture.md:19`（称 `HidWriteProbe` 已退役，
   但 Elan 仍在调用）和 `:84`（Timer ×2 + SafePoll + Interlocked，实为 3 个 Timer + Task/信号量）。
   另有 `DeviceClaimRegistry.cs:7` 残留注释仍提 `DeviceManager.SafePoll`。
@@ -261,7 +261,7 @@ _devices 无 Remove 路径
 | **1（P0）** | WriteBudget + WritePolicy + 北通 Probe 闸门 + 罗技熔断与开关 + HidppIO 兜底 + 伪 HID 后端 | `dotnet test` 全绿；三家许可关闭时 `WriteCount == 0` | 新增 `Plugins/WriteBudget.cs`、`Plugins/WritePolicy.cs`、`Hid/FakeHidBackend`（测试侧）；改 `BatteryPluginBase.cs`、`BetopPlugin.cs`、`LogitechPlugin.cs`、`HidppIO.cs`、`AppSettings.cs`、`Hid/HidDeviceInfo.cs`、`safety.md`、测试 csproj |
 | **2（P0）** | 快照副本 + `_stateGate` + OwnerPlugin + 确定下线 + 采样节流 + DeviceStateTracker | 单测覆盖历史写入/骤降保护/低电量重复触发；`history.db` 日增速降到约 1/5 | `Models/DeviceStatus.cs`、`Devices/DeviceManager.cs`、新增 `Devices/DeviceStateTracker.cs`、`Ble/BleBatteryWatcher.cs` |
 | **3（P1）** | WAL + 后台写队列 + 保留策略定时 + UI 异步 + 退出 Dispose + 小组件解绑/节流 | 历史/统计页 <200ms；退出日志出现插件卸载；生成 `history.db-wal` | `Storage/HistoryStore.cs`、新增 `Storage/SerialBackgroundQueue.cs`、`Views/HistoryPage.xaml.cs`、`Views/StatsPage.xaml.cs`、`Services/TrayService.cs`、`App.xaml.cs`、`WidgetWindow.xaml.cs` |
-| **4（P2）** | Elan FeatureSweep 移出正常路径 + BLE `bool? connected` 对齐经典版 + PollConnectedAsync 并发化 + 文档同步 | 日志不再每 5 分钟 32 次 GetFeature；BLE 稀疏更新不再误判离线 | `Plugins/Elan/ElanHeadsetPlugin.cs`、`Ble/BleBatteryWatcher.cs`、`doc/**` |
+| **4（P2）** | Elan FeatureSweep 移出正常路径 + BLE `bool? connected` 对齐经典版 + PollConnectedAsync 并发化 + 文档同步 | 日志不再每 5 分钟 32 次 GetFeature；BLE 稀疏更新不再误判离线 | `Plugins/Elan/ElanHeadsetPlugin.cs`、`Ble/BleBatteryWatcher.cs`、`docs/**` |
 
 ## 6. 复核未能证实的部分（诚实标注）
 

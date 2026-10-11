@@ -2,11 +2,11 @@ using VigilWatt.Core.Models;
 
 namespace VigilWatt.Core.Devices;
 
-/// <summary>DeviceStatus 的原地合并规则（纯逻辑，可单测；DeviceManager.Upsert 与"墓碑接管"都走这里）。详见 doc/project/architecture.md §6。</summary>
+/// <summary>DeviceStatus 的原地合并规则（纯逻辑，可单测；DeviceManager.Upsert 与"墓碑接管"都走这里）。详见 docs/project/architecture.md §6。</summary>
 public static class DeviceStatusMerger
 {
     /// <summary>
-    /// 把 <paramref name="incoming"/> 的字段同步进已存在的 <paramref name="status"/>（原地改）。⚠️ Kind / Protocol 是"声明覆盖猜测"（非 Unknown / 非空才覆盖）：既防墓碑的错误猜测冻结到永远，也防未声明来源洗掉已知类型——详见 doc/project/architecture.md §6。
+    /// 把 <paramref name="incoming"/> 的字段同步进已存在的 <paramref name="status"/>（原地改）。⚠️ Kind / Protocol 是"声明覆盖猜测"（非 Unknown / 非空才覆盖）：既防墓碑的错误猜测冻结到永远，也防未声明来源洗掉已知类型——详见 docs/project/architecture.md §6。
     /// </summary>
     public static void Apply(DeviceStatus status, DeviceStatus incoming)
     {

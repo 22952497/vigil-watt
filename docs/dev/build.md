@@ -47,7 +47,7 @@ dotnet test src/tests/VigilWatt.Core.Tests --no-build --filter "FullyQualifiedNa
 这是**环境问题，与代码改动无关**——所以验证时一律用 `--no-build --filter "FullyQualifiedName~<类名>"` 指定相关测试类，秒级返回。
 
 xUnit 项目（`net8.0`、AnyCPU），用 `<Compile Include>` 直接链接 `src/VigilWatt.Core` 里的真源文件，不引 WinRT。
-**链接清单就是"可测边界"**：文件在 `VigilWatt.Core.Tests.csproj` 里出现，才谈得上单测覆盖；新增纯逻辑文件应一并加进去（见 `doc/dev/review-standard.md` R8）。
+**链接清单就是"可测边界"**：文件在 `VigilWatt.Core.Tests.csproj` 里出现，才谈得上单测覆盖；新增纯逻辑文件应一并加进去（见 `docs/dev/review-standard.md` R8）。
 
 **绝不要并行跑 `dotnet build` 和 `dotnet test`**：会抢 `bin/` 锁，构建报 MSB4166 被掐死、测试吐假的"测试主机进程崩溃"。
 

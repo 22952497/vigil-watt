@@ -16,7 +16,7 @@ namespace VigilWatt.Core.Plugins.Betop;
 /// 安全：只发官方客户端同款的读命令（cmd=0x5），不碰写配置、固件、灯效。
 ///
 /// 帧结构、电量编码、T9 被动流与"未连接占位帧"判定见 <see cref="BetopCodec"/> 及
-/// doc/hardware/protocols.md §4。
+/// docs/hardware/protocols.md §4。
 /// </summary>
 public sealed class BetopPlugin : BatteryPluginBase
 {

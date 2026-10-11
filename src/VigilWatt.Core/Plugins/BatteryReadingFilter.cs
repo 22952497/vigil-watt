@@ -28,7 +28,7 @@ public enum ReadingVerdict
 ///
 /// 基准 <see cref="LastAcceptedPercent"/> **不随设备离线而清空**——休眠伪读数经常出现在
 /// "设备刚要掉线/刚回来"的窗口里，清了基准就等于放它进门。
-/// 阈值来源与调用链见 doc/project/code-flow.md §4.2。
+/// 阈值来源与调用链见 docs/project/code-flow.md §4.2。
 /// </summary>
 public sealed class BatteryReadingFilter
 {

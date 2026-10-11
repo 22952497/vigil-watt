@@ -12,7 +12,7 @@ public readonly record struct SystemPowerSnapshot(bool HasBattery, int? Percent,
     public static SystemPowerSnapshot Unavailable => new(false, null, false);
 }
 
-/// <summary>读本机电源状态的纯 P/Invoke 实现（<c>GetSystemPowerStatus</c>，纯读零写入；不用 WinRT <c>Battery</c>）。<c>BatteryFlag</c> 128=无电池 / 255=未知，都不能当 0% 电池——台式机判定依据。详见 doc/project/code-flow.md §3.1。</summary>
+/// <summary>读本机电源状态的纯 P/Invoke 实现（<c>GetSystemPowerStatus</c>，纯读零写入；不用 WinRT <c>Battery</c>）。<c>BatteryFlag</c> 128=无电池 / 255=未知，都不能当 0% 电池——台式机判定依据。详见 docs/project/code-flow.md §3.1。</summary>
 public static class SystemPowerReader
 {
     /// <summary>BatteryFlag 位：无系统电池。</summary>

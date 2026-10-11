@@ -6,7 +6,7 @@ namespace VigilWatt.Core.Plugins.Logitech;
 /// <summary>
 /// HID++ 底层 I/O：通过 vendor 接口写 output report 发请求、读 input report 匹配响应（报文格式对照 Solaar base.py）。
 /// 短报文 7 字节 [0x10, devIdx, feature, (func&lt;&lt;4)|sw, p0..p2]；长报文 20 字节 [0x11, ..., p0..p15]；错误响应 data[0]=0x8F(1.0)/0xFF(2.0)；设备自发通知 sw 低 4 位=0。
-/// report ID 按接口 caps / 输出长度选择（Bolt 20 字节集合必须发 0x11）。详见 doc/hardware/protocols.md §3。
+/// report ID 按接口 caps / 输出长度选择（Bolt 20 字节集合必须发 0x11）。详见 docs/hardware/protocols.md §3。
 /// </summary>
 internal sealed class HidppIO : IDisposable
 {

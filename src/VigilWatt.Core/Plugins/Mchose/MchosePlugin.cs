@@ -10,9 +10,9 @@ namespace VigilWatt.Core.Plugins.Mchose;
 ///
 /// 两条协议：**键盘 V1**（本机 G87 dongle，report 0x13，帧校验=前 19 字节之和）与新一代
 /// **QHW**（M HUB WEB 前端逆向，report 0x4D + 命令 0x0904）。帧结构见 <see cref="MchoseV1Codec"/>
-/// 与 doc/hardware/protocols.md §1。
+/// 与 docs/hardware/protocols.md §1。
 ///
-/// 安全约束（doc/hardware/safety.md）：只发官方/实测帧，禁止任何命令扫描；写入受
+/// 安全约束（docs/hardware/safety.md）：只发官方/实测帧，禁止任何命令扫描；写入受
 /// <see cref="WritesEnabled"/>（= 插件开关）控制；连续 3 次失败由基类自动停写。
 ///
 /// 已知固件行为：键盘空闲时 dongle 对电量查询返回**逐字节相同的缓存帧**，充电标志可能冻结很久，
@@ -385,7 +385,7 @@ public sealed class MchosePlugin : BatteryPluginBase
     /// <summary>
     /// 键盘 V1 协议（本机 dongle 41E4:2001 实测打通，与官方 M HUB WEB 抓包一致）。
     /// 帧格式与解析全部在 <see cref="MchoseV1Codec"/>（纯函数，有单测）；帧结构见
-    /// doc/hardware/protocols.md §1。会话必须先开，否则 dongle 不响应；被崩溃进程占住会话时
+    /// docs/hardware/protocols.md §1。会话必须先开，否则 dongle 不响应；被崩溃进程占住会话时
     /// 所有人都会静音，需重新插拔释放。
     ///
     /// "无响应"只在状态变化时记日志：发现节拍每 15 秒重探一次，键盘睡着时逐次记录会把 app.log
