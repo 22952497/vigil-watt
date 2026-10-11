@@ -1,17 +1,30 @@
 using System.Diagnostics;
+using System.Linq;
 using VigilWatt.App.Services;
 using VigilWatt.Core.Models;
 using VigilWatt.Core.Plugins;
 using VigilWatt.Core.Utils;
 using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
+using Windows.Foundation;
+using Windows.UI;
 
 namespace VigilWatt.App.Views;
 
 public sealed partial class SettingsPage : Page
 {
     private readonly Dictionary<string, ToggleSwitch> _pluginToggles = new();
+    private readonly List<SearchEntry> _searchEntries = new();
+    private DispatcherQueueTimer? _highlightTimer;
+    private TextBlock? _highlightedTitle;
+    private Brush? _previousTitleBrush;
+    private Windows.UI.Text.FontWeight _previousTitleWeight;
+    private SolidColorBrush? _titleHighlightBrush;
 
     public SettingsPage()
     {
@@ -124,6 +137,8 @@ public sealed partial class SettingsPage : Page
             AddPluginRow(plugin, s.PluginEnabled.TryGetValue(plugin.Name, out var on) && on, first);
             first = false;
         }
+
+        BuildSearchIndex();
     }
 
     private void Backdrop_Changed(object sender, SelectionChangedEventArgs e)
@@ -181,6 +196,8 @@ public sealed partial class SettingsPage : Page
         text.Children.Add(new TextBlock { Text = KindText(plugin.Kind), Style = (Style)Resources["RowDescStyle"] });
 
         var row = new Grid { ColumnSpacing = 16, Padding = new Thickness(0, 12, 0, 12) };
+        AutomationProperties.SetName(row, $"{plugin.DisplayName} {plugin.Name}");
+        AutomationProperties.SetHelpText(row, $"2.4G 设备插件 · {KindText(plugin.Kind)}");
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(text, 0);
@@ -190,6 +207,211 @@ public sealed partial class SettingsPage : Page
 
         PluginPanel.Children.Add(row);
         _pluginToggles[plugin.Name] = toggle;
+    }
+
+    private void BuildSearchIndex()
+    {
+        _searchEntries.Clear();
+        AddSearchEntries(SettingsContent);
+    }
+
+    private void AddSearchEntries(DependencyObject parent)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Grid row && GetRowText(row) is { } text)
+            {
+                var aliases = AutomationProperties.GetName(row);
+                var help = AutomationProperties.GetHelpText(row);
+                if (string.IsNullOrWhiteSpace(help)) help = text.Description;
+                var category = FindCategory(row);
+                _searchEntries.Add(new SearchEntry(row, text.Title, help, category, aliases, text.TitleBlock));
+            }
+
+            AddSearchEntries(child);
+        }
+    }
+
+    private static (string Title, string Description, TextBlock TitleBlock)? GetRowText(Grid row)
+    {
+        var textPanel = row.Children.OfType<StackPanel>().FirstOrDefault();
+        if (textPanel is null) return null;
+        var blocks = new List<TextBlock>();
+        CollectTextBlocks(textPanel, blocks);
+        return blocks.Count == 0 ? null : (blocks[0].Text, blocks.Count > 1 ? blocks[1].Text : string.Empty, blocks[0]);
+    }
+
+    private static void CollectTextBlocks(DependencyObject parent, List<TextBlock> blocks)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is TextBlock text) blocks.Add(text);
+            else CollectTextBlocks(child, blocks);
+        }
+    }
+
+    private static string FindCategory(DependencyObject element)
+    {
+        for (var parent = VisualTreeHelper.GetParent(element); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+        {
+            if (parent is not StackPanel section || section.Children.FirstOrDefault() is not StackPanel header) continue;
+            var title = header.Children.OfType<TextBlock>().FirstOrDefault()?.Text;
+            if (!string.IsNullOrWhiteSpace(title)) return title;
+        }
+
+        return string.Empty;
+    }
+
+    private void SettingsSearch_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        SearchResultsPanel.Children.Clear();
+        var query = SettingsSearchBox.Text.Trim();
+        SearchEmptyText.Visibility = Visibility.Collapsed;
+        if (query.Length == 0)
+        {
+            SearchResultsBorder.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var matches = _searchEntries
+            .Where(entry => entry.SearchText.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (matches.Count == 0)
+        {
+            SearchResultsBorder.Visibility = Visibility.Collapsed;
+            SearchEmptyText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        foreach (var entry in matches)
+        {
+            var content = new StackPanel { Spacing = 2, HorizontalAlignment = HorizontalAlignment.Stretch };
+            content.Children.Add(new TextBlock { Text = entry.Title, FontSize = 14, TextWrapping = TextWrapping.Wrap });
+            content.Children.Add(new TextBlock
+            {
+                Text = string.Join(" · ", new[] { entry.Category, entry.Description }.Where(part => !string.IsNullOrWhiteSpace(part))),
+                FontSize = 12,
+                Opacity = 0.75,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            var button = new Button
+            {
+                Content = content,
+                Tag = entry,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(12, 8, 12, 8),
+            };
+            button.Click += SearchResult_Click;
+            SearchResultsPanel.Children.Add(button);
+        }
+
+        SearchResultsBorder.Visibility = Visibility.Visible;
+    }
+
+    private void SearchResult_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: SearchEntry entry }) return;
+        SearchResultsBorder.Visibility = Visibility.Collapsed;
+        SearchEmptyText.Visibility = Visibility.Collapsed;
+        SettingsContent.UpdateLayout();
+        var y = entry.Target.TransformToVisual(SettingsContent).TransformPoint(new Point(0, 0)).Y;
+        var topMargin = Math.Min(96, SettingsScrollViewer.ViewportHeight * 0.25);
+        SettingsScrollViewer.ChangeView(null, Math.Max(0, SettingsScrollViewer.VerticalOffset + y - topMargin), null, false);
+
+        ClearHighlight();
+        var accent = Application.Current.Resources.TryGetValue("SystemAccentColor", out var value) && value is Color color
+            ? color
+            : Color.FromArgb(255, 0, 120, 215);
+        _highlightedTitle = entry.TitleBlock;
+        _previousTitleBrush = entry.TitleBlock.Foreground;
+        _previousTitleWeight = entry.TitleBlock.FontWeight;
+        _titleHighlightBrush = new SolidColorBrush(accent);
+        entry.TitleBlock.Foreground = _titleHighlightBrush;
+        entry.TitleBlock.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        _highlightTimer ??= DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _highlightTimer.Stop();
+        _highlightTimer.Interval = TimeSpan.FromMilliseconds(950);
+        _highlightTimer.Tick -= HighlightTimer_Tick;
+        _highlightTimer.Tick += HighlightTimer_Tick;
+        _highlightTimer.Start();
+    }
+
+    private void BackToSearch_Click(object sender, RoutedEventArgs e)
+    {
+        SearchResultsBorder.Visibility = Visibility.Collapsed;
+        SearchEmptyText.Visibility = Visibility.Collapsed;
+        SettingsScrollViewer.ChangeView(null, 0, null, false);
+        SettingsSearchBox.Focus(FocusState.Programmatic);
+        SettingsSearchBox.SelectionStart = SettingsSearchBox.Text.Length;
+    }
+
+    private void SettingsScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
+    {
+        UpdateBackToSearchVisibility();
+    }
+
+    private void SettingsScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateBackToSearchVisibility();
+    }
+
+    private void UpdateBackToSearchVisibility()
+    {
+        BackToSearchButton.Visibility = SettingsScrollViewer.ViewportHeight > 0
+            && SettingsScrollViewer.VerticalOffset >= SettingsScrollViewer.ViewportHeight
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void HighlightTimer_Tick(object? sender, object e)
+    {
+        _highlightTimer?.Stop();
+        if (_highlightedTitle is null || _titleHighlightBrush is null) return;
+
+        var brush = _titleHighlightBrush;
+        var fade = new Storyboard();
+        var animation = new ColorAnimation
+        {
+            To = GetBrushColor(_previousTitleBrush) ?? GetPrimaryTextColor(),
+            Duration = new Duration(TimeSpan.FromMilliseconds(450)),
+        };
+        Storyboard.SetTarget(animation, brush);
+        Storyboard.SetTargetProperty(animation, "Color");
+        fade.Children.Add(animation);
+        fade.Completed += (_, _) =>
+        {
+            if (ReferenceEquals(_titleHighlightBrush, brush)) ClearHighlight();
+        };
+        fade.Begin();
+    }
+
+    private void ClearHighlight()
+    {
+        _highlightTimer?.Stop();
+        if (_highlightedTitle is not null)
+        {
+            _highlightedTitle.Foreground = _previousTitleBrush;
+            _highlightedTitle.FontWeight = _previousTitleWeight;
+        }
+        _highlightedTitle = null;
+        _previousTitleBrush = null;
+        _titleHighlightBrush = null;
+    }
+
+    private static Color? GetBrushColor(Brush? brush) => brush is SolidColorBrush solid ? solid.Color : null;
+
+    private static Color GetPrimaryTextColor() =>
+        Application.Current.Resources.TryGetValue("TextFillColorPrimaryBrush", out var brush)
+        && brush is SolidColorBrush solid
+            ? solid.Color
+            : Color.FromArgb(255, 32, 32, 32);
+
+    private sealed record SearchEntry(Grid Target, string Title, string Description, string Category, string Aliases, TextBlock TitleBlock)
+    {
+        public string SearchText => $"{Title} {Description} {Category} {Aliases}";
     }
 
     /// <summary>插件声明了设备类型，用一句人话解释这个开关管的是什么设备。</summary>

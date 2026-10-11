@@ -34,13 +34,30 @@
 
     <Grid RowDefinitions="*,Auto">
 
-        <ScrollViewer Grid.Row="0" Padding="20,16">
-            <StackPanel Spacing="18" MaxWidth="720" HorizontalAlignment="Left">
+        <ScrollViewer x:Name="SettingsScrollViewer" Grid.Row="0" Padding="20,16"
+                      ViewChanged="SettingsScrollViewer_ViewChanged"
+                      SizeChanged="SettingsScrollViewer_SizeChanged">
+            <StackPanel x:Name="SettingsContent" Spacing="18" MaxWidth="720" HorizontalAlignment="Left">
 
                 <StackPanel Spacing="2">
                     <TextBlock Text="设置" Style="{StaticResource AppPageTitleStyle}" />
                     <TextBlock Text="外观、提醒、数据采集、2.4G 插件与桌面小组件"
                                Style="{StaticResource AppPageSubtitleStyle}" />
+                </StackPanel>
+
+                <StackPanel Spacing="6">
+                    <TextBox x:Name="SettingsSearchBox" PlaceholderText="搜索设置或设备插件"
+                             TextChanged="SettingsSearch_TextChanged" />
+                    <Border x:Name="SearchResultsBorder" Visibility="Collapsed" MaxHeight="240"
+                            CornerRadius="6" BorderThickness="1"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                        <ScrollViewer MaxHeight="240">
+                            <StackPanel x:Name="SearchResultsPanel" />
+                        </ScrollViewer>
+                    </Border>
+                    <TextBlock x:Name="SearchEmptyText" Text="没有匹配的设置项" Visibility="Collapsed"
+                               Style="{StaticResource RowDescStyle}" />
                 </StackPanel>
 
                 <!-- 外观 -->
@@ -372,7 +389,15 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- 保存栏固定底部不随内容滚走：左侧即时反馈，右侧主操作 -->
+        <Button x:Name="BackToSearchButton" Grid.Row="0" Width="44" Height="44"
+                Padding="0" CornerRadius="22" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="20,20,20,16" Visibility="Collapsed" Click="BackToSearch_Click"
+                AutomationProperties.Name="回到搜索区"
+                ToolTipService.ToolTip="回到搜索区">
+            <FontIcon Glyph="&#xE70E;" FontSize="18" />
+        </Button>
+
+        <!-- 底栏固定不随内容滚走：左侧即时反馈，右侧保存操作 -->
         <Border Grid.Row="1" Padding="20,12"
                 Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
