@@ -162,7 +162,7 @@ BatteryPluginBase.Attach(hidDevices, claims)
 
 ### 4.2 轮询（Poll，基类骨架 + 子类 PollDevice）
 
-`PollDevice` 按 `dev.Protocol` 分派：`keyboard-v1` → `PollKeyboardV1`（发一条 `13 4A 01`，1.2 秒内解析 4A 响应或 `13 0A` 自发推送）。**所有帧解析走纯函数单元 `MchoseV1Codec`**（`BuildFrame`/`ParsePush`/`ParseBatteryResponse`，零依赖，单测在 `src/tests/VigilWatt.Core.Tests/`）。关键：0A 推送帧的**类型位（下标 5）必须先认**——0x05=电量（[6]=%、[7]=标志），0x02=设备状态通知（实测键盘休眠，[6] **不是电量**）。失败记账：迈从把 `OfflinePolicy.CountPollFailures` 置 false（`null` 与"没开写入 / 熔断中"不可区分），改由 `PollDevice` 在**发过帧**的分支调 `ReportPollFailure` / `ReportPollAnswered` 自己报账；**连续 `OfflinePolicy.MaxFailures`（默认 3）次 → `WritesDisabled=true` 熔断停写**，之后各协议分支只走被动监听；停写 10 分钟退避期满 `CanWrite` 自动放行一轮（对付键盘休眠唤醒，safety.md §3 规则 3）。`WritesEnabled=false`（插件关闭）时轮询/探测直接短路，不写任何字节。子类判定"设备已休眠"时调基类 `RequestOffline(dev)` → 立即标离线，不等 3 次失败（省约 3 分钟）。
+`PollDevice` 按 `dev.Protocol` 分派：`keyboard-v1` → `PollKeyboardV1`（发一条 `13 4A 01`，1.2 秒内解析 4A 响应或 `13 0A` 自发推送）。**所有帧解析走纯函数单元 `MchoseV1Codec`**（`BuildFrame`/`ParsePush`/`ParseBatteryResponse`，零依赖，单测在 `src/tests/VigilWatt.Core.Tests/`）。关键：0A 推送帧的**类型位（下标 5）必须先认**——0x05=电量（[6]=%、[7]=标志），0x02=设备状态通知（实测键盘休眠，[6] **不是电量**）。失败记账：迈从把 `OfflinePolicy.CountPollFailures` 置 false（`null` 与"没开写入 / 熔断中"不可区分），改由 `PollDevice` 在**发过帧**的分支调 `ReportPollFailure` / `ReportPollAnswered` 自己报账；**连续 `OfflinePolicy.MaxFailures`（默认 3）次 → `WritesDisabled=true` 熔断停写**，之后各协议分支只走被动监听；退避期**递增**（30 秒起、封顶 5 分钟，`Plugins/WriteBackoff.cs`），期满由 `CanWrite` 自动放行一轮（对付键盘休眠唤醒，safety.md §3 规则 3）。`WritesEnabled=false`（插件关闭）时轮询/探测直接短路，不写任何字节。子类判定"设备已休眠"时调基类 `RequestOffline(dev)` → 立即标离线，不等 3 次失败（省约 3 分钟）。
 
 **读数异常过滤（`BatteryReadingFilter`，每设备一个实例，基类 `BatteryPluginBase.Poll` 调用，2026-10-06 加）**：判定只做两件事——① **数值有效性**：低于 `MinValidPercent`（默认 2，即 0/1 是休眠占位帧）或 >100 → `InvalidValue`，永不采信；② **变化幅度**：与 `LastAcceptedPercent` 相比涨跌超过 `MaxPlausibleStepPercent`（默认 20 点）→ `RejectAnomaly`，本轮**不写入 status**（UI 和低电量判定都看不到），需持续 `AnomalyPersistWindow`（默认 5 分钟）才升级为 `AcceptConfirmed` 采信；读数回到基准附近则持续计时清零。基准**不随离线清空**（伪读数常出现在"刚掉线/刚回来"的窗口）。越界/异常都打 `读数异常已过滤` 日志。阈值均为 `protected virtual`，子类可覆盖。单测见 `src/tests/VigilWatt.Core.Tests/`。
 
@@ -197,8 +197,10 @@ BatteryPluginBase.Attach(hidDevices, claims)
 基类在**空闲 tick** 上跑一次与轮询同款的 `PollDevice`。怎么知道"插件确实发了帧却没应答"？
 看 `ConsecutiveFailures` 有没有被插件推高——插件没发帧就不会报账，计数不动，于是不会误判
 （这条也是 `CountPollFailures=false` 的插件必须自己报账的原因之一）。
-计数被推高 ⇒ 核实失败 ⇒ 不等 3 次，当场判离线；但这条路径**不触发熔断停写**
-（一次核实失败不足以停写 10 分钟，真失联时后面几轮轮询自然会把阈值攒满）。
+计数被推高 ⇒ 核实失败 ⇒ 不等 3 次，当场判离线；插件的失败记账同时把退避**重新起算并升档**。
+**熔断期内这条路径照跑**（放行频率 ≤1 帧/30 秒）——它是设备自发信号触发的、不是轮询重试，
+挡住它等于把唤醒信号丢掉（CR-53，实测盲区 12 分 52 秒）；核实的半开重试另由被动空闲 tick 的
+`MaybeHalfOpenBreaker` 在退避期满时立刻发起，不必等 60 秒轮询拍。
 
 ### 4.3 读取通道（HidDeviceHandle）
 

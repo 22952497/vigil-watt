@@ -99,6 +99,12 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         public int ConsecutiveFailures;
         public bool WritesDisabled;
         public DateTimeOffset WritesDisabledAt;
+        /// <summary>熔断累计次数 = 递增退避的档位（拿到应答即归零）。</summary>
+        public int BreakerTrips;
+        /// <summary>熔断期内"事件驱动核实"的最近一次放行时刻（限制放行频率）。</summary>
+        public DateTimeOffset LastBypassAt;
+        /// <summary>本轮核实正在放行写入（绕过熔断位，但不改熔断状态）。</summary>
+        public bool BypassActive;
         /// <summary>每句柄一次性的动作标记（会话握手等），子类自行使用。</summary>
         public bool HandshakeSent;
         /// <summary>本设备的读数异常过滤器（基准 + 异常持续计时都封在里面）。</summary>
@@ -128,9 +134,8 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         HidDeviceHandle? Handle,
         (string Protocol, int? Percent, ChargingState Charging)? Result);
 
-    /// <summary>熔断退避期：设备常休眠，永久停写会让休眠唤醒后永远读不到，故停写 10 分钟后允许重试一轮；
-    /// 仍失败则再次熔断。最坏写入频率 = 1 帧/10 分钟，在安全框架内。</summary>
-    protected static readonly TimeSpan WriteRetryBackoff = TimeSpan.FromMinutes(10);
+    /// <summary>熔断期内"事件驱动核实"的最小放行间隔：兜住设备狂推通知的极端情形，最坏约 1 帧/30 秒。</summary>
+    private static readonly TimeSpan BypassMinInterval = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// 单次读数的最大合理变化幅度（百分点）：涨跌超过它就先判异常、本轮不采用。
@@ -291,8 +296,9 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                         input = dev.Handle.ReadInput(TimeSpan.FromMilliseconds(500));
                     if (input == null)
                     {
-                        // 静音期不是无事可做：延迟离线确认与"立刻核实"靠的都是这里的节拍（约 500ms 一次）。
+                        // 静音期不是无事可做：延迟离线确认、半开重试与"立刻核实"靠的都是这里的节拍（约 500ms 一次）。
                         CheckOfflineCandidate(dev);
+                        MaybeHalfOpenBreaker(dev);
                         RunPendingConfirm(dev);
                         continue;
                     }
@@ -363,21 +369,30 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
     /// <summary>
     /// 消费插件在被动帧里提交的"立刻核实"请求（见 <see cref="RequestConfirm"/>）：空闲 tick 上跑一次
-    /// 与轮询同款的查询，插件照常自己报账。
-    ///
-    /// 必须在这条路径上做——只有它是秒级节拍，放进 60 秒轮询等于没加。
-    /// "插件确实发了帧却没应答"由 <c>ConsecutiveFailures</c> 被推高来判断：插件没发帧就不会报账，
-    /// 计数不动，故不会误判。核实失败的信息量不足以停写 10 分钟，所以**这条路径不触发熔断**。
+    /// 与轮询同款的查询，插件照常自己报账。必须在这条路径上做——只有它是秒级节拍。
+    /// **熔断期内也照跑**：它是设备自发信号触发的、不是轮询重试，挡住它等于把唤醒信号丢掉（CR-53）；
+    /// 放行频率由 <see cref="BypassMinInterval"/> 兜住。
     /// </summary>
     private void RunPendingConfirm(TrackedDevice dev)
     {
         if (!dev.ConfirmRequested) return;
+
+        // 未到最小间隔就**不消费请求**，留到下一拍再试——消费掉就等于丢信号。
+        bool bypass = dev.WritesDisabled;
+        if (bypass && DateTimeOffset.Now - dev.LastBypassAt < BypassMinInterval) return;
+
         dev.ConfirmRequested = false;
+        if (bypass) dev.LastBypassAt = DateTimeOffset.Now;
 
         int failuresBefore = dev.ConsecutiveFailures;
         (int? Percent, ChargingState Charging)? read;
+        // BypassActive 是跨线程共享的可变字段（60 秒轮询线程也会经 CanWrite 读它），故与 PollDevice 同锁读写（R3）。
         lock (dev.IoGate)
-            read = PollDevice(dev);
+        {
+            dev.BypassActive = bypass;
+            try { read = PollDevice(dev); }
+            finally { dev.BypassActive = false; }
+        }
 
         if (read.HasValue)
         {
@@ -390,6 +405,17 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         }
 
         ConsumeOfflineRequest(dev);
+    }
+
+    /// <summary>
+    /// 退避期满就**立刻**排一次核实，而不是苦等下一个 60 秒轮询拍——否则"退避 5 分钟"实际会变成
+    /// "5 分钟 + 最多 60 秒"。只置触发器，发帧与熔断解除仍走 <see cref="RunPendingConfirm"/>。
+    /// </summary>
+    private void MaybeHalfOpenBreaker(TrackedDevice dev)
+    {
+        if (!dev.WritesDisabled || dev.ConfirmRequested) return;
+        if (!WriteBackoff.IsExpired(dev.BreakerTrips, dev.WritesDisabledAt, DateTimeOffset.Now)) return;
+        RequestConfirm(dev);
     }
 
     /// <summary>
@@ -446,12 +472,10 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                     if (Offline.CountPollFailures)
                     {
                         dev.ConsecutiveFailures++;
+                        // 只在首次跨过阈值时熔断：这里分不清"没应答"与"被熔断挡住没发帧"，
+                        // 每轮都重新起算会把退避永远推后（见 TripBreaker 的注释）。
                         if (dev.ConsecutiveFailures >= Offline.MaxFailures && !dev.WritesDisabled)
-                        {
-                            dev.WritesDisabled = true;
-                            dev.WritesDisabledAt = DateTimeOffset.Now;
-                            Log.Warn($"{DisplayName} {dev.Status.DisplayName} 连续 {Offline.MaxFailures} 次查询失败，熔断停写（{WriteRetryBackoff.TotalMinutes:0} 分钟退避后重试一轮）");
-                        }
+                            TripBreaker(dev);
                         if (dev.ConsecutiveFailures >= Offline.MaxFailures &&
                             MarkOffline(dev, "连续查询失败，标记离线"))
                             updated.Add(dev.Status);
@@ -529,15 +553,17 @@ public abstract class BatteryPluginBase : IBatteryPlugin
             Log.Info($"{DisplayName} 插件已卸载，释放 {released} 台设备");
     }
 
-    /// <summary>该设备当前是否允许写入（总开关 + 熔断退避）。子类发帧前检查；熔断退避期满自动恢复一轮。</summary>
+    /// <summary>该设备当前是否允许写入（总开关 + 熔断退避 + 事件驱动放行）。子类发帧前检查；退避期满自动恢复一轮。</summary>
     protected bool CanWrite(TrackedDevice dev)
     {
         if (!WritesEnabled) return false;
+        // 设备自己发信号触发的核实不受熔断限制、也不改熔断状态——挡住它等于把唤醒信号丢掉（CR-53）。
+        if (dev.BypassActive) return true;
         if (!dev.WritesDisabled) return true;
-        if (DateTimeOffset.Now - dev.WritesDisabledAt >= WriteRetryBackoff)
+        if (WriteBackoff.IsExpired(dev.BreakerTrips, dev.WritesDisabledAt, DateTimeOffset.Now))
         {
             dev.WritesDisabled = false;
-            Log.Info($"{DisplayName} {dev.Status.DisplayName} 停写退避期满，恢复查询");
+            Log.Info($"{DisplayName} {dev.Status.DisplayName} 停写退避期满（{WriteBackoff.For(dev.BreakerTrips).TotalSeconds:0} 秒），恢复查询");
             return true;
         }
         return false;
@@ -586,18 +612,33 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     protected void ReportPollFailure(TrackedDevice dev)
     {
         if (++dev.ConsecutiveFailures < Offline.MaxFailures) return;
-
-        if (!dev.WritesDisabled)
-        {
-            dev.WritesDisabled = true;
-            dev.WritesDisabledAt = DateTimeOffset.Now;
-            Log.Warn($"{DisplayName} {dev.Status.DisplayName} 连续 {Offline.MaxFailures} 次查询无应答，熔断停写（{WriteRetryBackoff.TotalMinutes:0} 分钟退避后重试一轮）");
-        }
+        // 每次都重新起算退避并升档（含"熔断期内半开重试又失败"）：否则退避会永远停在首次的 30 秒，等于没有递增。
+        TripBreaker(dev);
         RequestOffline(dev);
     }
 
-    /// <summary>主动查询拿到应答 → 清零失败计数。</summary>
-    protected static void ReportPollAnswered(TrackedDevice dev) => dev.ConsecutiveFailures = 0;
+    /// <summary>
+    /// 熔断落地：停写 + 升档 + 记一条 WARN。基类 <see cref="Poll"/> 的自动记账分不清"没应答"与
+    /// "被熔断挡住没发帧"，故那条路径只在首次跨过阈值时调它，否则退避会被每轮重置、永远不到期。
+    /// </summary>
+    private void TripBreaker(TrackedDevice dev)
+    {
+        dev.WritesDisabled = true;
+        dev.WritesDisabledAt = DateTimeOffset.Now;
+        dev.BreakerTrips++;
+        Log.Warn($"{DisplayName} {dev.Status.DisplayName} 连续 {Offline.MaxFailures} 次查询失败，熔断停写" +
+                 $"（第 {dev.BreakerTrips} 次，退避 {WriteBackoff.For(dev.BreakerTrips).TotalSeconds:0} 秒）");
+    }
+
+    /// <summary>主动查询拿到应答 → 清零失败计数与退避档位；熔断中则提前解除（设备已回来，没有理由继续停写）。</summary>
+    protected void ReportPollAnswered(TrackedDevice dev)
+    {
+        dev.ConsecutiveFailures = 0;
+        dev.BreakerTrips = 0;
+        if (!dev.WritesDisabled) return;
+        dev.WritesDisabled = false;
+        Log.Info($"{DisplayName} {dev.Status.DisplayName} 查询恢复应答，提前解除熔断停写");
+    }
 
     /// <summary>新建一台设备的读数过滤器，并用探测读到的值建立初始基准。</summary>
     private BatteryReadingFilter CreateFilter(int? probedPercent)

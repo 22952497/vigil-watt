@@ -77,6 +77,10 @@
   验证：`dotnet build` 0 警告 0 错误；测试 **276 用例全绿**；贴片内外背景像素**逐字节相同**。
 - **2026-10-11（全项目架构评估）**：新增 **CR-52**（P2）：`App.xaml.cs:ShutdownLogging` 的注释仍称 `AppServices.Dispose` 全仓无人调用，
   但 `TrayService.Exit` 已在调用；代码行为正确，注释已过期。
+- **2026-10-11（日常开发 · 修 CR-53）**：用户复报"迈从休眠后唤醒，程序长时间没识别到" → 当日建 **CR-53** 并**就地修掉（标 `done`）**：
+  根因是**固定 10 分钟熔断退避把"唤醒检测"一起挡死**（日志实测盲区 12 分 52 秒，链路见条目）。
+  新增纯逻辑 `Plugins/WriteBackoff.cs`（递增退避，封顶 5 分钟）+ 事件驱动放行 + 半开重试；`LogitechPlugin` 同步。
+  验证：build 0 警告 0 错误；除 `LogTests` 外 **278 用例全绿**（新增 `WriteBackoffTests` 9 条）。**未真机验证**。
 
 ## P0 · 安全 / 数据损坏
 
@@ -102,6 +106,7 @@
 | **CR-10** | Elan 插件的只读 feature 扫描**留在正常执行路径上**，违反 `docs/hardware/safety.md` §3 规则 7（"任何诊断/扫描代码不得留在正常执行路径上，哪怕有开关"）。**重新定性**：`FeatureSweep` / `FindBatteryFeature` 均为 `GetFeature`（**只读，不写帧**），故**不是硬件误写**，违规点是"扫描代码未剥离"。`ProbeCooldown` 5 分钟，插件默认启用 | `Plugins/Elan/ElanHeadsetPlugin.cs:Probe` 的 `HidWriteProbe.FeatureSweep` / `FindBatteryFeature` | `done` | 10-06 §1.3 + 复核 §4.1；10-10 重新定性 |
 | **CR-12** | 写入许可开关没有 UI：设置页只有 4 个手写 `ToggleSwitch` + 动态生成的**品牌级** `PluginEnabled` 行，`MchoseProbingEnabled` 与 `BetopProbingEnabled` 无控件，只能手改 `settings.json`。**加重**：`BetopProbingEnabled` 默认 true → 写入闸门默认敞开且用户关不掉 | `Views/SettingsPage.xaml`（`PluginPanel`）、`Views/SettingsPage.xaml.cs:AddPluginRow` / `Save_Click`、`Settings/AppSettings.cs` | `done` | 10-06 §3.1；10-10 复核**加重** |
 | **CR-37** | **罗技插件被当成"新插件"默认关闭，导致静默功能回归**：第十八轮给罗技新增独立的 `LogitechProbingEnabled`（默认 false），而罗技的发现/读数**全靠写帧、没有可用的"只被动"模式** → "插件开着但写入许可关着"这一组合让罗技**完全发现不了设备**，UI 上还看不出任何异常。根因：`safety.md` 规则 2 的"**新**插件默认关闭"被误用到**既有**功能插件上。**修法**：取消独立写入许可，所有插件统一"**插件开关即写入授权**"（见变更记录第十九轮） | `Plugins/Logitech/LogitechPlugin.cs:DiscoverDevices`（`if (!WritesEnabled) continue;`）、`Settings/AppSettings.cs:LogitechProbingEnabled` | `done` | 10-10 用户实测（罗技 2.4G 鼠标找不到） |
+| **CR-53** | **键盘休眠触发熔断后，10 分钟退避把"唤醒检测"也一起挡死**——唤醒后最长约 11 分钟才被重新认领（日志实测盲区 **12 分 52 秒**）。五个环节：① 休眠 → `ReportPollFailure` 攒满 3 次 → `WritesDisabled=true`；② 熔断期内 `MchosePlugin.PollDevice` 首行 `CanWrite` 直接 return null（不写帧、不记账）；③ 键盘唤醒时 dongle 推的 `0x02` 通知按设计调 `RequestConfirm`，但 `RunPendingConfirm` 里 `ConfirmRequested` **已在方法开头被消费**、`PollDevice` 又被熔断挡住 → `ConsecutiveFailures` 不变 → `else if (dev.ConsecutiveFailures > failuresBefore)` 为假 → **唤醒信号被静默丢弃**（熔断期内还零日志，看不出是被挡住）；④ 15 秒发现节拍救不了——`Attach` 对 `_devices` 里已有的路径直接 `continue`，而 dongle 一直在位（该节拍只能发现"新接口"，覆盖不到"已认领但离线"）；⑤ 被动监听也救不了——dongle 不在唤醒时自发推 `0A` 电量帧（`0A` 只在开会话/状态变化时来，会话帧本身是写入）。**同类风险**：北通结构同款但当前未自报失败（现表现为"不标离线"，补齐一致性改动后走的是**已修**的基类路径）；罗技自建了同构熔断，已同步同一张退避表。**已修（2026-10-11）**：① 新增纯逻辑 `Plugins/WriteBackoff.cs`（30s→1m→2m→4m→**封顶 5 分钟**，用户定的上限）；② `CanWrite` 改用递增退避；③ `RunPendingConfirm` 熔断期内也放行设备自发信号触发的核实（≤1 帧/30 秒，未到间隔**不消费请求**），成功即提前解除熔断；④ 被动空闲 tick 新增 `MaybeHalfOpenBreaker`，期满**立刻**半开重试、不再等 60 秒轮询拍；⑤ 熔断落地收进 `TripBreaker`（基类自动记账那条只在首次跨阈值时熔断，否则退避被每轮重置、永不到期）；⑥ `LogitechPlugin` 同步。**验证**：build 0 警告 0 错误；除 `LogTests`（本机已知会卡住）外 **278 用例全绿**（新增 `WriteBackoffTests` 9 条）；**未真机验证**——需人手让键盘睡够 3 分钟再唤醒 | `Plugins/Mchose/MchosePlugin.cs:PollDevice`、`Plugins/BatteryPluginBase.cs:ReportPollFailure` / `CanWrite` / `RunPendingConfirm` / `Attach`、`Plugins/WriteBackoff.cs`、`Plugins/Logitech/LogitechPlugin.cs:Poll` | `done` | 10-11 日常开发（用户复报"迈从休眠后唤醒，程序长时间没识别到"；日志 `app-2026-10-11.log` 20:23–20:36） |
 
 ## P2 · 可维护性
 

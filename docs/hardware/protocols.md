@@ -452,7 +452,7 @@ bit: 7 6 5 4 | 3 2 1 0
 
 - 写入受插件开关 `PluginEnabled["Betop"]` 控制（**默认开启**——查询即官方客户端自己用的只读命令，风险低）。
   ⚠️ **关掉只挡住轮询写入，不挡探测**：该开关经 `BetopPlugin.WritesEnabled` → 基类 `CanWrite` 生效，而**探测路径**（`BatteryPluginBase.RunProbe` → `BetopPlugin.Probe`）目前**仍会写帧**——「关掉即完全静默」尚不成立，**待修**（应让探测与轮询共用同一写入闸门）。
-- 连续 3 次查询失败由基类自动熔断（10 分钟退避后重试一轮），最坏 1 帧/10 分钟。
+- 连续 3 次查询失败由基类自动熔断（**递增退避**：30 秒起、封顶 5 分钟，见 safety.md §3 规则 3）。
 - 品牌级总开关 `PluginEnabled["Betop"]`（默认开）。
 - 迈从插件已按 VID 排除北通接口（`MchosePlugin.IsCandidate`），避免对北通 dongle 发 QHW / 0x13 帧。
 

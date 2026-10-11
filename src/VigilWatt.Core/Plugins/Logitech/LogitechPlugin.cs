@@ -52,14 +52,11 @@ public sealed class LogitechPlugin : IBatteryPlugin
     public static bool WritesEnabled =>
         AppSettings.Load().PluginEnabled.TryGetValue(SettingsKey, out var on) && on;
 
-    /// <summary>连续查询失败熔断的退避期，与 <c>BatteryPluginBase.WriteRetryBackoff</c> 同口径（最坏 1 帧/10 分钟）。</summary>
-    private static readonly TimeSpan WriteRetryBackoff = TimeSpan.FromMinutes(10);
-
     /// <summary>熔断阈值：连续这么多次查询无应答就停写。</summary>
     private const int MaxConsecutiveFailures = 3;
 
     /// <summary>
-    /// 接口打开失败的退避期（与基类 <c>WriteRetryBackoff</c> 同口径）。接口**仍在位但打不开**
+    /// 接口打开失败的退避期（固定值，与查询失败的递增退避无关）。接口**仍在位但打不开**
     /// （被别的会话占着 / 无权限）时，失败不能变成"永不重试"——那会让设备插着也永远读不到，
     /// 只有物理拔出重插才恢复（CR-17）。最坏每 10 分钟重试一次，代价可忽略。
     /// </summary>
@@ -97,6 +94,7 @@ public sealed class LogitechPlugin : IBatteryPlugin
         public int ConsecutiveFailures;
         public bool WritesDisabled;         // 熔断停写中
         public DateTimeOffset WritesDisabledAt;
+        public int BreakerTrips;            // 熔断次数 = 递增退避档位
     }
 
     private sealed class ReceiverSession
@@ -389,30 +387,29 @@ public sealed class LogitechPlugin : IBatteryPlugin
             {
                 try
                 {
-                    // 熔断停写：退避期满前不再查询，期满放行一轮
+                    // 熔断停写：退避期满前不再查询，期满放行一轮（递增退避口径见 Plugins/WriteBackoff.cs）
                     if (dev.WritesDisabled)
                     {
-                        if (DateTimeOffset.Now - dev.WritesDisabledAt < WriteRetryBackoff) continue;
+                        if (!WriteBackoff.IsExpired(dev.BreakerTrips, dev.WritesDisabledAt, DateTimeOffset.Now)) continue;
                         dev.WritesDisabled = false;
-                        Log.Info($"罗技 {dev.Status.DisplayName} 停写退避期满，恢复查询");
+                        Log.Info($"罗技 {dev.Status.DisplayName} 停写退避期满（{WriteBackoff.For(dev.BreakerTrips).TotalSeconds:0} 秒），恢复查询");
                     }
 
                     if (RefreshBattery(session, idx, dev))
                     {
                         updated.Add(dev.Status);
                         dev.ConsecutiveFailures = 0;
+                        dev.BreakerTrips = 0;
                     }
                     else
                     {
                         dev.ConsecutiveFailures++;
                         if (dev.ConsecutiveFailures >= MaxConsecutiveFailures)
                         {
-                            if (!dev.WritesDisabled)
-                            {
-                                dev.WritesDisabled = true;
-                                dev.WritesDisabledAt = DateTimeOffset.Now;
-                                Log.Warn($"罗技 {dev.Status.DisplayName} 连续 {MaxConsecutiveFailures} 次查询失败，熔断停写（{WriteRetryBackoff.TotalMinutes:0} 分钟退避后重试一轮）");
-                            }
+                            dev.WritesDisabled = true;
+                            dev.WritesDisabledAt = DateTimeOffset.Now;
+                            dev.BreakerTrips++;
+                            Log.Warn($"罗技 {dev.Status.DisplayName} 连续 {MaxConsecutiveFailures} 次查询失败，熔断停写（第 {dev.BreakerTrips} 次，退避 {WriteBackoff.For(dev.BreakerTrips).TotalSeconds:0} 秒）");
                             if (dev.Status.IsOnline)
                             {
                                 dev.Status.IsOnline = false;

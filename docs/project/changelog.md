@@ -662,3 +662,32 @@
 **验证**：`dotnet build VigilWatt.sln -c Debug --no-restore` 0 警告 0 错误。
 
 **未做**：未执行单测或手工双击验收；未执行任何 git 写操作。
+
+### 2026-10-11：发布 1.0.3 + 清理本地产物与历史数据
+
+**诉求**：出一个 1.0.3 版本；同时清掉"历史的那些（本地的）"。
+
+**改动**：① `VigilWatt.App.csproj` 的 `<Version>` 1.0.2 → 1.0.3（版本号唯一来源，见 build.md §8）；② 清空 `dist/` 里 1.0.1/1.0.2 的历史发布产物后重跑 `scripts/build-installer.ps1`，产物只有 1.0.3 一套（Setup.exe / Portable.zip / 1.0.3-full.nupkg / RELEASES）；③ 清掉 `%LOCALAPPDATA%\VigilWatt` 下的 `history.db` 与 `logs\*.log`（settings.json 与 tray.ico/png 保留）。
+
+**未做**：**没有增量包**——`dist/` 里旧全量包已删，`vpk pack` 无基准可比，1.0.2 用户只能走全量更新；未上传 GitHub Release（用户选择只本地打包）；未执行任何 git 写操作。
+
+### 2026-10-11：修 CR-53 —— 键盘休眠唤醒后的检测盲区（熔断退避 10 分钟 → 递增封顶 5 分钟）
+
+**诉求**：用户复报"迈从休眠一段时间后唤醒，程序长时间没监听到"，并怀疑其他设备同样受影响。
+
+**根因（日志实证，不是协议问题）**：`BatteryPluginBase` 的固定 10 分钟熔断退避把"唤醒检测"一起挡死了。
+`app-2026-10-11.log` 实测：20:23:16 键盘休眠被标离线 → 20:25:09 熔断停写 10 分钟 →
+**20:28:31 键盘唤醒推来的 `0x02` 通知触发了 `RequestConfirm`，但 `PollDevice` 被 `CanWrite` 挡掉，
+而 `ConfirmRequested` 已在 `RunPendingConfirm` 开头被消费 → 信号静默丢弃** → 20:36:08 退避期满才恢复，**盲区 12 分 52 秒**。
+另有两条路也救不回来：15 秒发现节拍对 `_devices` 里**已有**的路径直接 `continue`（只能发现新接口，
+管不了"dongle 在位但设备离线"）；被动监听拿不到数据（dongle 不在唤醒时自发推 `0A`，会话帧本身是写入）。完整链路见 BACKLOG CR-53。
+
+**改动**：① 新增纯逻辑 `Plugins/WriteBackoff.cs`（30 秒 → 1 分 → 2 分 → 4 分 → **封顶 5 分钟**，上限由用户定），基类与罗技共用；
+② `CanWrite` 改用递增退避；③ `RunPendingConfirm` **熔断期内也放行**设备自发信号触发的核实（仍受插件开关约束，
+放行频率 ≤1 帧/30 秒，未到间隔不消费请求），核实成功即提前解除熔断；④ 被动空闲 tick 新增 `MaybeHalfOpenBreaker`，
+退避期满**立刻**排一次核实，不再苦等 60 秒轮询拍；⑤ 熔断落地收进 `TripBreaker` 一处
+（基类自动记账那条路径只在首次跨阈值时熔断，否则退避会被每轮重置、永远不到期）；⑥ `LogitechPlugin` 同步同一张退避表。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` 0 警告 0 错误；测试除 `LogTests`（本机已知会卡住，见 dev/build.md §4.1）外 **278 用例全绿**（新增 `WriteBackoffTests` 9 条）。
+
+**未做**：**未真机验证**——本机应用正在运行（PID 17468），要验"休眠→唤醒"需人手让键盘睡够 3 分钟再唤醒；罗技路径本机无 VID_046D 设备，无法验证；未执行任何 git 写操作。
