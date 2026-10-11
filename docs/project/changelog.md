@@ -632,3 +632,33 @@
 **验证**：ProtocolCapture 项目构建 0 警告 0 错误；协议采集单测 5/5 通过；CLI `help`、`sources`、`usb roots` 可运行。完整 `dotnet build VigilWatt.sln -c Debug` 被工作树已有的 `SettingsPage.xaml` 事件绑定缺失阻塞（`SettingsScrollViewer_ViewChanged` / `SettingsScrollViewer_SizeChanged`）；未改动该设置页文件。未连接设备或执行真实 USB/浏览器/BLE 采集。
 
 **未做**：未执行任何 git 写操作。
+
+### 2026-10-11：任务栏电量迁移尝试（后经用户澄清撤回）
+
+**诉求**：任务栏自动隐藏后贴片仍在屏幕边缘；希望电量显示真正占用任务栏位置，不遮挡按钮。
+
+**改动**：曾临时移除覆盖式 `TaskbarBatteryWindow` 并改为通知区图标，后经用户澄清其需要的是原有独立任务栏胶囊，已在本轮恢复原来的贴片实现和设置项。当前实现状态以本条后续记录为准。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug --no-restore` 0 警告 0 错误。标准构建的 NuGet 还原阶段因沙箱无权读取用户目录 `NuGet.Config` 失败；复用已有还原产物构建成功。
+
+**未做**：该临时方案未交付；未执行任何 git 写操作。
+
+### 2026-10-11：恢复独立任务栏电量胶囊
+
+**诉求**：用户明确需要此前类似酷狗的独立任务栏胶囊，显示多个设备电量并在设置中配置数量。
+
+**改动**：撤回本轮通知区替代方案，恢复 `TaskbarBatteryWindow`、定位/透明化逻辑、设备显示模式和最大显示数量设置。恢复的设置页同时保留外观项的双列网格，防止标题、说明与下拉框重叠。Windows「其他系统托盘图标」中 VigilWatt 的可见性开关已确认为关闭，回到改动前状态。
+
+**验证**：方案恢复后 `dotnet build VigilWatt.sln -c Debug --no-restore` 通过；已重新启动应用，并保存任务栏贴片为开启、显示全部在线设备、最多 3 台；未执行单测，也未做任务栏自动隐藏手工验收。
+
+**未做**：未完成任务栏自动隐藏状态的手工验收；未执行任何 git 写操作。
+
+### 2026-10-11：双击任务栏电量胶囊打开主窗口
+
+**诉求**：双击独立任务栏电量胶囊时直接打开 VigilWatt 主界面。
+
+**改动**：胶囊根元素处理 `DoubleTapped`，调用与右键菜单相同的 `TrayService.ShowMainWindow()`；拖动和右键菜单逻辑不变。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug --no-restore` 0 警告 0 错误。
+
+**未做**：未执行单测或手工双击验收；未执行任何 git 写操作。

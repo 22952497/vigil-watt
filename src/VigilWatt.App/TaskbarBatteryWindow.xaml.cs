@@ -355,5 +355,11 @@ public sealed partial class TaskbarBatteryWindow : Window
 
     private void OpenMain_Click(object sender, RoutedEventArgs e) => TrayService.ShowMainWindow();
 
+    private void Root_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        TrayService.ShowMainWindow();
+        e.Handled = true;
+    }
+
     private void Exit_Click(object sender, RoutedEventArgs e) => TrayService.ExitApplication();
 }
