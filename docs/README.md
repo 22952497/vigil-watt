@@ -53,6 +53,7 @@
 | 读到的电量恒为 100% | 走了 feat8 接口（[3..5] 恒 0x64，不是电量） | hardware/protocols.md §3 |
 | 控件在初始化时 NRE | XAML 解析期事件触发 | dev/runtime-pitfalls.md §4 |
 | 托盘菜单点不动 | 用了 H.NotifyIcon | dev/runtime-pitfalls.md §5 |
+| 贴片/小组件右键菜单点别处不消失（ESC 也没用） | WinUI 的 light-dismiss 靠"窗口去激活"，而贴片是 `WS_EX_NOACTIVATE` 永不激活 → 菜单改走 Win32 `TrackPopupMenuEx` | dev/runtime-pitfalls.md §18 |
 | 小组件显示不全 / 偏小 | 物理像素 vs DIP | dev/runtime-pitfalls.md §6 |
 | 官方 M HUB 连不上 dongle | 和本应用互相抢会话 | hardware/protocols.md §1.5 |
 | 蓝牙耳机已连接但列表里没有 | 经典蓝牙（A2DP/HFP）不进 BLE watcher，走 BluetoothClassicWatcher | project/code-flow.md §3 |

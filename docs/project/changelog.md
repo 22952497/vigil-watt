@@ -736,3 +736,40 @@
 **验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；`dotnet test src/tests/VigilWatt.Core.Tests --no-build --filter "FullyQualifiedName!~LogTests"` **278/278**。**像素级实测**：贴片——窗口矩形与客户区**同尺寸**（边框差 0），贴片内背景 `#301F22`/`#311F23` 与紧邻任务栏 `#312023` 基本一致，内容落在 x=7..113（窗口宽 123，**右侧留白 9px，末尾 `%` 完整**）；小组件——抬到最上层截一张、`SW_HIDE` 后再截同一块，**四角像素与"真桌面"逐字节相同**（`#1E1E1E`/`#252526`/`#73DDFC`/`#007ACC`），透出桌面像素 4045 → **12940**。
 
 **未做**：未执行任何 git 写操作；深色主题下的小组件配色仍未复看；CR-57（XAML 自绘投影）未做。原理与逐组合实测表见 `docs/dev/runtime-pitfalls.md` §17.8。
+
+### 2026-10-12：修贴片 / 小组件「右键菜单点别处不消失」
+
+**诉求**：用户报在任务栏电量贴片和桌面小组件上右键，菜单正常弹出，但**点其他区域菜单不消失**。
+
+**根因**：WinUI 3 的 `ContextFlyout`（`MenuFlyout`）**不是**靠鼠标钩子或全屏透明层关闭，而是靠**宿主窗口收到"去激活"**（`Window.Activated` → `Deactivated`）来 light-dismiss。贴片为"绝不抢焦点"带 `WS_EX_NOACTIVATE`（§16.3）——**从不激活，也就永远不会"去激活"**，那个信号永远不来 → 菜单弹出后点哪都关不掉。菜单自己的 popup 窗口同样是 `WS_EX_NOACTIVATE`，键盘焦点不在它身上，**ESC 也送不进去**。
+
+**证据**（合成鼠标 + `EnumWindows` 取窗口样式）：flyout 宿主窗口类名 `Microsoft.UI.Content.PopupWindowSiteBridge`（标题"主机弹出窗口"），扩展样式 = `WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST`；贴片主窗口 = `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`；实测一次遗留打开的菜单**跨应用点击 + 连按 ESC 全部无效**，只有再次右键锚点才把它 toggle 掉。⚠ 取证过程**动了用户真实电脑的鼠标键盘，用户当场制止**——教训写进 `runtime-pitfalls.md` §18。
+
+**改动**：右键菜单从 XAML 换成 **Win32 原生弹出菜单**（与托盘菜单同一条路，自带"点别处即关"、不依赖窗口激活）：
+① 新增 `Services/AppPopupMenu.cs`：`Show(owner, x, y)` = `CreatePopupMenu` + 两项（打开主窗口 / 分隔 / 退出）+ **弹菜单前 `SetForegroundWindow(owner)`**（否则点菜单外不关闭，托盘菜单同款约束；失败记一条 WARN）+ `TrackPopupMenuEx(TPM_RETURNCMD | TPM_RIGHTBUTTON)` + 收尾 `PostMessageW(owner, WM_NULL)`（MSDN 托盘样例的收尾动作）；
+② `TaskbarBatteryWindow.xaml` / `WidgetWindow.xaml` 删掉 `Border.ContextFlyout`，改挂 `RightTapped="Root_RightTapped"`（**不能在 `PointerPressed` 里弹**——右键按下时弹会把紧随的抬起当成"选中菜单项"）；
+③ 两个 `.cs` 删掉只服务于 flyout 的 `OpenMain_Click` / `Exit_Click`，新增 `Root_RightTapped`；
+④ 贴片弹菜单期间**停掉 16ms 跟随定时器**（菜单也是 topmost，跟随会把贴片抬到菜单之上）；
+⑤ `Native.cs` 补 `WM_NULL` 与 `PostMessageW`。
+
+**与 §16.3「绝不抢焦点」不冲突**：那条说的是悬停/点击/显示不抢焦点；菜单是用户主动打开的，**任何菜单本身都要拿前台**（否则点别处关不掉），贴片不带边框、又是 `WS_EX_TOOLWINDOW`，用户看不到变化。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**。
+
+**未做**：**未真机点检**（菜单外观、"点别处关闭"、以及小组件都要人手复看——小组件当时是"桌面"档、被别的窗口盖住，那次自动化点击打到了上层应用，测试无效）；未执行任何 git 写操作。新增 BACKLOG **CR-58（done）**，原理见 `docs/dev/runtime-pitfalls.md` §18。
+
+### 2026-10-12：发布 1.0.5（含右键菜单 Win32 化修复）
+
+**诉求**：修完贴片 / 小组件「右键菜单点别处不消失」（CR-58）后用户确认可用，要求"打包一版出来，版本号 +1"。
+
+**改动**：① `src/VigilWatt.App/VigilWatt.App.csproj` 的 `<Version>` 1.0.4 → **1.0.5**（版本号唯一来源，脚本从发布 exe 的 FileVersion 读）；② 跑 `scripts/build-installer.ps1` 一步到位（`dotnet publish -c Release -p:Platform=x64 -o publish` + `vpk pack --packVersion 1.0.5`）。
+
+**关键点**：`dist/` **未清空**——1.0.4 的 `-full.nupkg` 留在原处当基准 → 自动生成 **`VigilWattApp-1.0.5-delta.nupkg`（102KB）**（日志 `Complete: Building delta 1.0.4 -> 1.0.5`、`0152 files. 0007 patched, 0145 unchanged`）。
+
+**产物**（`dist/`）：`VigilWattApp-win-Setup.exe` 43.96MB、`VigilWattApp-win-Portable.zip` 36.40MB、`VigilWattApp-1.0.5-full.nupkg` 36.42MB、**`VigilWattApp-1.0.5-delta.nupkg` 102KB**、`RELEASES` / `releases.win.json` / `assets.win.json`；旧包 `1.0.3-full` / `1.0.4-full` / `1.0.4-delta` 保留作历史基准。
+
+**验证**：`vpk pack` EXITCODE=0，总耗时 3 分 31 秒（含 publish），无错误。**未真机运行发布包**。
+
+**提交**：本轮改动（12 文件，+168/−31）合并为**单个**提交（提交信息从简，用户要求"提交本地 git"）；**未推送**远程（本地 `main` 领先 `origin/main` 23 个提交）。
+
+**未做**：**未上传 GitHub Release**（用户账号曾因发布操作被封，只本地打包到 `dist/`，上传与否由用户定）。

@@ -9,23 +9,17 @@
       任务栏上糊出一个突兀的方块（用户 2026-10-10 反馈）。它只负责拖动命中区与右键菜单。
       内边距/格间距由 .cs 的 PadH/PadV/ChipGap 统一赋值，这里不写数字（改一边忘一边是上一版的坑）。
       窗口表面整体透明（Win11 走透明 SystemBackdrop，见 runtime-pitfalls §17），铺 ThemeResource 会直接透出底色，别加。
+      **右键菜单走 RightTapped → Win32 原生菜单**（不是 ContextFlyout），原因见 runtime-pitfalls §18。
     -->
     <Border x:Name="Root"
             CornerRadius="8"
             BorderThickness="0"
             DoubleTapped="Root_DoubleTapped"
+            RightTapped="Root_RightTapped"
             PointerPressed="Root_PointerPressed"
             PointerMoved="Root_PointerMoved"
             PointerReleased="Root_PointerReleased"
             PointerCaptureLost="Root_PointerReleased">
-        <Border.ContextFlyout>
-            <MenuFlyout>
-                <MenuFlyoutItem Text="打开主窗口" Click="OpenMain_Click" />
-                <MenuFlyoutSeparator />
-                <MenuFlyoutItem Text="退出" Click="Exit_Click" />
-            </MenuFlyout>
-        </Border.ContextFlyout>
-
         <StackPanel x:Name="ChipStack" Orientation="Horizontal" />
     </Border>
 </Window>

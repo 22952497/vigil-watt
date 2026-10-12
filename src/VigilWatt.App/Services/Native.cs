@@ -37,6 +37,7 @@ internal static class Native
     public const uint WM_LBUTTONUP = 0x0202;
     public const uint WM_LBUTTONDBLCLK = 0x0203;
     public const uint WM_RBUTTONUP = 0x0205;
+    public const uint WM_NULL = 0x0000;
 
     // ---- 菜单 ----
     public const uint MF_STRING = 0x0;
@@ -129,6 +130,9 @@ internal static class Native
 
     [DllImport("user32.dll")]
     public static extern int TrackPopupMenuEx(IntPtr menu, uint flags, int x, int y, IntPtr hwnd, IntPtr tpm);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", EntryPoint = "GetCursorPos")]
     private static extern bool GetCursorPosRaw(out POINT point);

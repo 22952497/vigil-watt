@@ -37,6 +37,7 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 **2026-10-11 新增独立协议采集工具**：`src/tests/VigilWatt.ProtocolCapture/` 支持 USBPcap、Chromium WebHID 旁路记录和 BLE 被动广告采集；使用方式见 `docs/hardware/debugging.md` §9。
 **2026-10-11 发布 1.0.3**：csproj `<Version>` 已升到 1.0.3，`dist/` 里旧包（1.0.1/1.0.2）已清后重打，当时只有 1.0.3 全量包、无增量包（旧全量包删了就没有可比基准）。
 **2026-10-12 发布 1.0.4**：`<Version>` 1.0.3 → 1.0.4，`dotnet publish` + `vpk pack` 重打；`dist/` **保留** 1.0.3 全量包作基准，因此这次**有 delta**（`VigilWattApp-1.0.4-delta.nupkg` 仅 97KB）。**未上传 GitHub Release**（账号曾因发布操作被封，上传与否由用户定）。
+**2026-10-12 发布 1.0.5**：`<Version>` 1.0.4 → 1.0.5（含 CR-58 右键菜单 Win32 化修复），`dist/` 保留 1.0.4 全量包作基准 → **有 delta**（`VigilWattApp-1.0.5-delta.nupkg` 102KB）。**未上传 GitHub Release**。
 ⚠ **本机系统版本反复记错过**（§14 写 Win10 19045 → §17 改成 Win11 26200 → 2026-10-12 复核又是 **Win10 19045.6456**）。
 **下结论前先自己跑 `cmd /c ver` 确认**，别照抄文档；这个错误直接导致过"哪一层背景可见"判反（见 §17.1 的更正）。
 

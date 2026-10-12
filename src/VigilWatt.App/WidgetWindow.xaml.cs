@@ -424,16 +424,12 @@ public sealed partial class WidgetWindow : Window
             IconStroke: Color.FromArgb(0xFF, 0x5F, 0x5E, 0x5A),
             Text: Color.FromArgb(0xFF, 0x1F, 0x1F, 0x1F));
 
-    private void OpenMain_Click(object sender, RoutedEventArgs e)
+    /// <summary>右键菜单：与托盘同一条 Win32 原生菜单路径（不依赖窗口激活，点别处即关，见 runtime-pitfalls §18）。</summary>
+    private void Root_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
-        // 与托盘左键同一路径：显示并前置主窗口
-        TrayService.ShowMainWindow();
-    }
-
-    private void Exit_Click(object sender, RoutedEventArgs e)
-    {
-        // 与托盘右键的"退出"完全一致：清理托盘图标后结束进程
-        TrayService.ExitApplication();
+        e.Handled = true;
+        var pos = Native.GetCursorPos();
+        AppPopupMenu.Show(WinRT.Interop.WindowNative.GetWindowHandle(this), pos.X, pos.Y);
     }
 
     // ---------- 显示模式 ----------
@@ -490,7 +486,7 @@ public sealed partial class WidgetWindow : Window
 
     private void Root_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        // 仅左键拖动；右键留给 ContextFlyout（打开主窗口 / 退出菜单）
+        // 仅左键拖动；右键走 Root_RightTapped（Win32 原生菜单）
         if (!e.GetCurrentPoint(Root).Properties.IsLeftButtonPressed) return;
         _dragging = true;
         Root.CapturePointer(e.Pointer);

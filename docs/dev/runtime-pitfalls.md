@@ -659,3 +659,44 @@ if (msg == Native.WM_PAINT) { /* BeginPaint → FillRect(BLACK_BRUSH) → EndPai
 **顺带修 CR-49**：旧窗口过程从"单份静态字段"改成按 HWND 存（`TransparentWindowSurface.PrevProcs`，
 `WM_NCDESTROY` 清理）——小组件与贴片可**同时存在**（`App.xaml.cs`），单份字段会让后装的窗口调到前一个的过程。
 
+## 18. 贴片/小组件的右键菜单点别处不消失：WinUI 的 light-dismiss 靠"窗口去激活"（2026-10-12 实修）
+
+**症状**（用户反馈）：在任务栏电量贴片和小组件上右键，菜单正常弹出，但**点其他任何地方它都不消失**。
+
+**根因**：WinUI 3 的 `ContextFlyout`（`MenuFlyout`）**不是**靠鼠标钩子或全屏透明层关闭的，
+而是靠**宿主窗口收到"去激活"**（`Window.Activated` → `Deactivated`）来 light-dismiss。
+而贴片为了"绝不抢焦点"带 `WS_EX_NOACTIVATE`（§16.3）——**它从不激活，也就永远不会"去激活"**，
+那个信号永远不来 → 菜单弹出后点哪都关不掉。菜单自己的 popup 窗口同样是 `WS_EX_NOACTIVATE`，
+**键盘焦点也不在它身上，连 ESC 都送不进去**。
+
+**实测证据**（合成鼠标 + `EnumWindows`，见下"关于手段"）：
+
+- WinUI 3 的 flyout 宿主窗口类名 **`Microsoft.UI.Content.PopupWindowSiteBridge`**（标题"主机弹出窗口"），
+  扩展样式 = **`WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOPMOST`**；
+- 贴片主窗口 = `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`；
+- 一次遗留打开的菜单：**跨应用点击 + 连按 ESC 全部无效**，只有再次右键同一个锚点才把它 toggle 掉。
+
+**修法**：右键菜单改走 **Win32 原生弹出菜单**（`TrackPopupMenuEx`，与托盘菜单同一条路），
+封装在 `Services/AppPopupMenu.cs`；两个窗口的 XAML 删掉 `Border.ContextFlyout`，
+改挂 `RightTapped="Root_RightTapped"`（**不是** `PointerPressed`：菜单必须在**右键抬起**时弹，
+在按下时弹会把紧随其后的抬起当成"选中菜单项"）。原生菜单自带"点别处即关"，且不依赖窗口激活。
+
+三个必须照做的约束：
+
+1. **`TrackPopupMenuEx` 之前必须 `SetForegroundWindow(owner)`**，否则点菜单外不关闭（托盘菜单同款约束，
+   见 `TrayService.ShowContextMenu`）。贴片的 `WS_EX_NOACTIVATE` 只挡"鼠标点击激活"，
+   显式 `SetForegroundWindow` 仍有效；真失败时 `AppPopupMenu` 会记一条 WARN，便于排查。
+2. 之后补一发 `PostMessageW(owner, WM_NULL, 0, 0)`（MSDN 托盘菜单样例的收尾动作，不补偶发关不干净）。
+3. **贴片在弹菜单期间停掉跟随定时器**：菜单也是 topmost，而跟随每 16ms 把贴片抬到 topmost 顶端
+   （§16.2），会把菜单压到贴片下面。
+
+**与 §16.3「绝不抢焦点」不冲突**：那条说的是**悬停 / 点击 / 显示**不抢焦点；
+菜单是用户主动打开的，**任何菜单本身都要拿前台**（否则点别处关不掉），贴片自己不带边框、
+又是 `WS_EX_TOOLWINDOW`，用户看不到任何变化。
+
+**关于手段（重要教训）**：本节证据是用**合成鼠标**（`SendInput`）+ 截屏 + `EnumWindows` 取的。
+这**动了用户真实电脑的鼠标和键盘**，用户当场制止。**以后凡需要注入真实输入的验证，先问用户、别直接跑**；
+能靠"枚举窗口 / 读样式 / 读日志"拿到的证据，就不要去动输入。
+
+**未验证**：改完只做了 `dotnet build`（0 警告 0 错误），**未真机点检**——菜单外观、"点别处关闭"、
+以及小组件（当时是"桌面"档、被别的窗口盖住，自动化点击打到了上层应用，那次测试无效）都需要人手复看。

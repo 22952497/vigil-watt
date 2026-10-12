@@ -91,6 +91,12 @@
   顺带修 **CR-49**（旧窗口过程改按 HWND 存）。新增 **CR-54/55/56（`done`）+ CR-57（`open`：Win10 上投影与透明互斥）**。
   验证：`dotnet build` 0 警告 0 错误；`dotnet test`（除 `LogTests`）**278/278**；**像素级实测**——
   贴片内背景与任务栏同色且末尾 `%` 完整，小组件四角与真桌面**逐字节相同**。
+- **2026-10-12（修贴片/小组件右键菜单关不掉）**：用户报"右键菜单弹出后点别处不消失"。
+  用合成鼠标 + `EnumWindows` 取证（**这一步动了用户的真实输入，用户当场制止**，教训已写进
+  `docs/dev/runtime-pitfalls.md` §18）：flyout 宿主窗口 `Microsoft.UI.Content.PopupWindowSiteBridge`
+  带 `WS_EX_NOACTIVATE`，而 WinUI 的 light-dismiss 靠**窗口去激活**触发 → 贴片永不激活 ⇒ 菜单关不掉。
+  **修法**：`ContextFlyout` 换成 Win32 `TrackPopupMenuEx`（新增 `Services/AppPopupMenu.cs`），
+  两个窗口改挂 `RightTapped`。新增 **CR-58（`done`）**。验证：`dotnet build` 0 警告 0 错误；**未真机点检**。
 
 ## P0 · 安全 / 数据损坏
 
@@ -121,6 +127,7 @@
 | **CR-55** | **Win10 上贴片最右一格的 `%` 被窗口边缘裁掉**：Win10 分支同样漏了 `ApplyBorderlessChrome` → 窗口残留 `WS_CAPTION|WS_THICKFRAME|…` 非客户区；而 `AppWindow.Resize` 设的是**外框**尺寸 → 客户区比实测内容窄。**已修**：两条分支都跑 `ApplyBorderlessChrome`，并把 `RelayoutCore` 的 `AppWindow.Resize` 改为 `ResizeClient`（按**客户区**定尺寸，双保险）。**实测**：窗口矩形与客户区同尺寸（边框差 0），内容右侧留白 9px | `TaskbarBatteryWindow.xaml.cs:RelayoutCore`、`Services/TransparentWindowSurface.cs:Apply` | `done` | 10-12 用户反馈（同一截图） |
 | **CR-56** | **桌面小组件在 Win10 上整个变成白方块**（本轮连带发现，用户未报）：`ApplyWin10Chrome` 里的 `DWMWA_NCRENDERING_POLICY = DWMNCRP_ENABLED`（§14 为找回 DWM 投影而加）与透明所需的 `DwmExtendFrameIntoClientArea(-1)`（**整窗算边框**）叠加后，DWM 把这层边框填成不透明底 → 四角 `#FFFFFF`、卡片被包在白底里。**已修**：删掉该调用，小组件改调 `TransparentWindowSurface.Apply`。**代价见 CR-57** | `WidgetWindow.xaml.cs:ApplyWin10Chrome` | `done` | 10-12 连带排查（用户未报） |
 | **CR-57** | **Win10 上小组件的"透明"与"DWM 投影"互斥**：逐组合实测（margins × NCRENDERING × accent × `WS_EX_LAYERED`）无解——要投影就得让 DWM 渲染非客户区，而整窗已被 `DwmExtendFrameIntoClientArea(-1)` 算作边框 → 填成白底。本轮取**透明优先**，代价是小组件在 Win10 上失去 DWM 投影（§14 曾专门为"平淡"补过它）。补法方向：**在 XAML 里自绘投影**（窗口四周留余量 + 卡片视觉加 `DropShadow`），**未做** | `WidgetWindow.xaml.cs:ApplyWin10Chrome`、`WidgetWindow.xaml:Root` | `open` | 10-12 实测（`dev/runtime-pitfalls.md` §17.8） |
+| **CR-58** | **贴片与小组件的右键菜单点别处不消失（ESC 也无效）**：WinUI 的 light-dismiss 靠**宿主窗口去激活**触发，而贴片为"绝不抢焦点"带 `WS_EX_NOACTIVATE`（§16.3）→ **永不激活、也就永不"去激活"**，菜单弹出后点哪都关不掉；菜单 popup 自己也是 `WS_EX_NOACTIVATE`，键盘焦点不在它身上，ESC 同样送不进去。**已修**：两个窗口的 `Border.ContextFlyout` 删除，改挂 `RightTapped` → 走 **Win32 `TrackPopupMenuEx`**（`Services/AppPopupMenu.cs`，与托盘菜单同一条路，自带"点别处即关"）；弹菜单前 `SetForegroundWindow`、后补 `PostMessageW(WM_NULL)`；贴片在菜单期间停跟随定时器（菜单也是 topmost，会被 16ms 抬 Z 序压住）。**未真机点检** | `Services/AppPopupMenu.cs`、`TaskbarBatteryWindow.xaml(.cs):Root_RightTapped`、`WidgetWindow.xaml(.cs):Root_RightTapped` | `done` | 10-12 用户反馈（`dev/runtime-pitfalls.md` §18） |
 
 ## P2 · 可维护性
 

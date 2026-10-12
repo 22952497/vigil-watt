@@ -326,7 +326,7 @@ public sealed partial class TaskbarBatteryWindow : Window
 
     private void Root_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        // 仅左键拖动；右键留给 ContextFlyout（打开主窗口 / 退出菜单）
+        // 仅左键拖动；右键走 Root_RightTapped（Win32 原生菜单）
         if (!e.GetCurrentPoint(Root).Properties.IsLeftButtonPressed) return;
         _dragging = true;
         Root.CapturePointer(e.Pointer);
@@ -355,13 +355,25 @@ public sealed partial class TaskbarBatteryWindow : Window
         s.Save();
     }
 
-    private void OpenMain_Click(object sender, RoutedEventArgs e) => TrayService.ShowMainWindow();
+    /// <summary>右键菜单。弹之前**先停跟随定时器**——菜单也是 topmost，跟随会把贴片抬到它之上。</summary>
+    private void Root_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        var pos = Native.GetCursorPos();
+        _followTimer?.Stop();
+        try
+        {
+            AppPopupMenu.Show(WinRT.Interop.WindowNative.GetWindowHandle(this), pos.X, pos.Y);
+        }
+        finally
+        {
+            _followTimer?.Start();
+        }
+    }
 
     private void Root_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         TrayService.ShowMainWindow();
         e.Handled = true;
     }
-
-    private void Exit_Click(object sender, RoutedEventArgs e) => TrayService.ExitApplication();
 }
