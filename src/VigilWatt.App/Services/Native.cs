@@ -247,7 +247,7 @@ internal static class Native
         DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref noBorder, sizeof(int));
     }
 
-    // ---- 清 Win32 那层窗口底色（贴片/小组件共用，封装在 TransparentWindowSurface）----
+    // ---- 清 Win32 那层窗口底色（现仅小组件用，封装在 TransparentWindowSurface）----
     // 窗口类背景刷是 COLOR_WINDOW，浅色主题下就是纯白。去掉它两步走——先让 DWM 改用窗口表面的
     // 逐像素 alpha 合成，再让客户区被擦成 alpha=0（GDI 填色不写 alpha 字节，正好留下 0）。
     // 注意这只是**两层**背景里的一层，另一层（内容岛）见 docs/dev/runtime-pitfalls.md §17。
@@ -298,4 +298,115 @@ internal static class Native
 
     [DllImport("user32.dll")]
     public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
+
+    // ---- 任务栏贴片「真嵌入」：SetParent 进任务栏 + 分层子窗口 ----
+    // 原理与三道锁（SetParent / WS_EX_LAYERED / UpdateLayeredWindow）见 docs/dev/runtime-pitfalls.md §16。
+    // **不能用 WinUI 3 窗口去 reparent**：内容岛的 DWM 合成链会断（灰屏），所以内容改走 ARGB 位图。
+    public const uint WS_POPUP = 0x80000000;
+    public const uint WS_CHILD = 0x40000000;
+    public const int WS_EX_LAYERED = 0x80000;
+
+    /// <summary>窗口类样式：要收 WM_LBUTTONDBLCLK 就必须带它，否则双击只来两次单击。</summary>
+    public const uint CS_DBLCLKS = 0x0008;
+
+    public const int IDC_ARROW = 32512;
+
+    public const uint WM_DESTROY = 0x0002;
+    public const uint WM_DISPLAYCHANGE = 0x007E;
+    public const uint WM_SETTINGCHANGE = 0x001A;
+    public const uint WM_MOUSEMOVE = 0x0200;
+    public const uint WM_LBUTTONDOWN = 0x0201;
+
+    /// <summary>UpdateLayeredWindow 的逐像素 alpha 模式（配合 AC_SRC_ALPHA 使用）。</summary>
+    public const uint ULW_ALPHA = 0x00000002;
+
+    public const byte AC_SRC_OVER = 0x00;
+    public const byte AC_SRC_ALPHA = 0x01;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SIZE
+    {
+        public int cx;
+        public int cy;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct BLENDFUNCTION
+    {
+        public byte BlendOp;
+        public byte BlendFlags;
+        public byte SourceConstantAlpha;
+        public byte AlphaFormat;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAPINFOHEADER
+    {
+        public int biSize;
+        public int biWidth;
+        public int biHeight;
+        public short biPlanes;
+        public short biBitCount;
+        public int biCompression;
+        public int biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public int biClrUsed;
+        public int biClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAPINFO
+    {
+        public BITMAPINFOHEADER bmiHeader;
+        public uint bmiColors;
+    }
+
+    /// <summary>把窗口挂到别的窗口下（跨进程到任务栏）。**不会自动改 WS_CHILD/WS_POPUP**，调用方自己同步。</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetParent(IntPtr hwndChild, IntPtr hwndNewParent);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool UpdateLayeredWindow(
+        IntPtr hwnd, IntPtr hdcDst, ref POINT pptDst, ref SIZE psize,
+        IntPtr hdcSrc, ref POINT pptSrc, int crKey, ref BLENDFUNCTION pblend, uint flags);
+
+    /// <summary>屏幕坐标 → 客户区坐标。贴片是任务栏的子窗口，坐标必须换算到父窗口客户区。</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool ScreenToClient(IntPtr hwnd, ref POINT point);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetCapture(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool DestroyWindow(IntPtr hwnd);
+
+    /// <summary>窗口所在显示器的 DPI。贴片按任务栏的 DPI 换算尺寸，不用自己的（子窗口的 DPI 跟父窗口）。</summary>
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr LoadCursorW(IntPtr instance, IntPtr cursorName);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    public static extern IntPtr CreateDIBSection(
+        IntPtr hdc, ref BITMAPINFO bmi, uint usage, out IntPtr bits, IntPtr section, uint offset);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteObject(IntPtr obj);
+
+    [DllImport("gdi32.dll")]
+    public static extern bool DeleteDC(IntPtr hdc);
 }

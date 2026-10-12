@@ -13,21 +13,26 @@
 **代码审查机制（2026-10-10）已建立**：标准在 `docs/dev/review-standard.md`，发现跟踪在 `docs/reviews/BACKLOG.md`。
 **2026-10-10 又做了"上线前全检 + 全部调整"**：4 条 P0 + 7 条 P1 + 大部分 P2 已修并验证（构建 0 警告 0 错误、测试 253 用例全绿）。
 BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形态 / D3 / D4 / D5 / D6**，其余全部 `done` 或 `wontfix`（各带理由）。
-**2026-10-10 第二十轮新增「任务栏电量贴片」**（可选开关、默认关）：把在线设备电量做成一条胶囊钉在任务栏托盘左侧，
-可沿任务栏拖动并记住位置；定位/跟随原理见 `dev/runtime-pitfalls.md` §16，文件速查见 §6。
-**同轮第二、三轮反馈共修掉三件事**（第二轮的判断被第三轮实测**推翻并更正**）：
-① 贴片"白框"——Win11 上可见的是 **Win32 窗口自己用类背景刷擦出来的底色**（`COLOR_WINDOW`，浅色主题=纯白），
-修法是 `DwmExtendFrameIntoClientArea(-1)` + 接管 `WM_ERASEBKGND`/`WM_PAINT` 把客户区擦成 alpha=0；
-② 最右一格 `%` 被裁——窗口宽度改为布局实测；③ 点任务栏闪一下——抬 Z 序拍频 1 秒 → **16ms**（实测遮挡约一帧）。
-**用户已复看确认外观无误**（2026-10-10 21:28："是我需要的效果"）。
-**2026-10-12 修 Win10 显示异常（已完成并像素级验证）**：用户报贴片在 Win11 正常、**Win10 上白框 + 末尾 `%` 被裁**。
-**本机就是 Win10 19045.6456，bug 可复现**。第一轮只补「清 Win32 那层」→ 白框照旧；判别实验（GDI 往客户区填色、可见像素纹丝不动）
-证明 **Win10 上可见的是内容岛那层**（不设透明 `SystemBackdrop` 时回退成纯色主题底，浅色=纯白）。
-最终修法：`Services/TransparentWindowSurface.cs` 的 `Apply` **两层都清、不做 OS 分支**，贴片与小组件共用；
-`TaskbarTransparency.cs` 与 `Native.MakeWindowTransparent`（accent 通道，实测不产生透明）**已删除**；`RelayoutCore` 改 `ResizeClient`。
+**2026-10-10 第二十轮新增「任务栏电量贴片」**（可选开关、默认关）：把在线设备电量做成一条读数钉在任务栏托盘左侧，
+可沿任务栏拖动并记住位置。
+**2026-10-12 贴片由「覆盖窗」改为「真子窗口」（本轮重点，代码已换）**：用户指出 TrafficMonitor 能真嵌任务栏，
+查证其与 TrayStats 走的是 **`SetParent(自己的窗口, Shell_TrayWnd)`**。结论：**WinUI 3 窗口不能 reparent**
+（内容岛 DWM 合成链会断成灰屏），故**新建原生分层窗口** `Services/TaskbarPillWindow.cs`（+ 渲染器
+`Services/TaskbarPillRenderer.cs`），删掉 `TaskbarBatteryWindow.xaml(.cs)` 与 `Services/TaskbarChipFactory.cs`。
+三道锁：`SetParent` + `WS_EX_LAYERED` + `UpdateLayeredWindow`（32 位 ARGB）。**直接红利**：不再抢 Z 序
+（16ms 定时器整块删除，跟随降为 1 秒一拍）、没有"两层背景"问题（透明天然成立）、宽度按位图实测裁剪。
+**已实测**：`GetParent(贴片) == Shell_TrayWnd`、`GWL_STYLE` 含 `WS_CHILD` 不含 `WS_POPUP`、贴片内背景与任务栏
+**只差 1 个色阶**。原理见 `dev/runtime-pitfalls.md` §16（**§16 曾被写错**，见 BACKLOG CR-59）。
+**仍未真机验证**：右键菜单（CR-58/CR-60）、拖动（CR-48）、竖向/多屏/自动隐藏（CR-41）、深色主题（CR-42）。
+**旧覆盖窗方案的两轮修复史保留在 changelog.md / §17**（白框、`%` 被裁、点任务栏闪一下——这些病在新方案下已不存在）。
+**2026-10-12 修 Win10 显示异常（旧覆盖窗方案，已完成并像素级验证；修法现只服务小组件）**：
+用户报贴片在 Win11 正常、**Win10 上白框 + 末尾 `%` 被裁**。**本机就是 Win10 19045.6456，bug 可复现**。
+第一轮只补「清 Win32 那层」→ 白框照旧；判别实验（GDI 往客户区填色、可见像素纹丝不动）证明
+**Win10 上可见的是内容岛那层**（不设透明 `SystemBackdrop` 时回退成纯色主题底，浅色=纯白）。
+修法：`Services/TransparentWindowSurface.cs` 的 `Apply` **两层都清、不做 OS 分支**；`TaskbarTransparency.cs`
+与 `Native.MakeWindowTransparent`（accent 通道，实测不产生透明）**已删除**。**贴片改原生窗口后只有小组件还用这套**。
 连带修掉**小组件在 Win10 上整个白方块**（`DWMWA_NCRENDERING_POLICY` 与 extend-frame 叠加所致）。
 代价：Win10 上小组件失去 DWM 投影（**CR-57 `open`**，补法是 XAML 自绘投影）。见 `dev/runtime-pitfalls.md` §17.8。
-**2026-10-11 任务栏显示目标确认**：用户明确要求保留独立任务栏胶囊，显示多个设备电量并可配置数量；本轮短暂改成通知区图标的尝试已撤回，继续使用 `TaskbarBatteryWindow`。
 **2026-10-10 第二十一轮：日志改为按日分文件**（`logs\app-日期.log`，跨天自动切、默认保留 14 天，可在设置页改；旧 `app.log` 废弃，见 §5.13）。
 **2026-10-11 第二十三轮：设置页新增搜索与定位**，可按标题、说明、分区搜索普通设置项，也可按插件名/设备类型查动态插件开关；点击结果滚动定位并短暂高亮。
 **2026-10-11 修 CR-53（熔断退避挡住唤醒检测）**：键盘休眠触发熔断后，固定 10 分钟退避把"唤醒检测"一起挡死
@@ -83,19 +88,22 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
    **验证方法**：把手柄充满（`byte23=0x78`）后再关机，看 dongle 报 `0x50` 还是 `0x70` ——
    报 `0x70` 说明低位 `0x08` 是"链路有效"标志，可把判据一般化成 `(byte23 & 0x08) == 0`，
    同时电量换算要改成"高 4 位 / 7"；报 `0x50` 则维持现状（等级×8）。见 protocols.md §4.4.1。
-9. **任务栏电量贴片（2026-10-10 第二十轮新增）**：开关在设置页「任务栏」，默认关。
-   **已由第三轮实测 + 用户复看确认**：白框已消除（贴片内外背景像素逐字节相同，用户确认观感无误）、
-   双设备宽度自适应正确（89px → 186px）、点任务栏的遮挡时长压到约一帧（16ms 拍频）、
-   `TrayNotifyWnd` 在 Win11 26200 上仍存在。
-   **仍需人手确认**：① 沿任务栏**拖动与位置记忆**的手感（`WM_NCHITTEST` 已确认不受影响，但没真拖过）；
-   ② 任务栏**自动隐藏**收起时贴片是否跟着藏；③ **竖向任务栏 / 多显示器**（代码写了分支但完全未验证）；
+9. **任务栏电量贴片（2026-10-10 第二十轮新增；2026-10-12 改为原生子窗口）**：开关在设置页「任务栏」，默认关。
+   **2026-10-12 起实现已换**：`Services/TaskbarPillWindow.cs`（原生分层窗口，`SetParent` 挂进 `Shell_TrayWnd`）
+   + `Services/TaskbarPillRenderer.cs`（GDI+ 画进 32 位 ARGB 位图）；旧 `TaskbarBatteryWindow.xaml(.cs)` 与
+   `Services/TaskbarChipFactory.cs` 已删除。
+   **已实测**：`GetParent(贴片) == Shell_TrayWnd`（决定性）、`GWL_STYLE` 含 `WS_CHILD` 不含 `WS_POPUP`、
+   `IsWindowVisible`、贴片内背景与任务栏只差 1 个色阶（无白框）。**构建 0 警告 0 错误、测试 292/292**。
+   **仍需人手确认**：① 沿任务栏**拖动与位置记忆**的手感（改走原生 `SetCapture`，见 CR-48）；
+   ② 任务栏**自动隐藏**收起时贴片是否跟着藏；③ **竖向任务栏 / 多显示器**（代码写了分支但完全未验证，CR-41）；
    ④ **深色主题**下文字对比是否够（CR-42）；⑤ 贴片是否压住任务栏按钮（CR-39）；
-   ⑥ ~~Win10 真机复看~~ **2026-10-12 完成**：本机就是 Win10 19045，白框与末尾 `%` 已**像素级验证**（CR-54/55/56 全部 `done`）；
-   **仍需人手复看的是"观感"**——自动化只能证明像素对，好不好看要人眼定。
-   ⑦ **Win10 小组件失去了 DWM 投影**（CR-57，`open`）：透明与投影在 Win10 上互斥，本轮取透明优先；
+   ⑥ **右键菜单**能否正常弹出/关闭（CR-58/CR-60——菜单 owner 现在是任务栏的子窗口，未真机点检）；
+   ⑦ ~~Win10 真机复看~~ **2026-10-12 完成**（旧覆盖窗方案，本机就是 Win10 19045，白框与末尾 `%` 已像素级验证）；
+   **"观感好不好看"仍需人眼定**；
+   ⑧ **Win10 小组件失去了 DWM 投影**（CR-57，`open`）：透明与投影在 Win10 上互斥，本轮取透明优先；
    要不要补 XAML 自绘投影，**等用户定**。
-   原理与已证伪路径见 `dev/runtime-pitfalls.md` §16 / §17（**§17 是最容易重复踩的一条**：
-   窗口两层背景 + 透明通道实测表 + §17.8 的"哪一层可见随系统变"）。
+   原理见 `dev/runtime-pitfalls.md` §16（**四条路对比 + 三道锁**；§16 曾被写错、漏了 `SetParent`，见 CR-59）；
+   §17 现在只对**小组件**适用（贴片已不是 WinUI 窗口）。
 10. **真机验证 CR-53 的修复（2026-10-11 改完，未验）**：让迈从键盘**睡够 3 分钟以上**再唤醒，
    看日志是否在 **1 分钟内**出现"设备重新上线"（旧口径最坏要等 11 分钟）。
    关注两条新日志：`停写退避期满（Ns），恢复查询`（N 应为 30/60/120/240/300）与
@@ -146,8 +154,8 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 | 本机电量开关 | `AppSettings.MonitorSystemBattery` + `DeviceManager.ApplySystemBatterySetting()` + `SettingsPage`「本机」分节 |
 | 托盘为何不含本机电量 | `src/VigilWatt.App/Services/TrayService.cs` 的 `Render()`：`if (d.Source == DeviceSource.System) continue;` |
 | 托盘/小组件/设置页 | `src/VigilWatt.App/Services` 与 `Views`（code-flow.md §7/§8/§9） |
-| 任务栏电量贴片 | `src/VigilWatt.App/TaskbarBatteryWindow.xaml(.cs)`（定位/跟随/不抢焦点见 runtime-pitfalls.md §16） |
-| 窗口表面透明（贴片 + 小组件共用） | `src/VigilWatt.App/Services/TransparentWindowSurface.cs`：`Apply(window)` = 清边框样式 + 清 Win32 类背景刷层（extend-frame + 自接管 `WM_ERASEBKGND`/`WM_PAINT`）+ 清内容岛层（透明 `SystemBackdrop`）。**两层都要清、不做 OS 分支**；**最容易重复踩**，见 runtime-pitfalls.md §17 / §17.8 |
+| 任务栏电量贴片（**原生子窗口，2026-10-12 换**） | `src/VigilWatt.App/Services/TaskbarPillWindow.cs`（`SetParent` 挂进任务栏 + `UpdateLayeredWindow` 提交位图 + 原生拖动/右键）+ `Services/TaskbarPillRenderer.cs`（GDI+ 画 ARGB 位图）。定位数学仍是 `Services/TaskbarLayout.cs`（纯函数 + 23 单测）。原理见 runtime-pitfalls.md §16 |
+| 窗口表面透明（**现仅小组件用**） | `src/VigilWatt.App/Services/TransparentWindowSurface.cs`：`Apply(window)` = 清边框样式 + 清 Win32 类背景刷层（extend-frame + 自接管 `WM_ERASEBKGND`/`WM_PAINT`）+ 清内容岛层（透明 `SystemBackdrop`）。**两层都要清、不做 OS 分支**；**最容易重复踩**，见 runtime-pitfalls.md §17 / §17.8。**贴片改原生窗口后不再需要它** |
 | 任务栏贴片配置与开关 | `AppSettings.TaskbarBatteryEnabled/Mode/MaxDevices/OffsetX` + `Services/TaskbarBatteryMode.cs` + 设置页「任务栏」分节 |
 | 设备类型图标（小组件与贴片共用） | `src/VigilWatt.App/Services/DeviceIconFactory.cs`（纯形状拼装，**别用字体图标**） |
 | 程序图标 | 生成器 `scripts/make-app-icon.py`（改配色/字形改它后重跑，**别手改 .ico**）→ `src/VigilWatt.App/Assets/VigilWatt.ico`；接入 = csproj `<ApplicationIcon>` + `MainWindow.ApplyWindowIcon()`（两处都要，见 runtime-pitfalls §5.2） |

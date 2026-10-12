@@ -773,3 +773,65 @@
 **提交**：本轮改动（12 文件，+168/−31）合并为**单个**提交（提交信息从简，用户要求"提交本地 git"）；**未推送**远程（本地 `main` 领先 `origin/main` 23 个提交）。
 
 **未做**：**未上传 GitHub Release**（用户账号曾因发布操作被封，只本地打包到 `dist/`，上传与否由用户定）。
+
+### 2026-10-12：任务栏贴片由「覆盖窗」改为「真子窗口」（SetParent）
+
+**起因**：用户回顾"当初的需求是在任务栏里加入监控图标与电量，为什么成品是**贴片到任务栏**而不是真正的任务栏方案"。
+先做只读排查 → 用户又追问"为什么酷狗的任务栏歌词可以" → 用户抛出 `zhongyang219/TrafficMonitor`（它能真嵌任务栏）
+→ 用户拍板"**直接走方案 A**"（原生分层窗口 + `SetParent`）。
+
+**排查结论（改变了项目对"真任务栏方案"的认知）**：
+
+- 本项目贴片此前走的是**覆盖窗**（普通顶层窗口摆进任务栏矩形、靠 16ms 抢 Z 序压住任务栏）——**观感像、行为别扭**。
+- 项目文档 `dev/runtime-pitfalls.md` §16 当时**断言"deskband 是唯一的真任务栏方案"**，只对比了
+  deskband / AppBar / 覆盖窗三条，**漏了 `SetParent`**。查证 TrafficMonitor（原生 C++）、TrayStats（C# 单文件）、
+  多个开源"任务栏歌词"走的都是 **`SetParent(自己的窗口, Shell_TrayWnd)`**——**真嵌入这条路一直存在**。
+- **关键约束**：**WinUI 3 窗口不能 reparent**。WinUI 的 `DesktopChildSiteBridge` 内容岛依赖完整 DWM 合成链，
+  把顶层窗口 reparent 再剥掉 `WS_CAPTION` 会让合成链断掉 → 灰屏/空白（有 `zencrop` 的实测报告佐证）。
+  故**不能改造现有 WinUI 贴片，只能另起一个原生窗口**。
+
+**改动**：
+
+- **新增** `src/VigilWatt.App/Services/TaskbarPillWindow.cs`：原生分层窗口。三道锁 =
+  ① `SetParent(_hwnd, Shell_TrayWnd)`；② 建窗口时带 `WS_EX_LAYERED`；③ 内容用
+  `CreateDIBSection` + `UpdateLayeredWindow` 提交 32 位预乘 ARGB 位图（**同时完成定位**）。
+  `SetParent` 后**手动**清 `WS_POPUP`、置 `WS_CHILD`（MSDN 明确要求自己同步，否则坐标/裁剪都不对）。
+  跟随用 **1 秒** `DispatcherQueueTimer`（子窗口移动/隐藏由系统负责，轮询只为重算尺寸 + 重绘）。
+  拖动走原生 `SetCapture`/`WM_MOUSEMOVE`；右键走 `WM_RBUTTONUP` → `AppPopupMenu.Show`；
+  Explorer 重启后 `FindWindowW` 拿到新任务栏窗口会重新 `AttachToTaskbar`。
+- **新增** `src/VigilWatt.App/Services/TaskbarPillRenderer.cs`：GDI+ 把整条读数画进 `Format32bppPArgb` 位图。
+  两个要点：① 整块位图先铺一层 **alpha=1 的"不可见底"**——分层窗口按 alpha 做命中测试，alpha=0 的像素会把
+  鼠标消息漏给任务栏，不铺底则留白处拖不动（alpha=1 视觉影响 0.4% 黑，实测与任务栏背景只差 1 个色阶）；
+  ② `ContentRight(bmp)` **扫描最右一个 alpha>1 的像素**来裁掉尾部留白，宽度按像素实测（不再有"估算差一两像素"）。
+  闪电图标自绘多边形（不用 `⚡` 字符，避免缺字形方块）。配色 `SkinFor(bool light)` 读注册表 `AppsUseLightTheme`。
+- **新增** `Native.cs` 的 P/Invoke：`SetParent` / `UpdateLayeredWindow` / `ScreenToClient` / `SetCapture` /
+  `ReleaseCapture` / `IsWindow` / `DestroyWindow` / `GetDpiForWindow` / `LoadCursorW` / `RegisterClassW` /
+  `CreateWindowExW` / `DefWindowProcW` / `CreateDIBSection` / `CreateCompatibleDC` / `SelectObject` /
+  `DeleteObject` / `DeleteDC` / `CreatePopupMenu` / `TrackPopupMenuEx` 等，以及 `SIZE` / `BLENDFUNCTION`(Pack=1) /
+  `BITMAPINFOHEADER` / `BITMAPINFO` / `WNDCLASSW` 等结构体。
+- **`DeviceIconFactory.cs`**：保留 XAML 版（小组件仍用），**新增 GDI+ 版 `DrawGlyph`**（贴片用），
+  共用同一套 `NominalSize` / `RoundedRect` 形状定义。
+- **删除**：`TaskbarBatteryWindow.xaml` / `TaskbarBatteryWindow.xaml.cs` / `Services/TaskbarChipFactory.cs`。
+- **接线**：`App.xaml.cs` 的 `TaskbarBattery` 类型改为 `TaskbarPillWindow`（启动时 `new` 即自显，不再 `.Activate()`）；
+  `Views/SettingsPage.xaml.cs` 的即时生效块改为 `new TaskbarPillWindow()` / `Dispose()`。
+- **定位数学复用**：`Services/TaskbarLayout.cs` **一行未动**（23 条单测全保留），只在 `ApplyPosition` 里
+  补一次 `ScreenToClient(_taskbar, ref pt)`——纯函数算的是屏幕坐标，子窗口要的是**相对父窗口客户区**的坐标。
+
+**直接红利（旧方案的一堆坑随之消失）**：不再抢 Z 序（16ms `DispatcherQueueTimer` + `HWND_TOPMOST` 整块删除）、
+没有"两层背景"问题（窗口是自己建的、类背景刷为空、alpha=0 即真透明）、宽度按位图实测裁剪。
+对应作废的 BACKLOG：**CR-38 / CR-40 / CR-43 / CR-45 / CR-46 / CR-47 / CR-54 / CR-55**（就地标 `done`）。
+
+**文档**：`dev/runtime-pitfalls.md` §16 **重写**（四条路对比 + §16.1 三道锁 + §16.2「不需要抢 Z 序」+
+§16.3 不抢焦点 + §16.4 分层窗口透明 + §16.5 拖动 + §16.7 坐标换算），并在正文留"**本节结论曾写错过一次**"的更正；
+§17 标注**现只对小组件适用**；§18 更新（"菜单期间停跟随定时器"那条已删）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；
+`dotnet test src/tests/VigilWatt.Core.Tests --no-build` **292/292**。
+启动应用（PID 8772）后枚举窗口：`GetParent(贴片) == Shell_TrayWnd`（`0x1012E`，**决定性证据**）、
+`GWL_STYLE = 0x54000000`（含 `WS_CHILD`、不含 `WS_POPUP`）、`GWL_EXSTYLE = 0x08080080`
+（`WS_EX_LAYERED|WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE`）、`IsWindowVisible = True`；
+像素对比：贴片内部背景 `(48,31,34)` vs 紧邻任务栏 `(49,32,35)`——**只差 1 个色阶**（alpha=1 命中层），无白框；日志干净。
+
+**未做**：**未执行任何 git 写操作**；右键菜单 / 拖动 / 竖向任务栏 / 多显示器 / 自动隐藏 / 深色主题
+均**未真机点检**（见 BACKLOG CR-39/41/42/48/58/60）；未向任何设备发帧。
+新增 BACKLOG **CR-59（文档缺口，done）/ CR-60（右键菜单 owner 是任务栏子窗口，open）**。

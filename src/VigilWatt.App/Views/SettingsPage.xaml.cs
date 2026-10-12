@@ -482,12 +482,11 @@ public sealed partial class SettingsPage : Page
         // 任务栏贴片开关即时生效（与小组件同一条路）
         if (s.TaskbarBatteryEnabled && App.Services.TaskbarBattery == null)
         {
-            App.Services.TaskbarBattery = new TaskbarBatteryWindow();
-            App.Services.TaskbarBattery.Activate();
+            App.Services.TaskbarBattery = new TaskbarPillWindow();
         }
         else if (!s.TaskbarBatteryEnabled && App.Services.TaskbarBattery != null)
         {
-            App.Services.TaskbarBattery.Close();
+            App.Services.TaskbarBattery.Dispose();
             App.Services.TaskbarBattery = null;
         }
         else if (s.TaskbarBatteryEnabled)
