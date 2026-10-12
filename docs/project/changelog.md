@@ -835,3 +835,91 @@
 **未做**：**未执行任何 git 写操作**；右键菜单 / 拖动 / 竖向任务栏 / 多显示器 / 自动隐藏 / 深色主题
 均**未真机点检**（见 BACKLOG CR-39/41/42/48/58/60）；未向任何设备发帧。
 新增 BACKLOG **CR-59（文档缺口，done）/ CR-60（右键菜单 owner 是任务栏子窗口，open）**。
+
+### 2026-10-12：页面切换性能优化（页面缓存 + 设置页构造期减负）
+
+**症状**：打开主界面 → 切设置页**有时要几秒**；页面之间切换也偏慢。
+
+**根因（静态排查）**：① 四个页面都吃 `NavigationCacheMode` 默认值 `Disabled`，每次点导航 = `new Page()` +
+重新解析 XBF；② `SettingsPage.Load()` 在**构造函数**里同步跑：填 5 个 ComboBox + 4 个 NumberBox +
+5 个 ToggleSwitch、动态 `new` 插件行、读注册表、问两次 `IsSupported()`，末尾还 `BuildSearchIndex()`
+**递归遍历整棵视觉树**；③ 设置页是全仓最重的一页（422 行 XAML、唯一的 `NumberBox` 使用方、无虚拟化约 350 个元素）。
+
+**改动**：
+
+- **页面缓存**：四个页面设 `NavigationCacheMode = Required`。因为实例被复用、构造函数只跑一次，
+  原先"构造函数订阅 + `Unloaded` 解绑"的写法会退化成"第一次切走就解绑、切回来不再订阅"——
+  故订阅与刷新一律挪到 **`Loaded`/`Unloaded` 成对**处理，并加 `_hooked` 标志防重复叠加：
+  `DevicesPage`（`DevicesChanged`/`DeviceUpdated` + `Refresh`）、`StatsPage`（`DevicesChanged` +
+  `ReloadDeviceListAsync`）、`HistoryPage`（无订阅，`Loaded` 里 `ReloadAsync`）。
+- **设置页拆两段**：`BuildOptions()`（下拉框档位 + 插件行，**只建一次**——缓存页复用实例时再建会叠加重复条目）
+  与 `SyncFromSettings()`（每次 `Loaded` 重读设置；控件赋值与选中收敛到 `SelectByTag`）。
+  `AddPluginRow` 去掉 `isOn` 参数，开关状态改由同步段统一写。
+- **搜索索引延迟**：`BuildSearchIndex()` → `EnsureSearchIndex()`，在 `Loaded` 里用
+  `DispatcherQueue.TryEnqueue(Low, …)` 于布局完成后的空闲时段构建，`TextChanged` 里再兜底
+  （用户抢先打字也不会拿到空索引）。
+- **`IsSupported` 进程内缓存**：`WindowBackdrop.IsMicaSupported` / `IsAcrylicSupported`（`??=` 缓存），
+  `MainWindow.ApplyBackdrop` 与设置页副标题共用，不再每次重新探测。
+- **设置页预热**：`MainWindow.PrewarmSettingsPage()` 在窗口可见前先导航到设置页再回设备页，
+  把 XBF 解析与控件构造的一次性开销提前付掉；整段 `try/catch` 兜底，失败只记一条日志并退回设备页，不影响启动。
+
+**顺带解决 BACKLOG CR-34**（`SettingsPage.Load()` 不可重入）："只增不清"的部分现被隔离进只调用一次的
+`BuildOptions`，同步部分完全幂等。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；
+`dotnet test src/tests/VigilWatt.Core.Tests --no-build --filter "FullyQualifiedName!~LogTests"` **278/278**
+（`LogTests` 是本机已知会卡住的一类，见 `build.md` §4.1）。
+
+**未做（已进 BACKLOG）**：`Log` 全局锁 + `AutoFlush` 改缓冲刷盘（**CR-61**，**刻意不做**——崩溃时会丢掉最后几行，
+而这几行正是排障依赖）；60 秒轮询里罗技 `dev=2..6` 各等约 0.9s HID++ 超时（**CR-62**，不阻塞 UI 线程）；
+跨进程 `SetParent` 的输入队列串联使"应用 UI 线程长阻塞"可能连带冻住任务栏（**CR-63**，未实测）。
+
+**未真机点检**：缓存后的实际切换手感、首次打开设置页的耗时、预热对启动时间的影响——均需人手复看。
+
+### 2026-10-12：重发 1.0.5（版本号不变，含 SetParent 真子窗口 + 页面缓存优化）
+
+**诉求**：把当前工作区的改动重新打一版，**版本号沿用已改好的 1.0.5**（不 bump）。
+
+**改动**：`VigilWatt.App.csproj` 的 `<Version>` 保持 **1.0.5**；打包前 `dist/` 为空，直接跑 `scripts/build-installer.ps1`
+（`dotnet publish -c Release -p:Platform=x64 -o publish` + `vpk pack`）。因 `vpk` 不允许同版本重复 pack，
+**dist 为空正好省掉清目录**；打包时无运行实例，脚本里的 `taskkill` 空跑。
+
+**产物**（`dist/`）：`VigilWattApp-win-Setup.exe` 43.98MB、`VigilWattApp-win-Portable.zip` 36.42MB、
+`VigilWattApp-1.0.5-full.nupkg` 36.43MB、`RELEASES` / `releases.win.json` / `assets.win.json`。
+
+**验证**：`dotnet publish` 0 错误，`publish/VigilWatt.App.dll` 版本 **1.0.5.0**；`vpk pack` EXITCODE=0，全程约 43 秒。未真机运行发布包。
+
+**未做**：**没有增量包**——打包前 `dist/` 是空的，没有任何历史全量包作基准（与同日 1.0.4→1.0.5 那次不同，
+那次因保留 1.0.4 全量包而拿到 102KB delta）；未上传 GitHub Release；未执行任何 git 写操作。
+
+### 2026-10-12：内存爬升排查结案（CR-64 wontfix）+ 修 CR-65 + 诊断脚本归档
+
+**诉求**：用户报"程序运行后反复跳转设置页面会出现内存暴涨"，要求查清是不是内存泄漏。
+
+**结论：不是泄漏，属高水位（`wontfix`）。** 三条互相咬合的证据（全程只读采样，未改任何应用代码）：
+
+1. **用户抓的 dump**（`%TEMP%\VigilWatt.App.DMP`，760 MB，安装版 1.0.5，PID 14104，**启动后 3 分 26 秒**抓取）：
+   托管堆 **4.71 MB / 44,510 对象**、`TextBlock` 仅 **180** 个（四页缓存后的正常量级）、句柄 1411、模块 187（无重名）、线程 51；
+   `VirtualQueryEx` 分层 **IMAGE 441.3 / MAPPED 256.8 / PRIVATE 99.1 MB**。dump 文件 760 MB 主要是 NVIDIA 驱动 DLL（181 MB）
+   ＋ 字体映射 ＋ 驱动 WDDM 节（79 MB）——**文件大小 ≠ 进程占用**。
+2. **6 分钟 / 120 点分层采样**（`GetProcessMemoryInfo` + `VirtualQueryEx`）：`PRIVATE` 113.9 → 114.7（**净增 +0.8 MB**，峰值 116.2 瞬回）、
+   `MAPPED` −0.2、`IMAGE` 441.4 全程不动、句柄 1322–1461 非单调 → **无逐轮累积**。
+3. **判定性实验**：用户用腾讯电脑管家"回收内存"，采样完整捕获工作集 **137.2 → 3.8 MB**，而 `priv`/`commit` 154.3 与 `PRIVATE` 113.9
+   **纹丝不动** → 用户看到的"60 多 MB → 0.5 MB"是**工作集（驻留内存）**，天生可回收，**不能用来判断泄漏**。
+
+**核心口径纠正**：`VirtualQueryEx` 的"已提交"总量（797.2 MB）**≠** 任务管理器「提交大小」（144.3 MB）——
+IMAGE 与文件后备的 MAPPED **不计入进程提交量**。判断泄漏只看 **PRIVATE** 那一层。
+
+**改动（唯一一处）**：`MainWindow.xaml.cs:Nav_SelectionChanged` 在 `Navigate` 之后加 `ContentFrame.BackStack.Clear()`（**CR-65**）。
+四个页面均已 `NavigationCacheMode.Required`，`BackStack` 只剩无界累积的簿记；改前已 grep 确认全仓 `GoBack`/`CanGoBack`/`BackRequested`
+**零调用点**，清栈不影响返回导航。
+
+**新增脚本（归档进 `scripts/`）**：`probe-process-memory.py`（按 `VirtualQueryEx` Type 分层采样 PRIVATE/MAPPED/IMAGE + 工作集 + 句柄）、
+`parse-minidump.py`（纯标准库解析 minidump stream 3/4/9/12/16/17：进程时长、句柄/模块/线程、dump 实抓量、分层与最大区域）。
+索引已补 `scripts/README.md`。**踩坑记录**：FILETIME 是 UTC，直接当 Unix 时间加偏移会差一个时区（曾误报"运行 8 小时"，实际 3 分 26 秒）。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**。**未真机点检**清栈后的导航行为（不预期有可感知变化）。
+
+**未做**：**未执行任何 git 写操作**；未清理 `%TEMP%` 里的目标 dump（725.4 MB，用户提供物，需用户确认）；`C:\tmp` 下的临时分析脚本已删。
+
+**报告**：`docs/reviews/archive/memory-growth-2026-10-12.md` §6（新增"真机实测与结论（关闭 CR-64）"）。

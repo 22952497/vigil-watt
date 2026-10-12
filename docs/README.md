@@ -42,6 +42,7 @@
 | [archive/code-review-2026-10-06.md](reviews/archive/code-review-2026-10-06.md) | 全仓代码/架构静态审查（基线 `ddd3b39`）：硬件写入边界、状态同步、BLE 判定、体验与测试缺口，含修复顺序 | 规划重构/排优先级（注意行号已漂移） |
 | [archive/code-review-followup-2026-10-06.md](reviews/archive/code-review-followup-2026-10-06.md) | 对上条的独立复核：哪些属实、哪 3 处需修正、报告遗漏了什么（罗技无写入闸门等），以及四阶段优化路线图 | 排长期重构顺序 |
 | [archive/comment-audit-2026-10-09.md](reviews/archive/comment-audit-2026-10-09.md) | 全仓注释审计与 docs 归并映射（基线 2026-10-09 工作树）：逐块处置表（保留/压缩/归纳/删除）、9 条 docs 归纳清单、"不能删"清单 | 想知道某段注释为什么被删或被搬走时 |
+| [archive/memory-growth-2026-10-12.md](reviews/archive/memory-growth-2026-10-12.md) | **主窗口每次显示后私有字节爬升（CR-64）的证据与推理**：实测读数、已排除的嫌疑、"刷新无条件重建 `ItemsSource`"的机制归因、以及三项**未证实**项与判据 | 要动"页面 `Loaded` 刷新 / `ItemsSource` 重建"时；想知道内存爬升查到了哪一步 |
 
 ## 症状速查
 
@@ -76,6 +77,7 @@
 | 任务栏电量贴片位置怪 / 拖动空走一截 | 位置 = 托盘左边（或上边）+ 拖动偏移；每次落位会把"实际落点"反推回 offset | dev/runtime-pitfalls.md §16.5 |
 | 任务栏电量贴片是一块"白框"/浅色方块，删了 XAML 底色也没用 | 窗口背景分两层，**可见的是 Win32 那层**：窗口类的类背景刷就是 `COLOR_WINDOW`（浅色主题=纯白），删 XAML 底色治不到它；Win11 上 accent 透明通道还会**静默失效**（返回成功、无警告、就是不透明）。正解 = extend-frame + 自接管擦背景 | dev/runtime-pitfalls.md §17 |
 | 自己写的截屏脚本截出来永远一片空白 | 进程没声明 DPI 感知：`GetWindowRect` 给物理坐标、`GetDC(0)`+`BitBlt` 给 DPI 虚拟化后的逻辑坐标，两边对不上。**第一行先 `SetProcessDpiAwarenessContext(-4)`** | dev/runtime-pitfalls.md §17（开头） |
+| 打开主界面后进程内存涨、关到托盘也不回落 | 隐藏时页面已 `Unloaded` 解绑、刷新不跑；**可见时各页 `Loaded` 会无条件重建 `ItemsSource` / 重造图表** → 合成侧资源只涨不退（托管堆与句柄全程恒定，所以不是托管泄漏） | reviews/BACKLOG.md **CR-64**、reviews/archive/memory-growth-2026-10-12.md |
 
 数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app-日期.log；**日志按日分文件**，默认保留 14 天，写入异常兜底 `logs\log-error.txt`）。日志分级 `LogLevel`（默认 `Info`，可选 关闭/详细/信息/警告/错误）与保留天数在设置页调整，**改后需重启**，完整设计见 [dev/logging.md](dev/logging.md)。
 

@@ -22,6 +22,28 @@ public static class WindowBackdrop
 
     public const string Solid = "Solid";
 
+    private static bool? _micaSupported;
+    private static bool? _acrylicSupported;
+
+    /// <summary>进程内缓存：探测要构造控制器，而系统能力在一次运行内不会变（设置页每次进入都会问它）。</summary>
+    public static bool IsMicaSupported
+    {
+        get
+        {
+            _micaSupported ??= MicaController.IsSupported();
+            return _micaSupported.Value;
+        }
+    }
+
+    public static bool IsAcrylicSupported
+    {
+        get
+        {
+            _acrylicSupported ??= DesktopAcrylicController.IsSupported();
+            return _acrylicSupported.Value;
+        }
+    }
+
     /// <summary>把任意输入（含 null / 手改坏了的配置）收敛成四个合法取值之一。</summary>
     public static string Normalize(string? preference) => preference switch
     {

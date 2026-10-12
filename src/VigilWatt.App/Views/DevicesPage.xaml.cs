@@ -3,6 +3,7 @@ using VigilWatt.Core.Models;
 using VigilWatt.Core.Utils;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Navigation;
 
 namespace VigilWatt.App.Views;
 
@@ -11,20 +12,38 @@ public sealed partial class DevicesPage : Page
     /// <summary>手动刷新进行中：挡住重复点击，也让"刷新中"状态不被后台事件提前清掉。</summary>
     private bool _refreshing;
 
+    /// <summary>事件是否已订阅：Loaded 可能重复触发，不挡住就会叠加回调。</summary>
+    private bool _hooked;
+
     public DevicesPage()
     {
         InitializeComponent();
-        Refresh();
-        App.Services.Manager.DevicesChanged += OnDevicesChanged;
-        App.Services.Manager.DeviceUpdated += OnDeviceUpdated;
-        Unloaded += (_, _) =>
-        {
-            App.Services.Manager.DevicesChanged -= OnDevicesChanged;
-            App.Services.Manager.DeviceUpdated -= OnDeviceUpdated;
-        };
+        NavigationCacheMode = NavigationCacheMode.Required;
+        Loaded += OnPageLoaded;
+        Unloaded += OnPageUnloaded;
     }
 
-    // 命名方法 + Unloaded 解绑：页面每次导航都会新建实例，匿名订阅会让旧页泄漏且叠加回调
+    // 页面被缓存复用、构造函数只跑一次：订阅与刷新必须跟着 Loaded/Unloaded 走，
+    // 否则第一次切走就解绑，切回来不再走构造函数，页面从此收不到设备事件也不再刷新
+    private void OnPageLoaded(object sender, RoutedEventArgs e)
+    {
+        if (!_hooked)
+        {
+            _hooked = true;
+            App.Services.Manager.DevicesChanged += OnDevicesChanged;
+            App.Services.Manager.DeviceUpdated += OnDeviceUpdated;
+        }
+        Refresh();
+    }
+
+    private void OnPageUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (!_hooked) return;
+        _hooked = false;
+        App.Services.Manager.DevicesChanged -= OnDevicesChanged;
+        App.Services.Manager.DeviceUpdated -= OnDeviceUpdated;
+    }
+
     private void OnDeviceUpdated(DeviceStatus _) => OnDevicesChanged();
 
     private void OnDevicesChanged() => RequestRefresh();

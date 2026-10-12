@@ -2,7 +2,6 @@ using System.Runtime.InteropServices;
 using VigilWatt.App.Services;
 using VigilWatt.App.Views;
 using VigilWatt.Core.Utils;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -47,6 +46,26 @@ public sealed partial class MainWindow : Window
 
         // 初次进入设备页
         ContentFrame.Navigate(typeof(DevicesPage));
+        PrewarmSettingsPage();
+    }
+
+    /// <summary>
+    /// 预热设置页：XBF 解析与控件构造是一次性开销，先在窗口可见前付掉，首次点设置就不用等。
+    /// </summary>
+    private void PrewarmSettingsPage()
+    {
+        try
+        {
+            ContentFrame.Navigate(typeof(SettingsPage));
+            ContentFrame.Navigate(typeof(DevicesPage));
+            ContentFrame.BackStack.Clear();
+        }
+        catch (Exception ex)
+        {
+            // 预热失败不该拖垮启动；退回设备页即可，设置页之后照常按需构造
+            Log.Warn($"设置页预热失败，回退设备页: {ex.Message}");
+            try { ContentFrame.Navigate(typeof(DevicesPage)); } catch { /* 已尽力 */ }
+        }
     }
 
         /// <summary>
@@ -59,8 +78,8 @@ public sealed partial class MainWindow : Window
         {
             var resolved = WindowBackdrop.Resolve(
                 App.Services.Settings.WindowBackdrop,
-                MicaController.IsSupported(),
-                DesktopAcrylicController.IsSupported());
+                WindowBackdrop.IsMicaSupported,
+                WindowBackdrop.IsAcrylicSupported);
 
             var backdrop = WindowBackdrop.Create(resolved);
             SystemBackdrop = backdrop;
@@ -142,5 +161,7 @@ public sealed partial class MainWindow : Window
             "settings" => typeof(SettingsPage),
             _ => typeof(DevicesPage),
         });
+        // 四个页面都已 NavigationCacheMode.Required 常驻，BackStack 只剩无界累积的簿记（CR-65）
+        ContentFrame.BackStack.Clear();
     }
 }

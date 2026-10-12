@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Navigation;
 using VigilWatt.Core.Models;
 using VigilWatt.Core.Storage;
 using VigilWatt.Core.Utils;
@@ -20,15 +21,35 @@ public sealed partial class StatsPage : Page
     /// <summary>渲染代次：查询移到线程池后会有并发，用它丢弃"过期的旧结果"，避免旧曲线盖掉新曲线。</summary>
     private int _renderSeq;
 
+    /// <summary>事件是否已订阅：Loaded 可能重复触发，不挡住就会叠加回调。</summary>
+    private bool _hooked;
+
     public StatsPage()
     {
         InitializeComponent();
-        _ = ReloadDeviceListAsync();
-        App.Services.Manager.DevicesChanged += OnDevicesChanged;
-        Unloaded += (_, _) => App.Services.Manager.DevicesChanged -= OnDevicesChanged;
+        NavigationCacheMode = NavigationCacheMode.Required;
+        Loaded += OnPageLoaded;
+        Unloaded += OnPageUnloaded;
     }
 
-    // 命名方法 + Unloaded 解绑：页面每次导航都会新建实例，构造里匿名订阅会让旧页泄漏且叠加回调
+    // 页面被缓存复用、构造函数只跑一次：订阅与刷新必须跟着 Loaded/Unloaded 走（同 DevicesPage）
+    private void OnPageLoaded(object sender, RoutedEventArgs e)
+    {
+        if (!_hooked)
+        {
+            _hooked = true;
+            App.Services.Manager.DevicesChanged += OnDevicesChanged;
+        }
+        _ = ReloadDeviceListAsync();
+    }
+
+    private void OnPageUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (!_hooked) return;
+        _hooked = false;
+        App.Services.Manager.DevicesChanged -= OnDevicesChanged;
+    }
+
     private void OnDevicesChanged() => DispatcherQueue.TryEnqueue(() => _ = ReloadDeviceListAsync());
 
     /// <summary>当前选中的时间范围（小时）。按钮组互斥，默认 24 小时。</summary>

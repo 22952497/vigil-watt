@@ -4,13 +4,13 @@ using VigilWatt.App.Services;
 using VigilWatt.Core.Models;
 using VigilWatt.Core.Plugins;
 using VigilWatt.Core.Utils;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Navigation;
 using Windows.Foundation;
 using Windows.UI;
 
@@ -20,6 +20,7 @@ public sealed partial class SettingsPage : Page
 {
     private readonly Dictionary<string, ToggleSwitch> _pluginToggles = new();
     private readonly List<SearchEntry> _searchEntries = new();
+    private bool _searchIndexBuilt;
     private DispatcherQueueTimer? _highlightTimer;
     private TextBlock? _highlightedTitle;
     private Brush? _previousTitleBrush;
@@ -29,10 +30,41 @@ public sealed partial class SettingsPage : Page
     public SettingsPage()
     {
         InitializeComponent();
-        Load();
+        // 页面被缓存复用：构造函数只跑一次，所以"建一次"的活留这里，"每次进来都要重读"的活放 Loaded
+        NavigationCacheMode = NavigationCacheMode.Required;
+        BuildOptions();
+        Loaded += OnPageLoaded;
     }
 
-    private void Load()
+    private void OnPageLoaded(object sender, RoutedEventArgs e)
+    {
+        SyncFromSettings();
+        // 搜索索引要递归遍历整棵视觉树：放到布局完成后的低优先级队列里建，别占页面首次显示的时间
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, EnsureSearchIndex);
+    }
+
+    /// <summary>只建一次：下拉框档位与插件行。缓存页复用同一实例，再建一遍会叠加出重复条目。</summary>
+    private void BuildOptions()
+    {
+        // 档位按统一范围生成，保证下拉框和取值收敛永远同源
+        foreach (var n in WidgetMaxDevicesOptions.Choices)
+            WidgetMaxCombo.Items.Add(new ComboBoxItem { Content = $"{n} 个", Tag = n });
+        foreach (var n in TaskbarBatteryOptions.Choices)
+            TaskbarMaxCombo.Items.Add(new ComboBoxItem { Content = $"{n} 个", Tag = n });
+        foreach (var (value, label) in LogLevelOptions.Choices)
+            LogLevelCombo.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+
+        // 插件开关动态生成：新插件（IBatteryPlugin 实现）自动出现在设置页
+        bool first = true;
+        foreach (var plugin in App.Services.Manager.Plugins)
+        {
+            AddPluginRow(plugin, first);
+            first = false;
+        }
+    }
+
+    /// <summary>每次进入页面都重读：设置可能被别处改过（例如插件开关在保存时落盘）。</summary>
+    private void SyncFromSettings()
     {
         var s = App.Services.Settings;
         ThresholdBox.Value = s.LowBatteryThreshold;
@@ -47,98 +79,44 @@ public sealed partial class SettingsPage : Page
 
         // 小组件显示方式：与"窗口背景"同一套路，下拉框存偏好、副标题写实际行为
         var mode = WidgetDisplayMode.Normalize(s.WidgetDisplayMode);
-        foreach (ComboBoxItem item in WidgetModeCombo.Items)
-        {
-            if (item.Tag as string == mode)
-            {
-                WidgetModeCombo.SelectedItem = item;
-                break;
-            }
-        }
+        SelectByTag(WidgetModeCombo, mode);
         WidgetModeHintText.Text = WidgetDisplayMode.Describe(mode);
-
-        // 最多显示设备数：档位按统一范围生成（1~5），保证下拉框和取值收敛永远同源
-        foreach (var n in WidgetMaxDevicesOptions.Choices)
-        {
-            WidgetMaxCombo.Items.Add(new ComboBoxItem { Content = $"{n} 个", Tag = n });
-        }
-        var maxDevices = WidgetMaxDevicesOptions.Clamp(s.WidgetMaxDevices);
-        foreach (ComboBoxItem item in WidgetMaxCombo.Items)
-        {
-            if (item.Tag is int v && v == maxDevices)
-            {
-                WidgetMaxCombo.SelectedItem = item;
-                break;
-            }
-        }
+        SelectByTag(WidgetMaxCombo, WidgetMaxDevicesOptions.Clamp(s.WidgetMaxDevices));
 
         // 任务栏贴片：与小组件同一套路（下拉框存偏好、副标题写行为），取值收敛也只有一处定义
         TaskbarToggle.IsOn = s.TaskbarBatteryEnabled;
         var taskbarMode = TaskbarBatteryMode.Normalize(s.TaskbarBatteryMode);
-        foreach (ComboBoxItem item in TaskbarModeCombo.Items)
-        {
-            if (item.Tag as string == taskbarMode)
-            {
-                TaskbarModeCombo.SelectedItem = item;
-                break;
-            }
-        }
+        SelectByTag(TaskbarModeCombo, taskbarMode);
         TaskbarModeHintText.Text = TaskbarBatteryMode.Describe(taskbarMode);
-
-        foreach (var n in TaskbarBatteryOptions.Choices)
-        {
-            TaskbarMaxCombo.Items.Add(new ComboBoxItem { Content = $"{n} 个", Tag = n });
-        }
-        var taskbarMax = TaskbarBatteryOptions.Clamp(s.TaskbarBatteryMaxDevices);
-        foreach (ComboBoxItem item in TaskbarMaxCombo.Items)
-        {
-            if (item.Tag is int v && v == taskbarMax)
-            {
-                TaskbarMaxCombo.SelectedItem = item;
-                break;
-            }
-        }
+        SelectByTag(TaskbarMaxCombo, TaskbarBatteryOptions.Clamp(s.TaskbarBatteryMaxDevices));
 
         // 窗口背景：下拉框选中"用户偏好"，副标题说"这台机器上实际会生效什么"——
         // 两者不是一回事（Win10 上选 Mica 会静默降级成 Acrylic），分开显示才不会让人困惑。
         var pref = WindowBackdrop.Normalize(s.WindowBackdrop);
-        foreach (ComboBoxItem item in BackdropCombo.Items)
-        {
-            if (item.Tag as string == pref)
-            {
-                BackdropCombo.SelectedItem = item;
-                break;
-            }
-        }
+        SelectByTag(BackdropCombo, pref);
         UpdateBackdropHint(pref);
 
-        // 日志级别：档位按 LogLevelOptions.Choices 生成（取值只有一处定义），副标题说明当前档位含义。
-        // 注意与"窗口背景"不同，这里是重启生效——副标题已写明。
-        foreach (var (value, label) in LogLevelOptions.Choices)
-        {
-            LogLevelCombo.Items.Add(new ComboBoxItem { Content = label, Tag = value });
-        }
+        // 日志级别：副标题说明当前档位含义。注意与"窗口背景"不同，这里是重启生效——副标题已写明。
         var level = LogLevelNames.Normalize(s.LogLevel);
-        foreach (ComboBoxItem item in LogLevelCombo.Items)
-        {
-            if (item.Tag as string == level)
-            {
-                LogLevelCombo.SelectedItem = item;
-                break;
-            }
-        }
+        SelectByTag(LogLevelCombo, level);
         LogLevelHintText.Text = LogLevelOptions.Describe(level);
         LogRetentionBox.Value = s.LogRetentionDays;
 
-        // 插件开关动态生成：新插件（IBatteryPlugin 实现）自动出现在设置页
-        bool first = true;
-        foreach (var plugin in App.Services.Manager.Plugins)
-        {
-            AddPluginRow(plugin, s.PluginEnabled.TryGetValue(plugin.Name, out var on) && on, first);
-            first = false;
-        }
+        foreach (var (name, toggle) in _pluginToggles)
+            toggle.IsOn = s.PluginEnabled.TryGetValue(name, out var on) && on;
+    }
 
-        BuildSearchIndex();
+    /// <summary>按 Tag 选中下拉框条目；值对不上任何一条（配置被手改过）时保持未选中。</summary>
+    private static void SelectByTag(ComboBox combo, object? tag)
+    {
+        foreach (ComboBoxItem item in combo.Items)
+        {
+            if (Equals(item.Tag, tag))
+            {
+                combo.SelectedItem = item;
+                return;
+            }
+        }
     }
 
     private void Backdrop_Changed(object sender, SelectionChangedEventArgs e)
@@ -168,8 +146,8 @@ public sealed partial class SettingsPage : Page
     /// <summary>副标题按"选中的偏好在本机上实际会生效成什么"来写。</summary>
     private void UpdateBackdropHint(string preference)
     {
-        var mica = MicaController.IsSupported();
-        var resolved = WindowBackdrop.Resolve(preference, mica, DesktopAcrylicController.IsSupported());
+        var mica = WindowBackdrop.IsMicaSupported;
+        var resolved = WindowBackdrop.Resolve(preference, mica, WindowBackdrop.IsAcrylicSupported);
         BackdropHintText.Text = WindowBackdrop.Describe(resolved, mica);
     }
 
@@ -177,7 +155,7 @@ public sealed partial class SettingsPage : Page
     /// 按"标签左、开关右"的统一样式动态生成一行插件开关。复用 Page.Resources 里的
     /// RowTitleStyle/RowDescStyle/RowDividerStyle，让动态行与 XAML 手写行视觉完全一致。
     /// </summary>
-    private void AddPluginRow(IBatteryPlugin plugin, bool isOn, bool first)
+    private void AddPluginRow(IBatteryPlugin plugin, bool first)
     {
         if (!first)
             PluginPanel.Children.Add(new Border { Style = (Style)Resources["RowDividerStyle"] });
@@ -188,7 +166,6 @@ public sealed partial class SettingsPage : Page
             OffContent = "关",
             MinWidth = 0,
             VerticalAlignment = VerticalAlignment.Center,
-            IsOn = isOn,
         };
 
         var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
@@ -209,8 +186,11 @@ public sealed partial class SettingsPage : Page
         _pluginToggles[plugin.Name] = toggle;
     }
 
-    private void BuildSearchIndex()
+    /// <summary>搜索索引延迟到真正需要时才建（OnPageLoaded 会先在空闲时预热一次，这里兜底）。</summary>
+    private void EnsureSearchIndex()
     {
+        if (_searchIndexBuilt) return;
+        _searchIndexBuilt = true;
         _searchEntries.Clear();
         AddSearchEntries(SettingsContent);
     }
@@ -266,6 +246,7 @@ public sealed partial class SettingsPage : Page
 
     private void SettingsSearch_TextChanged(object sender, TextChangedEventArgs e)
     {
+        EnsureSearchIndex();
         SearchResultsPanel.Children.Clear();
         var query = SettingsSearchBox.Text.Trim();
         SearchEmptyText.Visibility = Visibility.Collapsed;

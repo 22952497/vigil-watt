@@ -113,8 +113,30 @@
   CR-42（文字色跟应用主题，证据改 `TaskbarPillRenderer.SkinFor`）、CR-48（拖动手感未真机手测）。
   新增 **CR-60**（右键菜单 owner 现为任务栏子窗口，未真机点检）。验证：`dotnet build` 0 警告 0 错误；
   `dotnet test src/tests/VigilWatt.Core.Tests --no-build` **292/292**；枚举窗口确认
-  `GetParent(贴片) == Shell_TrayWnd`、`GWL_STYLE` 含 `WS_CHILD` 不含 `WS_POPUP`；贴片内背景与任务栏
+  `GetParent(贴片) == Shell_TrayWnd`、  `GWL_STYLE` 含 `WS_CHILD` 不含 `WS_POPUP`；贴片内背景与任务栏
   **只差 1 个色阶**（alpha=1 命中层）。
+
+- **2026-10-12（日常开发 · 页面切换性能优化 + 内存爬升分析）**：
+  - 页面缓存改造（四页 `NavigationCacheMode.Required`、`SettingsPage` 拆 `BuildOptions`/`SyncFromSettings`、
+    `MainWindow.PrewarmSettingsPage`、`WindowBackdrop` 能力缓存）→ **CR-34 实修并关闭**；
+    新增 **CR-61**（`Log` 全局锁 + `AutoFlush` 同步刷盘，**刻意不修**，理由见条目）、
+    **CR-62**（罗技 `dev=2..6` 各约 0.9s HID++ 超时，一轮约 5 秒）、
+    **CR-63**（跨进程 `SetParent` 输入队列串联，**未实测**）。
+  - 用户复报"双击打开主界面后内存升高（110 → 145 MB）"→ 排查后新增 **CR-64**（主窗口每次显示后私有字节爬升）。
+    排查方式：用户带临时埋点跑一次 Debug 实例（埋点已全部撤销，`git diff` 确认四个文件回到 HEAD）；
+    **按用户要求未再启动应用**，本条目为**纯分析**，报告见 `docs/reviews/archive/memory-growth-2026-10-12.md`。
+    验证：`dotnet build` 0 警告 0 错误；**未真机验证**（判据见条目与报告 §4）。
+
+- **2026-10-12（晚 · 内存爬升真机实测结案 + CR-65 修掉）**：
+  - **CR-64 → `wontfix`**：用户配合真机实测（全程只读采样）证明"反复跳转设置页内存暴涨"**不是泄漏，属高水位**——
+    dump 分层（托管堆 4.71 MB / 44,510 对象）+ 6 分钟 120 点分层采样（`PRIVATE` 净增 +0.8 MB）+ 判定性实验
+    （"回收内存"把工作集 137.2→3.8 MB 而提交/私有纹丝不动）三条互证。读数口径见报告 §6
+    （**`VirtualQueryEx` 已提交总量 ≠ 任务管理器「提交大小」**：IMAGE 与文件后备 MAPPED 不计入进程提交量）。
+  - **CR-65 → `done`**（同轮新增、同轮修掉）：`MainWindow.xaml.cs:Nav_SelectionChanged` 导航后加
+    `ContentFrame.BackStack.Clear()`；改前已 grep 确认全仓 `GoBack`/`CanGoBack`/`BackRequested` **零调用点**。
+    验证：`dotnet build` 0 警告 0 错误；**未真机点检**。
+  - 诊断工具沉淀进 `scripts/`：`probe-process-memory.py`（分层采样）、`parse-minidump.py`（dump 解剖），
+    索引已补 `scripts/README.md`。
 
 ## P0 · 安全 / 数据损坏
 
@@ -148,6 +170,8 @@
 | **CR-58** | **贴片与小组件的右键菜单点别处不消失（ESC 也无效）**：WinUI 的 light-dismiss 靠**宿主窗口去激活**触发，而贴片为"绝不抢焦点"带 `WS_EX_NOACTIVATE`（§16.3）→ **永不激活、也就永不"去激活"**，菜单弹出后点哪都关不掉；菜单 popup 自己也是 `WS_EX_NOACTIVATE`，键盘焦点不在它身上，ESC 同样送不进去。**已修**：两个窗口的 `Border.ContextFlyout` 删除，改挂 `RightTapped` → 走 **Win32 `TrackPopupMenuEx`**（`Services/AppPopupMenu.cs`，与托盘菜单同一条路，自带"点别处即关"）；弹菜单前 `SetForegroundWindow`、后补 `PostMessageW(WM_NULL)`。**2026-10-12 更新**：贴片改原生窗口后右键由 `WndProc` 的 `WM_RBUTTONUP` → `AppPopupMenu.Show`，**"菜单期间停跟随定时器"那条已删**（子窗口不再抬 Z 序、菜单天然在上）；**新增待验点见 CR-60**。**未真机点检** | `Services/AppPopupMenu.cs`、`Services/TaskbarPillWindow.cs:OnRightClick`、`WidgetWindow.xaml(.cs):Root_RightTapped` | `done` | 10-12 用户反馈（`dev/runtime-pitfalls.md` §18） |
 | **CR-59** | **`runtime-pitfalls.md` §16 的结论漏了一条真方案**：10-10 那版断言"**deskband 是唯一真任务栏方案**"，只对比了 deskband / AppBar / 覆盖窗三条，**漏了 `SetParent` 子窗口**——而 TrafficMonitor、TrayStats、多个开源"任务栏歌词"走的正是这条。该错误直接导致贴片走了两个月的覆盖窗弯路（要 16ms 抢 Z 序、自动隐藏靠猜、点任务栏会闪）。**已修（2026-10-12）**：§16 重写为"四条路"，补 §16.1 三道锁、§16.2「不需要抢 Z 序」、§16.7 坐标换算，并在正文留"本节结论曾写错过一次"的更正说明 | `docs/dev/runtime-pitfalls.md` §16 | `done` | 10-12 用户指出 TrafficMonitor 可真嵌任务栏后查证 |
 | **CR-60** | **新贴片的右键菜单 owner 是"任务栏的子窗口"，未真机验证**：`AppPopupMenu.Show(owner, ...)` 里 `owner = 贴片 HWND`，而贴片现在是 `Shell_TrayWnd` 的 child；`TrackPopupMenuEx` 的 owner 惯例是顶层窗口，`SetForegroundWindow(子窗口)` 的行为也未实测。菜单能否正常弹出、点别处能否关闭、`TPM_RETURNCMD` 返回值是否正常，**都要人手复看**。若失败，退路是 `GetAncestor(GA_ROOT)` 或改用任务栏 HWND 作 owner | `Services/TaskbarPillWindow.cs:OnRightClick`、`Services/AppPopupMenu.cs:Show` | `open` | 10-12 贴片迁移连带引入 |
+| **CR-63** | **跨进程 `SetParent` 把贴片的输入队列与 explorer 串联，可能让"应用 UI 线程长阻塞"连带冻住任务栏**：贴片窗口建在**应用 UI 线程**上（`CreateWindowExW` 与 `DispatcherQueueTimer` 都在该线程），挂成 `Shell_TrayWnd` 子窗口后两个线程的输入队列被串成一个（机制见 `dev/runtime-pitfalls.md` §16、`deliverables/taskbar-embed-migration-2026-10-12.md` §2.5/R1）。文档此前只记了"explorer 卡 = 贴片卡"，**反向那一半更要紧**：设置页构造这类秒级同步阻塞，可能**同时把任务栏冻住**。**未实测**（验证方法：让 UI 线程同步阻塞数秒，观察任务栏是否失去响应）。候选解：把贴片窗口放到**独立线程**（自带消息循环）创建，让被串住的是几乎空闲的贴片线程而非 UI 线程 | `Services/TaskbarPillWindow.cs`（构造与 `_timer` 均在 UI 线程） | `open` | 10-12 性能排查（贴片迁移连带引入） |
+| **CR-64** | **主窗口每次"显示 → 隐藏"后进程私有字节单调爬升**（用户报"双击打开主界面就涨"，实测 120 → 171 MB / 一轮 90 秒，**+51 MB**），而**托管堆全程 1–3 MB 恒定、句柄 1353→1368 稳定** → **不是托管泄漏，是原生侧分配**。三条实测定住了位置：① 隐藏空闲 90 秒 **零增长**（这一条同时排除了 1 Hz 贴片、15s/60s 轮询、`Log` 同步刷盘——它们在那 90 秒里都在跑）；② `AppWindow.Show()` 调用栈本身 **−3 MB**，增长是**返回之后的异步尾部**；③ 隐藏与显示**唯一的行为差异**是"当前页刷新会跑"（隐藏时页面已 `Unloaded` 解绑，见 `runtime-pitfalls.md` §19）。而各页刷新是**无条件重建**：`DevicesPage.Refresh` / `HistoryPage.ReloadAsync` 每次都换新 `ItemsSource`，`StatsPage.RenderChartAsync` 每次 `new BatteryChartControl()` → 作废并重建全部 item 容器与合成侧资源，合成器只保高水位、不还内存。**同类先例已踩过两次**：`StatsPage.ReloadDeviceListAsync` 对 `DeviceCombo.ItemsSource` 有"列表没变就不重建"守卫（但只覆盖了下拉框），CR-29 只把"每轮 N+1 次重建"降成"每轮 1 次"，**重建本身仍无条件**。**2026-10-12 晚真机实测已定性 → 不是泄漏，属高水位**。三条新证据（用户配合、全程只读采样）：① 用户抓的 `%TEMP%\VigilWatt.App.DMP`（760 MB，安装版 1.0.5，PID 14104，**启动后 3 分 26 秒**抓取）——托管堆 **4.71 MB / 44,510 对象**、`TextBlock` 仅 180 个（四页缓存后的正常量级）、句柄 1411、模块 187（无重名）、线程 51；`VirtualQueryEx` 分层为 IMAGE 441.3 / MAPPED 256.8 / PRIVATE 99.1 MB。② **6 分钟 / 120 点**分层采样（`GetProcessMemoryInfo` + `VirtualQueryEx`）：`PRIVATE` 113.9 → 114.7（**净增 +0.8 MB**，峰值 116.2 瞬回）、`MAPPED` 285.7 → 285.5（−0.2）、`IMAGE` 441.4 全程不动、句柄 1322–1461 非单调 → **无逐轮累积**。③ **判定性实验**：用户用腾讯电脑管家"回收内存"，采样完整捕获工作集 **137.2 → 3.8 MB**，而 `priv`/`commit` 154.3 与 `PRIVATE` 113.9 **纹丝不动** → 用户看到的"60 多 MB → 0.5 MB"是**工作集（驻留内存）**，天生可回收，**不能用来判断泄漏**。**级别 P2、`wontfix`**：无缺陷可修——反复跳转只抬高**驻留页**，私有提交在最初约 20 分钟内从 99 MB 抬到约 114 MB 后**持平**（典型高水位）。**教训**：`Frame.Navigate` 的摘/挂会让合成器重建 Visual 树，**工作集**因此上台阶；排查内存必须看**私有提交**或 dump 分层，别信"内存回收"类工具的数字。原始读数见 `docs/reviews/archive/memory-growth-2026-10-12.md` §6 | `Services/TrayService.cs:ShowMainWindow`、`MainWindow.xaml.cs:MainWindow`（`Closing`→`Hide`）/`:PrewarmSettingsPage`、`Views/DevicesPage.xaml.cs:OnPageLoaded`/`:Refresh`、`Views/HistoryPage.xaml.cs:ReloadAsync`、`Views/StatsPage.xaml.cs:RenderChartAsync`、`Views/StatsPage.xaml.cs:ReloadDeviceListAsync`（已有的同类守卫） | `wontfix` | 10-12 用户复报内存增长；10-12 分析 + 真机实测（报告 `docs/reviews/archive/memory-growth-2026-10-12.md`） |
 
 ## P2 · 可维护性
 
@@ -171,7 +195,7 @@
 | **CR-29** | 小组件与设备页**无合并/防抖**：每个 `DeviceUpdated` 触发一次 `TryEnqueue` 全量重建（`ChipStack.Children.Clear()` / 重建 `ItemsSource`）；一轮轮询 N 次 `Upsert` → N+1 次全量重建。对照 `TrayService.RequestUpdate` 已用 `Interlocked` 合并 | `WidgetWindow.xaml.cs` 订阅、`Views/DevicesPage.xaml.cs:Refresh` / `OnDevicesChanged` | `done` | 10-10 全检（可维护性） |
 | **CR-30** | `HidDeviceScanner.Inspect` 每次扫描对**每个** HID 接口以 `GENERIC_READ\|GENERIC_WRITE` 开句柄只为读元数据；15s 发现节拍 + 60s 主轮询 → 约 96+ 次打开/分。无需写权限时应用只读打开或缓存接口元数据 | `Hid/HidDeviceScanner.cs:Inspect` | `wontfix` | 10-10 全检（可维护性） |
 | **CR-31** | 自动更新走 Velopack，更新源由**用户可编辑的** `settings.json.UpdateUrl` 决定，**无签名验证、无来源白名单**。本地可写 settings.json 者可指向恶意 feed → 以当前用户身份任意代码执行 | `Services/UpdateService.cs`、`Settings/AppSettings.cs:UpdateUrl`、`Views/SettingsPage.xaml.cs:CheckUpdate_Click` | `wontfix` | 10-10 全检（安全） |
-| **CR-34** | `SettingsPage.Load()` **不可重入**：`PluginPanel.Children` / `_pluginToggles` / `_writePermissionRows` 只增不清（`WidgetMaxCombo.Items` / `LogLevelCombo.Items` 同）。当前仅构造函数调用一次故**不触发**；隐患是 `_pluginToggles` 用字典索引器（重复 key 覆盖、不累积）而 `_writePermissionRows` 用 `List.Add`（累积）——**两者行为不一致**，一旦有人加"重新加载"就会同时出现"UI 重复行 + 保存回写走旧行" | `Views/SettingsPage.xaml.cs:Load` / `:AddPluginRow` / `:_writePermissionRows` | `open` | 10-10 修复轮（收工自审） |
+| **CR-34** | ~~`SettingsPage.Load()` **不可重入**：`PluginPanel.Children` / `_pluginToggles` / `_writePermissionRows` 只增不清（`WidgetMaxCombo.Items` / `LogLevelCombo.Items` 同）。当前仅构造函数调用一次故**不触发**；隐患是 `_pluginToggles` 用字典索引器（重复 key 覆盖、不累积）而 `_writePermissionRows` 用 `List.Add`（累积）——**两者行为不一致**，一旦有人加"重新加载"就会同时出现"UI 重复行 + 保存回写走旧行" | `Views/SettingsPage.xaml.cs:Load` / `:AddPluginRow`~~ | `done` | 10-10 修复轮（收工自审）；10-12 实修（`Load()` 拆成只调用一次的 `BuildOptions()` + 幂等的 `SyncFromSettings()`，"只增不清"被隔离进前者；`_writePermissionRows` 已随第十九轮取消写入许可而消失） |
 | **CR-35** | `LogitechPlugin` 成功打开接口后**只清 `Io`、不清 `OpenFailed`**。因 `CanRetryOpen` 仅在 `Io == null` 时求值、且 `OpenFailedAt` 过期后恒真，当前**无实际后果**；残留语义会让后续改这段的人误判会话仍处打开失败态 | `Plugins/Logitech/LogitechPlugin.cs:MarkOpenFailed` / `CanRetryOpen` / `Attach` | `open` | 10-10 修复轮（收工自审） |
 | **CR-36** | `RequestRefresh` 的 `_refreshQueued` 只在 `TryEnqueue` 回调里复位；`TryEnqueue` 返回 false（窗口/队列已关）时永久卡在 1。当前 `Closed` 已解绑事件、关闭后不再收请求，**无实际后果** | `WidgetWindow.xaml.cs:RequestRefresh`、`Views/DevicesPage.xaml.cs:RequestRefresh` | `open` | 10-10 修复轮（收工自审） |
 | **CR-38** | 任务栏贴片在**构造函数**里就跑了一次 `Relayout`，此时 `Root.XamlRoot` 尚未就绪 → `Scale` 退化成 1.0。**非 100% DPI 下首次 `AppWindow.Resize` 用错比例**，窗口尺寸偏小（`Loaded` 后第二次刷新才修正）→ 启动瞬间贴片可能闪一下/先小后大。**2026-10-12 随贴片改原生子窗口而作废**：新实现（`Services/TaskbarPillWindow.cs:Scale`）用 `GetDpiForWindow(任务栏)` 取比例，**不依赖 XamlRoot**，构造期即可算对 | ~~`TaskbarBatteryWindow.xaml.cs:Scale`~~ | `done` | 10-10 第二十轮（收工自审）；10-12 方案替换后消失 |
@@ -189,6 +213,9 @@
 | **CR-50** | 日志**跨天切换分支无单测覆盖**：`Log.EnsureWriter` 靠 `_currentDate != today` 判断换文件，但 `today` 取自 `DateTime.Now`，测试无法注入时钟，只能覆盖"首写落到当天文件"，覆盖不到"真实跨午夜"。逻辑简单（比对 + 关旧开新），风险低；若日后要测，需给 `Log` 加可注入的时间源（会引入静态可变状态，收益待评估） | `Utils/Log.cs:EnsureWriter` / `:Emit` | `open` | 10-10 第二十一轮（收工自审） |
 | **CR-51** | 日志**一天一个文件、无大小上限**：Debug 档下单日文件可能很大（雷柏单设备被动心跳实测可达约 2.8 万行/天，见 CR-28）。用户明确选择"一天一个文件"，故不设大小滚动；总量靠 `LogRetentionDays`（默认 14 天）兜底 | `Utils/Log.cs:EnsureWriter`（无 `MaxBytes`） | `wontfix` | 10-10 第二十一轮（用户决策） |
 | **CR-52** | `App.xaml.cs:ShutdownLogging` 的注释仍称 `AppServices.Dispose` 全仓无人调用；实际 `TrayService.Exit` 已调用 `App.Services.Dispose()`。行为正确，但注释会误导后续维护者对退出释放链路的判断 | `App.xaml.cs:ShutdownLogging`、`Services/TrayService.cs:Exit` | `open` | 10-11 全项目架构评估 |
+| **CR-61** | **`Log` 的全局锁 + 同步刷盘会让任何线程（含 UI 线程）等磁盘**：`Emit` 在 `lock (Gate)` 里写并 `AutoFlush = true`，托盘提示变化、异常、页面动作写一行都要串行落盘；磁盘被占（杀软扫描等）时 UI 线程跟着等。**本轮刻意不修**：改缓冲/后台刷盘会在崩溃时丢掉最后几行，而这几行正是排障依赖 | `Utils/Log.cs:Emit` | `open` | 10-12 性能排查 |
+| **CR-62** | **60 秒主轮询里罗技对 `dev=2..6` 各等约 0.9 秒 HID++ 超时（`req=0x001B`）→ 一轮约 5 秒**，而本机只有 1 号（MX Master 3S）是真实设备。**不阻塞 UI 线程**（整轮在 `Task.Run` 里跑），但拖慢状态刷新、并占住 `_passGate` 整整 5 秒（期间手动刷新只能等） | `Plugins/Logitech/LogitechPlugin.cs:Poll`（遍历设备索引）、日志 `app-2026-10-12.log` | `open` | 10-12 性能排查（日志实测） |
+| **CR-65** | **导航不清 `BackStack`：每次 `ContentFrame.Navigate(...)` 都往 `Frame.BackStack` 追加一条 `PageStackEntry`，全程无人清理**（全仓唯一调用点是 `MainWindow.xaml.cs:PrewarmSettingsPage` 在启动时清一次）→ 长时间反复切页会**无界累积**导航簿记。**量级小**：每条只含页面类型与参数，不是页面实例（四页均已 `NavigationCacheMode.Required`，实例各只有一个），故**无用户可感知后果**，列 P2；但属于该修的"漏"。**已修（2026-10-12）**：`Nav_SelectionChanged` 里 `Navigate` 之后加 `ContentFrame.BackStack.Clear()`；改前已 grep 确认全仓 `GoBack`/`CanGoBack`/`BackRequested` **零调用点**，清栈不影响返回导航。构建 0 警告 0 错误。**累积量未实测**——dump 里 `PageStackEntry` 不投影为托管对象，托管堆 44,510 个对象中查不到 | `MainWindow.xaml.cs:Nav_SelectionChanged`、`:PrewarmSettingsPage`、`MainWindow.xaml:ContentFrame` | `done` | 10-12 内存排查（代码审查） |
 
 ### wontfix 理由（CR-30 / CR-31）
 

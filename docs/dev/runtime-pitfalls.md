@@ -735,3 +735,29 @@ if (msg == Native.WM_PAINT) { /* BeginPaint → FillRect(BLACK_BRUSH) → EndPai
 
 **未验证**：改完只做了 `dotnet build`（0 警告 0 错误），**未真机点检**——菜单外观、"点别处关闭"、
 以及小组件（当时是"桌面"档、被别的窗口盖住，自动化点击打到了上层应用，那次测试无效）都需要人手复看。
+
+## 19. WinUI3 页面缓存：设了 `NavigationCacheMode` 之后，「构造函数订阅 + `Unloaded` 解绑」会变成 bug（2026-10-12 实修）
+
+**背景**：切页慢的根因之一是四个页面全吃 `NavigationCacheMode` 默认值 `Disabled`——每次点导航都
+`new Page()` ＋ 重新解析 XBF。给四个页面设 `Required` 之后实例被**复用**，构造函数**只跑一次**。
+
+**坑**：页面原先的写法是"构造函数里订阅管理器事件 + `Unloaded` 里解绑"。缓存之后这条链会退化成：
+第一次切走 → `Unloaded` 解绑 → 切回来时**不再走构造函数** → 事件永远订不回来，页面从此不刷新。
+**它不报错**：页面照常显示，只是数据停在离开那一刻——比崩溃更难发现。
+
+**改法**（`Views/DevicesPage` / `StatsPage` / `HistoryPage` / `SettingsPage` 统一）：
+
+- 订阅与解绑放 **`Loaded` / `Unloaded` 成对**里，并用一个 `_hooked` 标志挡住 `Loaded` 重复触发造成的叠加订阅；
+- "每次进来都要重读"的活放 `Loaded`（设备列表刷新、设置同步），"只建一次"的活留在构造函数——
+  典型是 `SettingsPage.BuildOptions()`（下拉框档位与插件行动态生成）：缓存页复用同一实例，
+  再建一遍会**叠加出重复条目**。
+
+**同源的一条经验**：`SettingsPage.BuildSearchIndex()` 原本在构造函数里递归遍历整棵视觉树。
+它既不该占页面首次显示的时间，也不该等用户打字时才第一次付——改到 `Loaded` 里用
+`DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, …)` 于布局完成后的空闲时段构建，
+并在 `TextChanged` 里兜底（用户抢先打字也不会拿到空索引）。
+
+**预热**：`MainWindow.PrewarmSettingsPage()` 在窗口可见前先导航到设置页再回设备页，
+把 XBF 解析与控件构造的一次性开销提前付掉；整段 `try/catch` 兜底，失败只记日志并退回设备页。
+
+**未真机点检**：缓存后的实际切换手感、首次打开设置页的耗时、预热对启动时间的影响，都需要人手复看。

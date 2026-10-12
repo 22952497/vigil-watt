@@ -2,6 +2,7 @@ using VigilWatt.App.ViewModels;
 using VigilWatt.Core.Utils;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Navigation;
 
 namespace VigilWatt.App.Views;
 
@@ -17,7 +18,9 @@ public sealed partial class HistoryPage : Page
     public HistoryPage()
     {
         InitializeComponent();
-        _ = ReloadAsync();
+        NavigationCacheMode = NavigationCacheMode.Required;
+        // 页面被缓存复用、构造函数只跑一次，重查必须挂到 Loaded 上（本页不订阅设备事件）
+        Loaded += (_, _) => _ = ReloadAsync();
     }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await ReloadAsync();
