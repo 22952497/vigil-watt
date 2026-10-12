@@ -16,7 +16,7 @@ namespace VigilWatt.App;
 /// 不进 Alt-Tab、不抢焦点；高频把自己抬到任务栏之上（两者同为 topmost，谁后设谁在上）、约每秒跟随一次
 /// 任务栏的位置/厚度/自动隐藏。定位数学在 <see cref="TaskbarLayout"/>、格子外观在
 /// <see cref="TaskbarChipFactory"/>（都是独立可测/单一职责的纯逻辑），窗口表面透明在
-/// <see cref="TaskbarTransparency"/>，完整论证见 docs/dev/runtime-pitfalls.md §16 / §17。
+/// <see cref="TransparentWindowSurface"/>，完整论证见 docs/dev/runtime-pitfalls.md §16 / §17。
 /// </summary>
 public sealed partial class TaskbarBatteryWindow : Window
 {
@@ -69,7 +69,7 @@ public sealed partial class TaskbarBatteryWindow : Window
         Native.SetWindowLongPtr(hwnd, Native.GWL_EXSTYLE, new IntPtr(
             exStyle.ToInt64() | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE));
 
-        TaskbarTransparency.Apply(this);
+        TransparentWindowSurface.Apply(this);
 
         _offsetPx = App.Services.Settings.TaskbarBatteryOffsetX;
 
@@ -81,7 +81,7 @@ public sealed partial class TaskbarBatteryWindow : Window
 
         // Activate 之后窗口才真正显示，Loaded 里补一次定位并同步 _shown 状态；
         // 透明背板也再补一次——它要落到窗口真正接上的内容岛上，构造期这一次不保证生效
-        Root.Loaded += (_, _) => { SetShown(true); TaskbarTransparency.Apply(this); RefreshContent(); };
+        Root.Loaded += (_, _) => { SetShown(true); TransparentWindowSurface.Apply(this); RefreshContent(); };
         RefreshContent();
         StartFollowTimer();
     }
@@ -287,7 +287,9 @@ public sealed partial class TaskbarBatteryWindow : Window
         _taskbarHorizontal = TaskbarLayout.IsHorizontal(taskbar);
         _pillH = TaskbarLayout.PillHeight(taskbar, scale, TaskbarMarginDip, MinHeightDip, MaxHeightDip);
 
-        AppWindow.Resize(new SizeInt32(_pillW, _pillH));
+        // 按**客户区**定尺寸：AppWindow.Resize 设的是外框，窗口若留了非客户区边框就会把客户区挤窄、
+        // 裁掉最右一格的 "%"（Win10 上实测到）
+        AppWindow.ResizeClient(new SizeInt32(_pillW, _pillH));
         ApplyPosition();
     }
 

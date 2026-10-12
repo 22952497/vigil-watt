@@ -1,6 +1,6 @@
 # 会话交接（给下一个 AI / 未来的自己）
 
-> 快照时间：2026-10-11。**先读本文，再按需查其他文档**；内容冲突时以专题文档为准（本文是快照）。
+> 快照时间：2026-10-12。**先读本文，再按需查其他文档**；内容冲突时以专题文档为准（本文是快照）。
 > 逐轮历史（2026-10-04 起每一轮做了什么、为什么这么做）已剥离到 **[changelog.md](changelog.md)**，本文只留"当前状态 + 待办 + 注意事项 + 文件速查"。
 > **维护约定**：本会话收工后——本轮记录追加进 `changelog.md`，本文件只更新 §1 状态与 §4 待办。**流水账不要写回这里**。
 
@@ -15,11 +15,18 @@
 BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形态 / D3 / D4 / D5 / D6**，其余全部 `done` 或 `wontfix`（各带理由）。
 **2026-10-10 第二十轮新增「任务栏电量贴片」**（可选开关、默认关）：把在线设备电量做成一条胶囊钉在任务栏托盘左侧，
 可沿任务栏拖动并记住位置；定位/跟随原理见 `dev/runtime-pitfalls.md` §16，文件速查见 §6。
-**同轮第二、三轮反馈共修掉三件事**（第二轮的判断被第三轮实测**推翻并更正**，以 §17 为准）：
-① 贴片"白框"——可见的是 **Win32 窗口自己用类背景刷擦出来的底色**（`COLOR_WINDOW`，浅色主题=纯白），
-不是内容岛那层；修法是 `DwmExtendFrameIntoClientArea(-1)` + 接管 `WM_ERASEBKGND`/`WM_PAINT` 把客户区擦成 alpha=0；
+**同轮第二、三轮反馈共修掉三件事**（第二轮的判断被第三轮实测**推翻并更正**）：
+① 贴片"白框"——Win11 上可见的是 **Win32 窗口自己用类背景刷擦出来的底色**（`COLOR_WINDOW`，浅色主题=纯白），
+修法是 `DwmExtendFrameIntoClientArea(-1)` + 接管 `WM_ERASEBKGND`/`WM_PAINT` 把客户区擦成 alpha=0；
 ② 最右一格 `%` 被裁——窗口宽度改为布局实测；③ 点任务栏闪一下——抬 Z 序拍频 1 秒 → **16ms**（实测遮挡约一帧）。
 **用户已复看确认外观无误**（2026-10-10 21:28："是我需要的效果"）。
+**2026-10-12 修 Win10 显示异常（已完成并像素级验证）**：用户报贴片在 Win11 正常、**Win10 上白框 + 末尾 `%` 被裁**。
+**本机就是 Win10 19045.6456，bug 可复现**。第一轮只补「清 Win32 那层」→ 白框照旧；判别实验（GDI 往客户区填色、可见像素纹丝不动）
+证明 **Win10 上可见的是内容岛那层**（不设透明 `SystemBackdrop` 时回退成纯色主题底，浅色=纯白）。
+最终修法：`Services/TransparentWindowSurface.cs` 的 `Apply` **两层都清、不做 OS 分支**，贴片与小组件共用；
+`TaskbarTransparency.cs` 与 `Native.MakeWindowTransparent`（accent 通道，实测不产生透明）**已删除**；`RelayoutCore` 改 `ResizeClient`。
+连带修掉**小组件在 Win10 上整个白方块**（`DWMWA_NCRENDERING_POLICY` 与 extend-frame 叠加所致）。
+代价：Win10 上小组件失去 DWM 投影（**CR-57 `open`**，补法是 XAML 自绘投影）。见 `dev/runtime-pitfalls.md` §17.8。
 **2026-10-11 任务栏显示目标确认**：用户明确要求保留独立任务栏胶囊，显示多个设备电量并可配置数量；本轮短暂改成通知区图标的尝试已撤回，继续使用 `TaskbarBatteryWindow`。
 **2026-10-10 第二十一轮：日志改为按日分文件**（`logs\app-日期.log`，跨天自动切、默认保留 14 天，可在设置页改；旧 `app.log` 废弃，见 §5.13）。
 **2026-10-11 第二十三轮：设置页新增搜索与定位**，可按标题、说明、分区搜索普通设置项，也可按插件名/设备类型查动态插件开关；点击结果滚动定位并短暂高亮。
@@ -28,8 +35,10 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 ＋**事件驱动放行**（设备自发通知触发的核实不受熔断限制，≤1 帧/30 秒）＋退避期满**立刻**半开重试；
 `LogitechPlugin` 同步同一张表。**待真机验证**（见 §4 第 10 条）。
 **2026-10-11 新增独立协议采集工具**：`src/tests/VigilWatt.ProtocolCapture/` 支持 USBPcap、Chromium WebHID 旁路记录和 BLE 被动广告采集；使用方式见 `docs/hardware/debugging.md` §9。
-**2026-10-11 发布 1.0.3**：csproj `<Version>` 已升到 1.0.3，`dist/` 里旧包（1.0.1/1.0.2）已清后重打，**现只有 1.0.3 全量包、无增量包**（旧全量包删了就没有可比基准）；本机 `%LOCALAPPDATA%\VigilWatt` 的 `history.db` 与日志已清空。**未上传 GitHub Release**。
-⚠ **`dev/runtime-pitfalls.md` §14 里"本机 Win10 19045"的旧标注已过期**，以 §17 的复核为准。
+**2026-10-11 发布 1.0.3**：csproj `<Version>` 已升到 1.0.3，`dist/` 里旧包（1.0.1/1.0.2）已清后重打，当时只有 1.0.3 全量包、无增量包（旧全量包删了就没有可比基准）。
+**2026-10-12 发布 1.0.4**：`<Version>` 1.0.3 → 1.0.4，`dotnet publish` + `vpk pack` 重打；`dist/` **保留** 1.0.3 全量包作基准，因此这次**有 delta**（`VigilWattApp-1.0.4-delta.nupkg` 仅 97KB）。**未上传 GitHub Release**（账号曾因发布操作被封，上传与否由用户定）。
+⚠ **本机系统版本反复记错过**（§14 写 Win10 19045 → §17 改成 Win11 26200 → 2026-10-12 复核又是 **Win10 19045.6456**）。
+**下结论前先自己跑 `cmd /c ver` 确认**，别照抄文档；这个错误直接导致过"哪一层背景可见"判反（见 §17.1 的更正）。
 
 ## 2. 用户设备清单（勿对号入座错）
 
@@ -79,9 +88,13 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
    `TrayNotifyWnd` 在 Win11 26200 上仍存在。
    **仍需人手确认**：① 沿任务栏**拖动与位置记忆**的手感（`WM_NCHITTEST` 已确认不受影响，但没真拖过）；
    ② 任务栏**自动隐藏**收起时贴片是否跟着藏；③ **竖向任务栏 / 多显示器**（代码写了分支但完全未验证）；
-   ④ **深色主题**下文字对比是否够（CR-42）；⑤ 贴片是否压住任务栏按钮（CR-39）。
+   ④ **深色主题**下文字对比是否够（CR-42）；⑤ 贴片是否压住任务栏按钮（CR-39）；
+   ⑥ ~~Win10 真机复看~~ **2026-10-12 完成**：本机就是 Win10 19045，白框与末尾 `%` 已**像素级验证**（CR-54/55/56 全部 `done`）；
+   **仍需人手复看的是"观感"**——自动化只能证明像素对，好不好看要人眼定。
+   ⑦ **Win10 小组件失去了 DWM 投影**（CR-57，`open`）：透明与投影在 Win10 上互斥，本轮取透明优先；
+   要不要补 XAML 自绘投影，**等用户定**。
    原理与已证伪路径见 `dev/runtime-pitfalls.md` §16 / §17（**§17 是最容易重复踩的一条**：
-   窗口两层背景 + 九种透明通道的实测结果表）。
+   窗口两层背景 + 透明通道实测表 + §17.8 的"哪一层可见随系统变"）。
 10. **真机验证 CR-53 的修复（2026-10-11 改完，未验）**：让迈从键盘**睡够 3 分钟以上**再唤醒，
    看日志是否在 **1 分钟内**出现"设备重新上线"（旧口径最坏要等 11 分钟）。
    关注两条新日志：`停写退避期满（Ns），恢复查询`（N 应为 30/60/120/240/300）与
@@ -133,7 +146,7 @@ BACKLOG 现在**未修项 = CR-13（部分）/ CR-16 + 重构候选 D1 完整形
 | 托盘为何不含本机电量 | `src/VigilWatt.App/Services/TrayService.cs` 的 `Render()`：`if (d.Source == DeviceSource.System) continue;` |
 | 托盘/小组件/设置页 | `src/VigilWatt.App/Services` 与 `Views`（code-flow.md §7/§8/§9） |
 | 任务栏电量贴片 | `src/VigilWatt.App/TaskbarBatteryWindow.xaml(.cs)`（定位/跟随/不抢焦点见 runtime-pitfalls.md §16） |
-| 贴片窗口表面透明（两层背景 + 按系统分通道） | `src/VigilWatt.App/Services/TaskbarTransparency.cs`（Win11 = extend-frame + 自接管 `WM_ERASEBKGND`/`WM_PAINT`；**最容易重复踩**，见 runtime-pitfalls.md §17） |
+| 窗口表面透明（贴片 + 小组件共用） | `src/VigilWatt.App/Services/TransparentWindowSurface.cs`：`Apply(window)` = 清边框样式 + 清 Win32 类背景刷层（extend-frame + 自接管 `WM_ERASEBKGND`/`WM_PAINT`）+ 清内容岛层（透明 `SystemBackdrop`）。**两层都要清、不做 OS 分支**；**最容易重复踩**，见 runtime-pitfalls.md §17 / §17.8 |
 | 任务栏贴片配置与开关 | `AppSettings.TaskbarBatteryEnabled/Mode/MaxDevices/OffsetX` + `Services/TaskbarBatteryMode.cs` + 设置页「任务栏」分节 |
 | 设备类型图标（小组件与贴片共用） | `src/VigilWatt.App/Services/DeviceIconFactory.cs`（纯形状拼装，**别用字体图标**） |
 | 程序图标 | 生成器 `scripts/make-app-icon.py`（改配色/字形改它后重跑，**别手改 .ico**）→ `src/VigilWatt.App/Assets/VigilWatt.ico`；接入 = csproj `<ApplicationIcon>` + `MainWindow.ApplyWindowIcon()`（两处都要，见 runtime-pitfalls §5.2） |

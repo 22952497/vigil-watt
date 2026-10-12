@@ -93,7 +93,12 @@ public sealed partial class WidgetWindow : Window
         Root.ActualThemeChanged += OnThemeChanged;
         Closed += OnClosed;
 
-        Root.Loaded += (_, _) => RefreshContent();
+        // 透明背板要在窗口真正接上内容岛之后再补一次：构造期那一次不保证生效（贴片同理）
+        Root.Loaded += (_, _) =>
+        {
+            if (_win10Chrome) ApplyWin10Chrome();
+            RefreshContent();
+        };
         RefreshContent();
     }
 
@@ -130,33 +135,18 @@ public sealed partial class WidgetWindow : Window
     private double Scale => Root.XamlRoot?.RasterizationScale is > 0 ? Root.XamlRoot.RasterizationScale : 1.0;
 
     /// <summary>
-    /// Win10 专用外壳：把窗口做成完全透明的"玻璃框"，圆角与卡片全部交给 XAML 渲染，
-    /// 并恢复 DWM 投影（无边框窗口在 Win10 上会连投影一起失去）。
-    ///
-    /// 为什么不裁窗口形状、透明为什么只能用 <c>SetWindowCompositionAttribute</c>——
-    /// 三条路都试过的完整记录见 docs/dev/runtime-pitfalls.md §14，别重试。
+    /// Win10 专用外壳：窗口表面全透明，圆角与卡片交给 XAML 画。
+    /// ⚠ **别**在这里恢复 DWM 非客户区渲染——它会把整窗填成白底，与透明互斥，见 runtime-pitfalls §17.8。
     /// </summary>
     private void ApplyWin10Chrome()
     {
         try
         {
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-
-            // 1) 窗口表面全透明：卡片圆角之外透出真正的桌面
-            if (!Native.MakeWindowTransparent(hwnd))
-            {
-                Log.Warn("小组件 Win10 透明化失败：窗口将保持不透明底色");
-            }
-
-            // 2) 恢复 DWM 投影（透明窗口同样能拿到投影）
-            int ncPolicy = Native.DWMNCRP_ENABLED;
-            Native.DwmSetWindowAttribute(hwnd, Native.DWMWA_NCRENDERING_POLICY, ref ncPolicy, sizeof(int));
-            Native.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
-                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_FRAMECHANGED);
+            TransparentWindowSurface.Apply(this);
         }
         catch (Exception ex)
         {
-            // 外壳失败不能影响功能：窗口仍可用，只是没有投影/透明
+            // 外壳失败不能影响功能：窗口仍可用，只是没有透明
             Log.Warn($"小组件 Win10 外壳应用失败: {ex}");
         }
     }

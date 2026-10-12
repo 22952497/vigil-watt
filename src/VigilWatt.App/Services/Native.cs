@@ -15,7 +15,8 @@ internal static class Native
 
     // ---- 无边框窗口的标准样式位（GWL_STYLE）----
     // 光调 AppWindow 的 SetBorderAndTitleBar(false,false) 只关掉标题栏；这几位留着，
-    // Win11 仍会给窗口画系统描边 + 圆角外轮廓（贴片没底色，这一圈直接暴露"这里有个窗口"）。
+    // Win11 仍会给窗口画系统描边 + 圆角外轮廓（贴片没底色，这一圈直接暴露"这里有个窗口"），
+    // Win10 上非客户区还会把客户区挤窄——而 AppWindow.Resize 设的是**外框**，最右一格因此被裁。
     public const int GWL_STYLE = -16;
 
     /// <summary>WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU。</summary>
@@ -195,11 +196,9 @@ internal static class Native
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
-    // ---- DWM 窗口边框/阴影策略 ----
-    // 无边框窗口在 Win10 上会连 DWM 投影一起失去（卡片"贴死"桌面，是"平淡"的根因）。
-    // 把 NC 渲染策略显式设回 ENABLED 即可恢复投影；Win11 本就不受影响。
-    public const int DWMWA_NCRENDERING_POLICY = 2;
-    public const int DWMNCRP_ENABLED = 2;
+    // 注：曾用 `DWMWA_NCRENDERING_POLICY = DWMNCRP_ENABLED` 给 Win10 的无边框小组件找回 DWM 投影，
+    // 但透明窗口要求 `DwmExtendFrameIntoClientArea(-1)`（整窗算边框），两者叠加会把整窗填成不透明底。
+    // 该调用已删；投影与透明在 Win10 上互斥的实测见 docs/dev/runtime-pitfalls.md §17.8。
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(IntPtr hwnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
@@ -226,70 +225,10 @@ internal static class Native
     public const uint SWP_NOACTIVATE = 0x10;
     public const uint SWP_FRAMECHANGED = 0x20;
 
-    // ---- 窗口整体透明（仅 Win10 的圆角方案用）----
-    // 唯一能让窗口"镂空"的通道：`Window` 没有 Background 属性，自定义 SystemBackdrop 在 C# 里
-    // 又不可实现（ABI 接口未投影）。把 accent 策略设为全透明渐变即可，是 WinUI 3 做异形窗口的通行做法。
-    public const int WCA_ACCENT_POLICY = 19;
-    public const int ACCENT_ENABLE_TRANSPARENTGRADIENT = 2;
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct AccentPolicy
-    {
-        public int AccentState;
-        public int AccentFlags;
-        public int GradientColor;   // 0x00RRGGBB（高位 alpha 这里不要，用 AccentState 控透明）
-        public int AnimationId;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct WindowCompositionAttributeData
-    {
-        public int Attribute;
-        public IntPtr Data;
-        public int SizeOfData;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
-
     /// <summary>
-    /// 把窗口表面设为**完全透明**（不画任何像素）。调用后窗口只会显示 XAML 画出来的内容，
-    /// 其余部分是真正的桌面。**只在 Win10 上有效**：Win11 起该 accent 策略不再改变窗口表面，
-    /// 调用照样返回非 0 却毫无视觉效果，Win11 必须改走"透明 SystemBackdrop"，见 runtime-pitfalls §17。
-    /// </summary>
-    public static bool MakeWindowTransparent(IntPtr hwnd)
-    {
-        var accent = new AccentPolicy
-        {
-            AccentState = ACCENT_ENABLE_TRANSPARENTGRADIENT,
-            AccentFlags = 0,
-            GradientColor = 0,
-            AnimationId = 0,
-        };
-
-        int size = Marshal.SizeOf<AccentPolicy>();
-        IntPtr ptr = Marshal.AllocHGlobal(size);
-        try
-        {
-            Marshal.StructureToPtr(accent, ptr, false);
-            var data = new WindowCompositionAttributeData
-            {
-                Attribute = WCA_ACCENT_POLICY,
-                Data = ptr,
-                SizeOfData = size,
-            };
-            return SetWindowCompositionAttribute(hwnd, ref data) != 0;
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(ptr);
-        }
-    }
-
-    /// <summary>
-    /// 收敛 Win11 的窗口外观：清掉 <see cref="BorderlessStyleMask"/> 里的边框样式位（改完必须补
-    /// <c>SWP_FRAMECHANGED</c>，否则样式改动不一定立刻反映到外观），并关掉 DWM 的圆角与外描边。
-    /// 这些属性在 Win10 上不存在，失败即忽略——调用点不判返回值，别让外观收敛把窗口初始化搞挂。
+    /// 收敛无边框窗口外观：清掉 <see cref="BorderlessStyleMask"/> 里的边框样式位（改完必须补
+    /// <c>SWP_FRAMECHANGED</c>，否则样式改动不一定立刻反映到外观），并关掉 DWM 圆角与外描边
+    /// （这两项 Win10 上没有，失败即忽略——调用点不判返回值，别把窗口初始化搞挂）。
     /// </summary>
     public static void ApplyBorderlessChrome(IntPtr hwnd)
     {
@@ -304,13 +243,15 @@ internal static class Native
         DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref noBorder, sizeof(int));
     }
 
-    // ---- Win11 窗口表面透明（任务栏贴片用）----
-    // WinUI3 的窗口有**两层**背景：① Win32 窗口自己用类背景刷擦出来的底色，② 内容岛 Visual 的底色。
-    // 用户看到的"白框"是 ①：类背景刷是 COLOR_WINDOW，浅色主题下就是纯白（实测 GCLP_HBRBACKGROUND=0x6）。
-    // 去掉它两步走——先让 DWM 改用窗口表面的逐像素 alpha，再让客户区被擦成 alpha=0（GDI 不写 alpha 字节）。
-    // 实测结论与失败过的通道见 docs/dev/runtime-pitfalls.md §17。
+    // ---- 清 Win32 那层窗口底色（贴片/小组件共用，封装在 TransparentWindowSurface）----
+    // 窗口类背景刷是 COLOR_WINDOW，浅色主题下就是纯白。去掉它两步走——先让 DWM 改用窗口表面的
+    // 逐像素 alpha 合成，再让客户区被擦成 alpha=0（GDI 填色不写 alpha 字节，正好留下 0）。
+    // 注意这只是**两层**背景里的一层，另一层（内容岛）见 docs/dev/runtime-pitfalls.md §17。
     public const uint WM_PAINT = 0x000F;
     public const uint WM_ERASEBKGND = 0x0014;
+
+    /// <summary>窗口销毁消息：子类化后用它把"按 HWND 存的旧窗口过程"记录摘掉。</summary>
+    public const uint WM_NCDESTROY = 0x0082;
 
     /// <summary>stock object 里的黑色画刷。GDI 填色不写 alpha 字节，正好留下 0。</summary>
     public const int BLACK_BRUSH = 4;

@@ -691,3 +691,48 @@
 **验证**：`dotnet build VigilWatt.sln -c Debug` 0 警告 0 错误；测试除 `LogTests`（本机已知会卡住，见 dev/build.md §4.1）外 **278 用例全绿**（新增 `WriteBackoffTests` 9 条）。
 
 **未做**：**未真机验证**——本机应用正在运行（PID 17468），要验"休眠→唤醒"需人手让键盘睡够 3 分钟再唤醒；罗技路径本机无 VID_046D 设备，无法验证；未执行任何 git 写操作。
+
+### 2026-10-11：提交 CR-53 修复 + 重发 1.0.3（版本号不变）
+
+**诉求**：CR-53 修复"看样子可以了"后，把工作区（含其他未提交改动）合成一个提交；随后"再发布一版，版本号不变"。
+
+**改动**：① 工作区 13 个文件合并为**单个**提交（`3fb3ba3`，+240/−49，提交信息从简）；② 重跑 `dotnet publish` + `vpk pack`（`--packVersion` 仍为 1.0.3），`dist/` 产物覆盖为新一套（Setup.exe / Portable.zip / 1.0.3-full.nupkg / RELEASES / releases.win.json），旧产物先整体移到 `%TEMP%\VigilWatt-dist-2026-10-11-2110` 备份。
+
+**验证**：`dotnet publish` 成功、`publish/VigilWatt.App.dll` 版本 1.0.3.0；`vpk pack` 正常出包；未真机运行发布包。
+
+**未做**：**无增量包**（`dist/` 已清空、无 1.0.2 基线可比，只能全量更新）；未上传 GitHub Release；**刻意不杀正在运行的 Debug 实例**——`scripts/build-installer.ps1` 第 13 行无条件 `taskkill /IM VigilWatt.App.exe /F` 会粘住 dongle 会话约 2 分钟，故改为手动执行其发布两步；未推送远程（本地 `main` 领先 `origin/main` 21 个提交）。
+
+### 2026-10-12：发布 1.0.4（含 Win10 透明修复）
+
+**诉求**：修完 Win10 贴片/小组件透明后"重新打包下，版本号用 1.0.4"。
+
+**改动**：① `src/VigilWatt.App/VigilWatt.App.csproj` 的 `<Version>` 1.0.3 → **1.0.4**（版本号唯一来源，脚本从发布 exe 的 FileVersion 读）；② `dotnet publish src/VigilWatt.App -c Release -p:Platform=x64 -o publish`（`FileVersion=1.0.4.0`、`InformationalVersion=1.0.4+3fb3ba3`）；③ `vpk pack --packVersion 1.0.4`。
+
+**关键点**：`dist/` **这次没有清空**，1.0.3 的 `-full.nupkg` 留在原处当基准 → vpk 自动生成 **`VigilWattApp-1.0.4-delta.nupkg`（97KB）**（1.0.3 → 1.0.4 只有 5 个文件被 patch），这是前两轮"清空 dist 重打"时拿不到的东西。规则已补进 `docs/dev/build.md` §8 坑 3。
+
+**产物**（`dist/`，10:33 生成）：`VigilWattApp-win-Setup.exe` 43.96MB、`VigilWattApp-win-Portable.zip` 36.40MB、
+`VigilWattApp-1.0.4-full.nupkg` 36.41MB、**`VigilWattApp-1.0.4-delta.nupkg` 97KB**、
+`VigilWattApp-1.0.3-full.nupkg`（保留作 delta 基准）、`RELEASES` / `releases.win.json` / `assets.win.json`。
+
+**验证**：`vpk pack` EXITCODE=0，日志 `Complete: Building delta 1.0.3 -> 1.0.4`、`0152 files. 0005 patched, 0147 unchanged`；
+`releases.win.json` 同时列出 1.0.4 Full / 1.0.4 Delta / 1.0.3 Full。
+
+**未做**：**未上传 GitHub Release**；未跑 `scripts/build-installer.ps1` 本身（它第 13 行无条件 `taskkill /IM VigilWatt.App.exe /F`，
+会粘住正在运行的 Debug 实例的 dongle 会话约 2 分钟，故手动执行其发布两步——publish 与 pack 都不受运行中实例影响）；
+未执行任何 git 写操作；未真机运行发布包。
+
+### 2026-10-12：修 Win10 贴片「白框 + 末尾 % 被裁」
+
+**诉求**：用户报任务栏电量贴片在 Win11 显示正常，**Win10 上不正常**——背景透明丢失（出现纯白方块）、显示的数据不全（最右一格的 `%` 被裁）。
+
+**环境**：本机就是 **Windows 10 build 19045.6456**（`cmd /c ver`）——**bug 可复现**，本轮结论全部是像素级实测，不是推理。（此前文档里"开发机已是 Win11 26200"的记录是错的，也是 §17.1 判反层的直接原因。）
+
+**根因（第一轮修错了层，过程保留）**：`TaskbarTransparency.Apply` 按 `WidgetCompat.NeedsTransparentChrome(build)` 分流，**Win10 分支只调 accent（`MakeWindowTransparent`）就 `return`**。第一轮按 `runtime-pitfalls.md` §17.1 的结论只补「清 Win32 那层」（`DwmExtendFrameIntoClientArea(-1)` + 接管 `WM_ERASEBKGND`/`WM_PAINT`），**用户复看白框照旧**。于是做判别实验：**往贴片客户区做 GDI 填色**（换绿），可见像素**纹丝不动仍是 `#FFFFFF`** → 可见的不是 GDI 表面。真身是**内容岛那层**：不显式设透明 `SystemBackdrop` 时它回退成"纯色主题底"（浅色=纯白），与 §13 的 Mica 回退同源；补上透明背板后白框立刻消失。
+
+**改动**：① 新建 `Services/TransparentWindowSurface.cs`：`Apply(window)` = `ApplyBorderlessChrome` + `ClearWin32Background`（清 Win32 层）+ `ClearContentIslandBackground`（清内容岛层），**两层都清、不做 OS 分支**；旧窗口过程由**按 HWND** 的 `PrevProcs`（`WM_NCDESTROY` 清理）承载（**顺带修 CR-49**——小组件与贴片可同时存在，原单份静态字段必破）；② 贴片改调 `TransparentWindowSurface.Apply`，**构造函数与 `Root.Loaded` 各一次**（背板要落到窗口真正接上的内容岛）；③ **删除** `Services/TaskbarTransparency.cs` 与 `Native.MakeWindowTransparent`（含 `AccentPolicy` / `WindowCompositionAttributeData` / `SetWindowCompositionAttribute`）——accent 通道在 Win10 上实测**不产生透明**（叠加 extend-frame 时四角是 accent 蓝 `#1883D7`），§14 那条"Win10 靠 accent 做透明"被证伪；④ `TaskbarBatteryWindow.RelayoutCore` 的 `AppWindow.Resize` → `AppWindow.ResizeClient`（按客户区定尺寸，双保险）；⑤ **桌面小组件整个白方块**（本轮连带发现，用户未报）：`ApplyWin10Chrome` 的 `DWMWA_NCRENDERING_POLICY = DWMNCRP_ENABLED`（§14 为找回 DWM 投影而加）与透明所需的 `DwmExtendFrameIntoClientArea(-1)`（整窗算边框）叠加后，DWM 把这层边框填成不透明底 → 删掉该调用，小组件同样改调 `Apply`；⑥ `Native.cs` 补 `WM_NCDESTROY` 常量，删掉已无用的 accent 与 `DWMWA_NCRENDERING_POLICY` 相关声明。
+
+**代价（新开 CR-57）**：逐组合实测（margins × NCRENDERING × accent × `WS_EX_LAYERED`）证明 **Win10 上"透明"与"DWM 投影"互斥**，本轮取**透明优先** → 小组件在 Win10 上不再有投影。补法方向是**在 XAML 里自绘投影**（窗口四周留余量 + 卡片加 `DropShadow`），**未做**。
+
+**验证**：`dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；`dotnet test src/tests/VigilWatt.Core.Tests --no-build --filter "FullyQualifiedName!~LogTests"` **278/278**。**像素级实测**：贴片——窗口矩形与客户区**同尺寸**（边框差 0），贴片内背景 `#301F22`/`#311F23` 与紧邻任务栏 `#312023` 基本一致，内容落在 x=7..113（窗口宽 123，**右侧留白 9px，末尾 `%` 完整**）；小组件——抬到最上层截一张、`SW_HIDE` 后再截同一块，**四角像素与"真桌面"逐字节相同**（`#1E1E1E`/`#252526`/`#73DDFC`/`#007ACC`），透出桌面像素 4045 → **12940**。
+
+**未做**：未执行任何 git 写操作；深色主题下的小组件配色仍未复看；CR-57（XAML 自绘投影）未做。原理与逐组合实测表见 `docs/dev/runtime-pitfalls.md` §17.8。

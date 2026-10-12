@@ -308,11 +308,13 @@ Mica 是 **Windows 11 专属**（微软文档原文："在 Windows 10 上会回�
    `ICompositionSupportsSystemBackdrop` 是 **ABI 接口**，存在于 winmd 但**未投影到 C#**
    （`ISystemBackdropOverrides` 同理），写了必然 CS0246；`SystemBackdrop` 的构造函数也是
    `protected`、无法直接 `new`。
-3. ✅ **`SetWindowCompositionAttribute(WCA_ACCENT_POLICY=19, ACCENT_ENABLE_TRANSPARENTGRADIENT=2)`**：
-   user32 未公开导出，把窗口 accent 策略设为全透明，窗口表面不再画任何像素。
-   这是 WinUI 3 / WPF 做"异形/透明窗口"的通行做法。封装在
-   `Native.MakeWindowTransparent(hwnd)`（连同 `AccentPolicy` / `WindowCompositionAttributeData`
-   两个结构体）。
+3. ❌ **`SetWindowCompositionAttribute(WCA_ACCENT_POLICY=19, ACCENT_ENABLE_TRANSPARENTGRADIENT=2)`**：
+   本节当时把它当成唯一可行通道（"把 accent 设为全透明，窗口表面不再画任何像素"），并封装成
+   `Native.MakeWindowTransparent`。**2026-10-12 在 Win10 19045 上像素级实测证伪**：它并不能让窗口
+   表面变透明——叠在 `DwmExtendFrameIntoClientArea(-1)` 之上时四角是**accent 蓝 `#1883D7`**，
+   把它撤掉反而立刻透出真桌面（`#1E1E1E`/`#252526`）。**该封装已删除**，
+   现在贴片与小组件统一走 §17.5 的 extend-frame 路线（`Services/TransparentWindowSurface.cs`）。
+   `AccentFlags=0x20`、`ACCENT_ENABLE_BLURBEHIND(3)` 两个变体也一并试过，同样不行。
 
 **为什么内置材质（Acrylic/Mica）救不了**（中间版本试过，已废弃）：
 `DesktopAcrylicBackdrop` 只能**铺满整个窗口矩形**，没有任何 API 能把材质本身裁成圆角，
@@ -332,11 +334,13 @@ Mica 是 **Windows 11 专属**（微软文档原文："在 Windows 10 上会回�
 
 **验证**：`dotnet build VigilWatt.sln -c Debug` 0 错误；`dotnet test` **101/101**。
 
-**环境提醒**：本节写于 Win10 19045 上（2026-10-08）。**2026-10-10 复核：开发机已经是 Windows 11 build 26200**，
-于是"Win10 兼容外壳"这条路在当前机器上**根本不执行**（`WidgetCompat.NeedsTransparentChrome` 为 false），
-`MakeWindowTransparent` 能否跑通**在本机从未被验证过**——小组件有卡片底色挡着看不出来，
-任务栏贴片没有底色，同一处失效就立刻现形，见 §17。
-（用 shell / `nohup` 拉起 exe 会被进程树清理带走这条现象是 Win10 时期的记录，未在 Win11 上复测。）
+**环境提醒**：本节写于 Win10 19045（2026-10-08）；2026-10-10 的复核记录称"开发机已是 Win11 build 26200"，
+但 **2026-10-12 复核：会话所在机器是 Windows 10 build 19045.6456**（`cmd /c ver`）——
+**写结论前先自己确认本机版本，别照抄本节的描述**（这类"机器是什么系统"的记录已经错过一次，
+并且直接导致 §17.1 把"哪一层可见"判反）。
+好消息是：在 Win10 上"Win10 兼容外壳"这条路是**真的会执行**的（`WidgetCompat.NeedsTransparentChrome` 为 true），
+所以本节与 §17.8 的结论都能在本机直接复现、像素级验证。
+（用 shell / `nohup` 拉起 exe 会被进程树清理带走这条现象是 Win10 时期的记录。）
 
 ## 15. 小组件"钉在桌面"只能靠 SetWindowPos(HWND_BOTTOM)，不能靠 IsAlwaysOnTop（2026-10-08）
 
@@ -485,7 +489,10 @@ Windows 任务栏**自己就有一个电池图标**，贴片再重复一遍纯�
 **未做**：未启动应用肉眼确认（贴片位置/自动隐藏/多显示器/竖向任务栏都需真机看），
 未向任何设备发帧。
 
-## 17. 贴片"白框"与"点任务栏闪一下"：WinUI3 窗口的两层背景（2026-10-10 实修）
+## 17. WinUI3 窗口的两层背景：贴片"白框"、点任务栏闪一下、小组件白底（2026-10-10 起；§17.1 于 10-12 更正）
+
+> 本节结论按"**哪一层可见**"组织，而那**取决于系统**（§17.1 只在 Win11 成立，§17.8 是 Win10 的实测）。
+> 动任何与窗口透明/无边框有关的代码前，先把 §17.8 的实测表读完——那里有 4 组"试过不行"的组合。
 
 **症状**（用户两轮反馈，第二轮明确说第一轮没修好）：
 
@@ -498,7 +505,7 @@ Windows 任务栏**自己就有一个电池图标**，贴片再重复一遍纯�
 （2560×1440）取像素，两边对不上，取的永远是不相干的区域。
 **截屏脚本第一行必须先 `SetProcessDpiAwarenessContext(-4)`（PER_MONITOR_AWARE_V2）**，否则别信它的输出。
 
-### 17.1 根因：可见的是 **Win32 那一层**，不是内容岛
+### 17.1 根因：可见的是 **Win32 那一层**，不是内容岛（**该结论只在 Win11 上成立**）
 
 WinUI3 的窗口背景确实是两层，但**哪一层可见**必须实测，不能想当然：
 
@@ -517,14 +524,19 @@ WinUI3 的窗口背景确实是两层，但**哪一层可见**必须实测，不
 内容岛那层（②）换透明 `SystemBackdrop` 是**必要的**，但它**从来不是可见的那一层**——
 这正是上一轮"日志显示背板设置成功、白框却还在"的原因。
 
-### 17.2 通道实测表（本机 Win11 26200.9445）
+> ⚠ **2026-10-12 更正：以上"①才是可见层"只在 Win11 成立。** 换到 Win10 19045 上实测，
+> 可见的**恰恰是 ② 内容岛那层**（不设透明背板时它回退成"纯色主题底"，浅色=纯白）——
+> 证据是"往客户区做 GDI 填色，可见像素纹丝不动"，说明看到的不是 GDI 表面。
+> 也就是说**两层都可能可见、取决于系统**，所以最终修法是"**两层都清**"，不做 OS 分支，见 §17.8。
+
+### 17.2 通道实测表（Win11 26200.9445；accent 一行已在 Win10 上补测）
 
 不要靠资料推断哪条通道能用，本机逐个试过：
 
 | 通道 | 结果 |
 | --- | --- |
-| `SetWindowCompositionAttribute` + `ACCENT_ENABLE_TRANSPARENTGRADIENT` | ❌ **返回 1、日志干净、窗口毫无变化**（见 17.3） |
-| `ICompositionSupportsSystemBackdrop.SystemBackdrop = 透明画刷` | ⚠️ 只清掉 ② 层，① 层照旧 |
+| `SetWindowCompositionAttribute` + `ACCENT_ENABLE_TRANSPARENTGRADIENT` | ❌ **返回 1、日志干净、窗口毫无变化**（见 17.3）。**Win10 19045 补测：不是"无变化"而是把四角染成 accent 蓝 `#1883D7`**，同样不是透明 |
+| `ICompositionSupportsSystemBackdrop.SystemBackdrop = 透明画刷` | ⚠️ Win11 上只清掉 ② 层、① 层照旧；**Win10 上它正是那块白框的解药**（§17.8） |
 | `WS_EX_LAYERED` + `SetLayeredWindowAttributes(...,255,LWA_ALPHA)` | ❌ 无变化（alpha 255 就是不透明） |
 | 只加 `WS_EX_LAYERED`（不设任何属性） | ❌ 无变化 |
 | 运行期补 `WS_EX_NOREDIRECTIONBITMAP` | ❌ **系统直接把这一位丢掉**（只能建窗口时带） |
@@ -548,9 +560,9 @@ WinUI3 的窗口背景确实是两层，但**哪一层可见**必须实测，不
 2. colorkey 命中的像素会**变成点击穿透**——贴片四周那圈留白（`PadH`/`PadV`）就点不到了，
    而"沿任务栏拖动贴片"正是用户要的功能。贴片又紧挨任务栏按钮区，误点会直接启动别的程序。
 
-### 17.5 采用的修法（`Services/TaskbarTransparency.cs`）
+### 17.5 采用的修法（`Services/TransparentWindowSurface.cs`）
 
-两步，缺一不可：
+清 ① 层（Win32 那层）两步，缺一不可：
 
 ```csharp
 // ① 让 DWM 改用窗口表面的逐像素 alpha 合成（否则它一律把窗口当不透明）
@@ -587,10 +599,63 @@ if (msg == Native.WM_PAINT) { /* BeginPaint → FillRect(BLACK_BRUSH) → EndPai
 
 - **拖动手感未做真机手测**：`WM_NCHITTEST` 已确认不受影响，但"拖起来顺不顺"要人试。
 - **深色主题未实测**：修法与主题无关，但配色（§16.4）在深色下的观感仍未确认。
-- **Win10 通道（accent）本轮一行没动**，也没有可复现的 Win10 机器；§14 那条路的实际观感仍属未验证。
+- ~~Win10 真机仍不可得~~ → **2026-10-12 复核：会话所在机器就是 Win10 19045，本节与 §17.8 的结论均为该机像素级实测**。
 - 本次验证用的临时脚本（`.workbuddy-ai/tmp/*.py`）用完即删。
 
-**验证**：`dotnet build VigilWatt.sln -c Debug` 0 警告 0 错误；`dotnet test` **276/276**；
-**像素级实测**：修复后贴片内背景像素（`#E4EFFA` / `#E3EEF9`）与紧邻的任务栏像素逐字节相同，
-仅内容像素（绿色 `#34C759`）不同 → 无残留底框。
+### 17.8 Win10 白框的真身是「内容岛那层的默认背板」；小组件另有 DWM 非客户区渲染（2026-10-12 实修）
+
+**症状**（用户 2026-10-12 反馈）：同一份程序，贴片在 Win11 正常，Win10 上①出现**纯白方块**、②最右一格的 `%` 被窗口边缘**裁掉**。
+
+**环境**：本机 = Windows 10 build 19045.6456（`cmd /c ver`）——**bug 本机可复现**，下面全部是实测，不是推断。
+
+**第一轮修错了层（保留过程，这是本节最有用的部分）**：按 §17.1 的结论，先把"清 Win32 那层"
+（`DwmExtendFrameIntoClientArea(-1)` + 接管 `WM_ERASEBKGND`/`WM_PAINT`）补进 Win10 分支，**白框照旧**。
+于是做判别实验：**往贴片客户区做 GDI 填色**（换成绿色）→ 可见像素**纹丝不动，仍是 `#FFFFFF`**
+→ 可见的**不是** GDI 表面，**不是 Win32 那层**。
+
+**真身**：Win10 上可见的是**内容岛那层**——没有显式设透明 `SystemBackdrop` 时，它回退成"纯色主题底"
+（浅色主题=纯白），与 §13 那条"Mica 在 Win10 回退为纯色主题色"同源。补上
+`ICompositionSupportsSystemBackdrop.SystemBackdrop = 全透明画刷` 后白框立刻消失。
+
+**最终修法**：**两层都清，且不做 OS 分支**。三件事收进 `TransparentWindowSurface.Apply(window)`：
+`ApplyBorderlessChrome` + `ClearWin32Background` + `ClearContentIslandBackground`；贴片与小组件都调它。
+`Services/TaskbarTransparency.cs` 与 `Native.MakeWindowTransparent` 已删除（后者见 §14 第 3 条的证伪）。
+贴片在**构造函数与 `Root.Loaded` 各调一次**——背板要落到窗口真正接上的内容岛上，构造期那一次不保证生效。
+
+**`%` 被裁的两处原因**：
+
+1. Win10 分支原先漏了 `ApplyBorderlessChrome` → 窗口残留 `WS_CAPTION|WS_THICKFRAME|…`，非客户区把客户区挤窄，
+   而 `AppWindow.Resize` 设的是**外框**尺寸 → 客户区比实测内容窄；
+2. 修法（双保险）：两条分支都跑 `ApplyBorderlessChrome`，且 `RelayoutCore` 改 **`AppWindow.ResizeClient`**（按**客户区**定尺寸）。
+
+**桌面小组件：另一个独立成因，且与 DWM 投影互斥**（本轮连带发现，用户未报）：
+
+`WidgetWindow.ApplyWin10Chrome` 里有一句 `DWMWA_NCRENDERING_POLICY = DWMNCRP_ENABLED`（§14 为找回 DWM 投影而加）。
+透明窗口要求 `DwmExtendFrameIntoClientArea(-1)`——**整窗都算"边框"**；此时再让 DWM 去渲染非客户区，
+它就把这层边框填成不透明底 → **整个窗口变白方块**（四角 `#FFFFFF`，卡片被包在白底里）。
+
+逐组合实测（改属性 + `RedrawWindow` 后立刻取像素，**不用重编译**）：
+
+| margins | NCRENDERING | 四角 | DWM 投影 |
+| --- | --- | --- | --- |
+| `-1` | `ENABLED` | ❌ `#FFFFFF` 白框 | ✅ 有 |
+| `-1` | `DISABLED` / `USEWINDOWSTYLE` | ✅ = 真桌面（4 个圆角外共 220px） | ❌ 无 |
+| `0` / `1` | `ENABLED` | ❌ 不透明（GDI 那层露出来） | — |
+| `-1` | `ENABLED` + accent 或 `WS_EX_LAYERED`+`LWA_ALPHA(255)` | ❌ 白框 / accent 蓝 | ✅ 有 |
+
+**在 Win10 上"透明"与"DWM 投影"不可兼得**（试过的旁路全在上表）。取舍：**透明优先**（那是用户报的 bug），
+于是小组件在 Win10 上不再有投影。日后若要补投影，正确方向是**在 XAML 里自绘**
+（窗口四周留余量 + 卡片视觉加 `DropShadow`），**不是**回去开 `NCRENDERING_POLICY`。
+
+**验证**（本机 Win10 19045，逐像素）：
+
+- **贴片**：窗口矩形与客户区**同尺寸**（边框差 0）；贴片内背景 `#301F22`/`#311F23` 与紧邻任务栏 `#312023`
+  基本一致；内容像素落在 x=7..113（窗口宽 123）→ **右侧留白 9px，末尾 `%` 完整**。
+- **小组件**：抬到最上层截一张、`ShowWindow(SW_HIDE)` 后再截同一块，**四角像素与"真桌面"逐字节相同**
+  （`#1E1E1E`/`#252526`/`#73DDFC`/`#007ACC`）；透出桌面的像素从修前 4045 → **12940**（圆角外全部透出）。
+- `dotnet build VigilWatt.sln -c Debug` 0 警告 0 错误；
+  `dotnet test src/tests/VigilWatt.Core.Tests --no-build --filter "FullyQualifiedName!~LogTests"` **278/278**。
+
+**顺带修 CR-49**：旧窗口过程从"单份静态字段"改成按 HWND 存（`TransparentWindowSurface.PrevProcs`，
+`WM_NCDESTROY` 清理）——小组件与贴片可**同时存在**（`App.xaml.cs`），单份字段会让后装的窗口调到前一个的过程。
 
