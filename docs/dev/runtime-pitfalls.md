@@ -467,11 +467,13 @@ light-dismiss，**用它右键菜单就关不掉**。所以贴片的右键菜单
 贴片位置不是自由坐标，而是"**默认位 + offset**"：
 
 - 横向任务栏只取鼠标位移的 **X**、竖向只取 **Y**（斜着拖不会把贴片拽离任务栏）；
-- 每次落位后把"实际落点 - 默认位"**反推回 offset**，这样拖到头再往回拖不会有"空走"；
-- 松手时写入 `AppSettings.TaskbarBatteryOffsetX`，重启沿用。
+- **只有拖动中**才把"实际落点 - 默认位"反推回 `_offsetPx`（拖到头再往回拖不会"空走"）。
+  平时过渡帧（拔插显示器时任务栏/托盘矩形短暂错位）也会夹紧，若写回记忆，分辨率往返后偏移就被污染；
+- 松手时写入 `TaskbarBatteryOffsetX` + `TaskbarBatteryOffsetDpi`（记下偏移时的任务栏 DPI），重启沿用；
+- 落位时用 `TaskbarLayout.ScaleOffset` 从**同一对规范值**换算到当前 DPI（不能逐帧累乘）。
 
-拖动用原生 `SetCapture` / `ReleaseCapture` + `WM_MOUSEMOVE`：按下记起点、移动改 `_offsetPx` 后立刻
-`ApplyPosition()`（`UpdateLayeredWindow` 同时完成定位，不需要额外的 `SetWindowPos`）。
+拖动用原生 `SetCapture` / `ReleaseCapture` + `WM_MOUSEMOVE`：按下用**当帧可见（已夹紧）偏移**做起点、
+移动改 `_offsetPx` 后立刻 `ApplyPosition()`（`UpdateLayeredWindow` 同时完成定位，不需要额外的 `SetWindowPos`）。
 **注意命中测试按 alpha 判定**（§16.1）：整块位图铺了 alpha=1 的"不可见底"，
 所以留白处也能按下拖动；否则只有文字/图形像素能拖。
 
@@ -486,7 +488,18 @@ Windows 任务栏**自己就有一个电池图标**，贴片再重复一遍纯�
 `TaskbarLayout` 那套纯函数算出来的仍是**屏幕坐标**（它们原本服务于覆盖窗方案，屏幕坐标直接可用）。
 子窗口的坐标却是**相对父窗口客户区**的，所以 `ApplyPosition` 在 `TaskbarLayout.Place(...)` 之后
 必须再走一次 `ScreenToClient(_taskbar, ref pt)` 换算，否则贴片会跑到屏幕左上角之外。
-**这是从覆盖窗迁移到子窗口时唯一改动的几何代码**（`TaskbarLayout` 本身一行未动，23 条单测全保留）。
+**这是从覆盖窗迁移到子窗口时唯一改动的几何代码**（`TaskbarLayout` 本身一行未动，定位单测保留）。
+
+### 16.8 显示配置变化：重新挂住 + 分层窗口重建
+
+外接屏拔插 / 分辨率往返时三件事要一起做：
+
+1. **父窗口可能丢了**：资源管理器会拆任务栏；每拍若 `GetParent(贴片) != Shell_TrayWnd`，再 `AttachToTaskbar`。
+2. **任务栏 DPI 与建窗时不同**：分层子窗口的坐标空间跟创建时的 DPI 绑在一起，只重算矩形不够——
+   `DestroyWindow` 后按 §16.1 三道锁重建。重建必须经 `DispatcherQueue`，**不能在 `WndProc` 里同步 Destroy**。
+3. **偏移按记下它时的 DPI 换算**（§16.5），夹紧结果不写回记忆，否则过渡帧会把用户位置改坏。
+
+`WM_DPICHANGED` / `WM_DISPLAYCHANGE` 走推迟重建；`WM_SETTINGCHANGE`（主题等）只重绘。
 
 **验证（2026-10-12 实测，本机 Win10 19045）**：
 

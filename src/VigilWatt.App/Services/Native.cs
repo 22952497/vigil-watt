@@ -313,6 +313,7 @@ internal static class Native
 
     public const uint WM_DESTROY = 0x0002;
     public const uint WM_DISPLAYCHANGE = 0x007E;
+    public const uint WM_DPICHANGED = 0x02E0;
     public const uint WM_SETTINGCHANGE = 0x001A;
     public const uint WM_MOUSEMOVE = 0x0200;
     public const uint WM_LBUTTONDOWN = 0x0201;
@@ -365,6 +366,10 @@ internal static class Native
     /// <summary>把窗口挂到别的窗口下（跨进程到任务栏）。**不会自动改 WS_CHILD/WS_POPUP**，调用方自己同步。</summary>
     [DllImport("user32.dll", SetLastError = true)]
     public static extern IntPtr SetParent(IntPtr hwndChild, IntPtr hwndNewParent);
+
+    /// <summary>读父窗口。拔插显示器时资源管理器会拆任务栏，贴片可能不再挂在 Shell_TrayWnd 下。</summary>
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetParent(IntPtr hwnd);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool UpdateLayeredWindow(

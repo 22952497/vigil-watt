@@ -923,3 +923,35 @@ IMAGE 与文件后备的 MAPPED **不计入进程提交量**。判断泄漏只�
 **未做**：**未执行任何 git 写操作**；未清理 `%TEMP%` 里的目标 dump（725.4 MB，用户提供物，需用户确认）；`C:\tmp` 下的临时分析脚本已删。
 
 **报告**：`docs/reviews/archive/memory-growth-2026-10-12.md` §6（新增"真机实测与结论（关闭 CR-64）"）。
+
+### 2026-10-12：重发 1.0.5（第二次，含 CR-65 修复）
+
+**诉求**：用户要求"重新发布，版本号不变"。
+
+**改动**：`<Version>` 保持 **1.0.5**。因是**重打同一版本**，按规则先清空 `dist/`（vpk 不允许同版本重复 pack），
+再 `dotnet publish -c Release -p:Platform=x64 -o publish` + `vpk pack`。**跳过** `scripts/build-installer.ps1`
+第 13 行的无条件 `taskkill`——打包时有一个运行实例（PID 33224），而 publish 写 `publish/` 与 `bin/x64/Release/`，
+与之不冲突（memory：强杀会把迈从 dongle 会话粘住约 2 分钟），故手动跑两步、参数与脚本一致。
+本机 `vpk` 已在 PATH（`C:\Users\20211\.dotnet\tools\vpk.exe`，1.2.161）。
+
+**产物**（`dist/`）：`VigilWattApp-win-Setup.exe` 43.98MB、`VigilWattApp-win-Portable.zip` 36.42MB、
+`VigilWattApp-1.0.5-full.nupkg` 36.43MB、`RELEASES` / `releases.win.json` / `assets.win.json`。
+
+**验证**：`dotnet publish` 0 错误、`vpk pack` **EXITCODE=0**（全程 38 秒）；`releases.win.json` 里 `Version=1.0.5`；
+产物时间戳 21:04。**未真机安装/运行**。
+
+**未做**：**无增量包**（dist 清空后重打，无历史全量包作基准）；未上传 GitHub Release；本次发布操作本身未做任何 git 写操作。
+
+### 2026-10-13：修分辨率往返后任务栏贴片位置错位
+
+**症状**：外接屏连上 → 拔掉 → 再连（2K↔1080p）后，贴片不再停在用户拖过的位置。
+
+**根因**：`ApplyPosition` 每帧把 `Place` 的夹紧结果写回 `_offsetPx`。拔插过渡帧里任务栏/托盘矩形短暂错位，夹紧反推出非 0 偏移，污染用户记忆；设置只在松手时落盘，所以是进程内被改坏。
+
+**修法**：① 夹紧写回只在拖动中；按下用当帧可见偏移作起点。② 设置增 `TaskbarBatteryOffsetDpi`，落位用 `TaskbarLayout.ScaleOffset` 从同一对规范值换算。③ 父窗口丢失则再 `AttachToTaskbar`；任务栏 DPI 变了则推迟 Destroy+重建分层窗口（`WM_DPICHANGED`/`WM_DISPLAYCHANGE`）。详见 `runtime-pitfalls.md` §16.5 / §16.8。
+
+**真机验证通过**（用户确认拔插往返位置正确）。
+
+### 2026-10-13：发布 1.0.6
+
+**改动**：`<Version>` 1.0.5 → **1.0.6**（含分辨率往返贴片位置修复）。跳过 `taskkill`（有运行实例）；`dist/` 保留 1.0.5 全量包 → **有 delta**（`VigilWattApp-1.0.6-delta.nupkg` 约 175KB）。**未上传 GitHub Release**。

@@ -42,6 +42,9 @@ public class AppSettings
     /// <summary>任务栏贴片相对"托盘左侧默认位"的水平偏移（物理像素，正数向右）。用户拖动后写入，重启沿用。</summary>
     public int TaskbarBatteryOffsetX { get; set; }
 
+    /// <summary>记下 <see cref="TaskbarBatteryOffsetX"/> 时任务栏的 DPI（96=100%）。0 = 旧配置尚未绑定，首次读到任务栏 DPI 时只记数不改像素。</summary>
+    public int TaskbarBatteryOffsetDpi { get; set; }
+
     public bool StartMinimized { get; set; } = true;
 
     /// <summary>Velopack 更新源：本地文件夹路径、网络共享或 GitHub 仓库 URL；空 = 不检查更新。</summary>

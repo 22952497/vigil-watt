@@ -67,4 +67,11 @@ public static class TaskbarLayout
         }
         return (centeredX, y);
     }
+
+    /// <summary>把记下偏移时的物理像素换算到当前 DPI；Dpi=0 或未变则原样返回（勿逐帧累乘，见 §16.5）。</summary>
+    public static int ScaleOffset(int offsetPx, uint storedDpi, uint currentDpi)
+    {
+        if (storedDpi == 0 || currentDpi == 0 || storedDpi == currentDpi) return offsetPx;
+        return (int)Math.Round(offsetPx * (double)currentDpi / storedDpi);
+    }
 }

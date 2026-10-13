@@ -107,6 +107,30 @@ public class TaskbarLayoutTests
 
         Assert.Equal(1872 + 48 - 200, x);
     }
+
+    // T13：DPI 往返必须从同一对规范值换算，不能漂（2K 150% ↔ 1080p 100%）
+    [Fact]
+    public void ScaleOffset_RoundTripPreservesStoredPixels()
+    {
+        const int stored = -420;
+        const uint dpi2k = 144;
+        const uint dpi1080 = 96;
+
+        int at1080 = TaskbarLayout.ScaleOffset(stored, dpi2k, dpi1080);
+        int back = TaskbarLayout.ScaleOffset(stored, dpi2k, dpi2k);
+
+        Assert.Equal(-280, at1080); // -420 * 96/144
+        Assert.Equal(stored, back);
+        Assert.Equal(stored, TaskbarLayout.ScaleOffset(at1080, dpi1080, dpi2k));
+    }
+
+    // T14：旧配置 Dpi=0 或 DPI 未变 → 原样返回，升级后不跳一下
+    [Theory]
+    [InlineData(100, 0u, 144u, 100)]
+    [InlineData(100, 144u, 144u, 100)]
+    [InlineData(100, 144u, 0u, 100)]
+    public void ScaleOffset_LegacyOrUnchanged_Passthrough(int offset, uint stored, uint current, int expected)
+        => Assert.Equal(expected, TaskbarLayout.ScaleOffset(offset, stored, current));
 }
 
 /// <summary>任务栏贴片的两个设置项收敛（T10–T12）：手改坏了的 settings.json 不能把界面带崩。</summary>

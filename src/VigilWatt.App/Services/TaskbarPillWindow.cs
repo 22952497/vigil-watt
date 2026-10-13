@@ -41,18 +41,21 @@ public sealed class TaskbarPillWindow : IDisposable
     private Gdi.Bitmap? _bitmap;
     private int _pillW, _pillH;
     private int _offsetPx;
+    private int _offsetDpi;
+    private uint _windowDpi;
     private bool _dragging;
     private int _dragStartCursor, _dragStartOffset;
     private bool _taskbarHorizontal = true;
     private PixelRect _taskbarRect, _trayRect;
     private int _refreshQueued;
+    private int _rebuildQueued;
     private bool _needRender = true;
     private bool _disposed;
 
     public TaskbarPillWindow()
     {
         _current = this;
-        _offsetPx = App.Services.Settings.TaskbarBatteryOffsetX;
+        LoadOffsetFromSettings();
 
         EnsureWindow();
 
@@ -66,6 +69,13 @@ public sealed class TaskbarPillWindow : IDisposable
         _timer.Start();
 
         Update();
+    }
+
+    private void LoadOffsetFromSettings()
+    {
+        var s = App.Services.Settings;
+        _offsetPx = s.TaskbarBatteryOffsetX;
+        _offsetDpi = s.TaskbarBatteryOffsetDpi;
     }
 
     private void OnDeviceUpdated(DeviceStatus _) => RequestRefresh();
@@ -87,7 +97,7 @@ public sealed class TaskbarPillWindow : IDisposable
     /// <summary>设置保存后的即时生效入口（开关/显示内容/最多台数可能都变了）。</summary>
     public void RefreshFromSettings()
     {
-        _offsetPx = App.Services.Settings.TaskbarBatteryOffsetX;
+        LoadOffsetFromSettings();
         _needRender = true;
         Update();
     }
@@ -143,6 +153,7 @@ public sealed class TaskbarPillWindow : IDisposable
         }
 
         AttachToTaskbar();
+        _windowDpi = TaskbarDpi();
         Native.ShowWindow(_hwnd, Native.SW_SHOWNOACTIVATE);
     }
 
@@ -161,6 +172,23 @@ public sealed class TaskbarPillWindow : IDisposable
         Native.SetWindowLongPtr(_hwnd, Native.GWL_STYLE, new IntPtr(style));
     }
 
+    /// <summary>DPI/显示配置变了要 Destroy+重建；不能在 WndProc 里 DestroyWindow（§16.8）。</summary>
+    private void RequestRebuild()
+    {
+        if (Interlocked.Exchange(ref _rebuildQueued, 1) == 1) return;
+        _dispatcher.TryEnqueue(() =>
+        {
+            Interlocked.Exchange(ref _rebuildQueued, 0);
+            if (_disposed) return;
+            ReleaseWindow();
+            _taskbarRect = default;
+            _trayRect = default;
+            EnsureWindow();
+            _needRender = true;
+            Update();
+        });
+    }
+
     private void ReleaseWindow()
     {
         if (_hwnd != IntPtr.Zero)
@@ -168,6 +196,8 @@ public sealed class TaskbarPillWindow : IDisposable
             if (Native.IsWindow(_hwnd)) Native.DestroyWindow(_hwnd);
             _hwnd = IntPtr.Zero;
         }
+        _taskbar = IntPtr.Zero;
+        _windowDpi = 0;
         ReleaseDib();
         _bitmap?.Dispose();
         _bitmap = null;
@@ -200,7 +230,16 @@ public sealed class TaskbarPillWindow : IDisposable
         // Explorer 重启会换一个任务栏窗口，旧 HWND 失效，要重新挂
         var taskbar = Native.FindWindowW(Native.TaskbarClassName, null);
         if (taskbar == IntPtr.Zero) return;
-        if (taskbar != _taskbar) AttachToTaskbar();
+        if (taskbar != _taskbar || Native.GetParent(_hwnd) != taskbar)
+            AttachToTaskbar();
+
+        // 任务栏 DPI 变了：分层子窗口坐标空间跟创建时绑死，只重算矩形不够
+        uint dpi = TaskbarDpi();
+        if (_windowDpi != 0 && dpi != 0 && dpi != _windowDpi)
+        {
+            RequestRebuild();
+            return;
+        }
 
         if (!TryGetTaskbar(out var rect, out var tray, out bool hidden)) return;
         // 任务栏自动隐藏时只剩约 2px 厚的边：子窗口会自己跟着父窗口走，别按 2px 重算尺寸位置
@@ -288,13 +327,30 @@ public sealed class TaskbarPillWindow : IDisposable
         if (_bitmap == null || _pillW == 0 || _pillH == 0) return;
 
         int gap = (int)Math.Round(EdgeGapDip * Scale);
-        var (x, y) = TaskbarLayout.Place(_taskbarRect, _trayRect, _pillW, _pillH, _offsetPx, gap, out int applied);
-        _offsetPx = applied;
+        int placeOffset = OffsetForCurrentDpi(out _);
+        var (x, y) = TaskbarLayout.Place(_taskbarRect, _trayRect, _pillW, _pillH, placeOffset, gap, out int applied);
+        // 过渡帧（拔插显示器时任务栏/托盘矩形短暂错位）也会夹紧；只有拖动中才把夹紧结果写回记忆，
+        // 否则分辨率往返后用户偏移会被污染。反推写回语义见 docs/dev/runtime-pitfalls.md §16.5。
+        if (_dragging) _offsetPx = applied;
 
         // 子窗口的坐标是**相对父窗口客户区**的，定位数学算出来的是屏幕坐标，这里换算一次
         var pt = new Native.POINT { X = x, Y = y };
         Native.ScreenToClient(_taskbar, ref pt);
         Upload(pt.X, pt.Y);
+    }
+
+    /// <summary>把记下的偏移换算成当前任务栏 DPI 下的物理像素；旧配置 Dpi=0 时首次只绑定、不改像素。</summary>
+    private int OffsetForCurrentDpi(out uint currentDpi)
+    {
+        currentDpi = TaskbarDpi();
+        if (currentDpi == 0) currentDpi = 96;
+        if (_offsetDpi <= 0)
+        {
+            _offsetDpi = (int)currentDpi;
+            return _offsetPx;
+        }
+        if (_dragging) return _offsetPx;
+        return TaskbarLayout.ScaleOffset(_offsetPx, (uint)_offsetDpi, currentDpi);
     }
 
     // ---------- 位图提交 ----------
@@ -406,9 +462,13 @@ public sealed class TaskbarPillWindow : IDisposable
                     self.OnRightClick();
                     return IntPtr.Zero;
                 case Native.WM_DISPLAYCHANGE:
+                case Native.WM_DPICHANGED:
+                    // 重建可能 DestroyWindow，绝不能在本过程里同步做——推迟到队列
+                    self.RequestRebuild();
+                    return IntPtr.Zero;
                 case Native.WM_SETTINGCHANGE:
                     self._needRender = true;
-                    self.Update();
+                    self._dispatcher.TryEnqueue(self.Update);
                     return IntPtr.Zero;
             }
         }
@@ -417,11 +477,18 @@ public sealed class TaskbarPillWindow : IDisposable
 
     private void OnLButtonDown()
     {
+        // 用当帧可见（已夹紧）的偏移做起点：屏幕变窄贴片贴边时，一拖不会跳回越界前的记忆值
+        int gap = (int)Math.Round(EdgeGapDip * Scale);
+        int placeOffset = OffsetForCurrentDpi(out uint dpi);
+        TaskbarLayout.Place(_taskbarRect, _trayRect, _pillW, _pillH, placeOffset, gap, out int visible);
+        _offsetPx = visible;
+        _offsetDpi = (int)dpi;
+
         _dragging = true;
         Native.SetCapture(_hwnd);
         var p = Native.GetCursorPos();
         _dragStartCursor = _taskbarHorizontal ? p.X : p.Y;
-        _dragStartOffset = _offsetPx;
+        _dragStartOffset = visible;
     }
 
     private void OnMouseMove()
@@ -441,6 +508,7 @@ public sealed class TaskbarPillWindow : IDisposable
 
         var s = App.Services.Settings;
         s.TaskbarBatteryOffsetX = _offsetPx;
+        s.TaskbarBatteryOffsetDpi = _offsetDpi;
         s.Save();
     }
 
@@ -463,10 +531,13 @@ public sealed class TaskbarPillWindow : IDisposable
     {
         get
         {
-            uint dpi = _taskbar != IntPtr.Zero ? Native.GetDpiForWindow(_taskbar) : 0;
+            uint dpi = TaskbarDpi();
             return dpi == 0 ? 1f : dpi / 96f;
         }
     }
+
+    private uint TaskbarDpi() =>
+        _taskbar != IntPtr.Zero ? Native.GetDpiForWindow(_taskbar) : 0;
 
     /// <summary>应用主题跟随系统，原生窗口读注册表比拿 WinUI 的 ActualTheme 更直接。</summary>
     private static bool IsLightTheme()
