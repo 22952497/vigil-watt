@@ -131,12 +131,19 @@ public sealed class DeviceManager : IDisposable
                 // 本机电量同理：开关关着时，历史里的系统电量记录不该把它复活成离线占位。
                 if (stat.DeviceId == SystemBatteryWatcher.DeviceId && !_settings.MonitorSystemBattery) continue;
 
+                // 2.4G 插件的设备 ID 带插件名前缀；离线占位优先复用插件声明的类型，不从品牌产品名猜。
+                var pluginKind = _plugins
+                    .FirstOrDefault(p => string.Equals(p.Name, owner, StringComparison.OrdinalIgnoreCase))?.Kind
+                    ?? DeviceKind.Unknown;
+
                 Upsert(new DeviceStatus
                 {
                     Id = stat.DeviceId,
                     Name = stat.Name,
                     Source = SourceFromId(stat.DeviceId),
-                    Kind = DeviceKindGuesser.Guess(stat.Name),
+                    Kind = stat.Kind != DeviceKind.Unknown ? stat.Kind
+                        : pluginKind != DeviceKind.Unknown ? pluginKind
+                        : DeviceKindGuesser.Guess(stat.Name),
                     Protocol = "历史记录",
                     BatteryPercent = null,   // 不拿历史值冒充当前电量
                     Charging = ChargingState.Unknown,

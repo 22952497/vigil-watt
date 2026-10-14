@@ -295,6 +295,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
                     {
                         // 静音期不是无事可做：延迟离线确认、半开重试与"立刻核实"靠的都是这里的节拍（约 500ms 一次）。
                         CheckOfflineCandidate(dev);
+                        CheckPassiveSilence(dev);
                         MaybeHalfOpenBreaker(dev);
                         RunPendingConfirm(dev);
                         continue;
@@ -362,6 +363,14 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     {
         if (!Offline.IsConfirmExpired(dev.OfflineCandidateSince, DateTimeOffset.Now)) return;
         MarkOffline(dev, $"被动离线候选持续 {Offline.Confirm.TotalSeconds:0}s，标记离线");
+    }
+
+    /// <summary>被动监听空闲节拍检查静默离线，避免等待 60 秒主轮询造成最多一整轮的额外延迟。</summary>
+    private void CheckPassiveSilence(TrackedDevice dev)
+    {
+        if (Offline.Silence <= TimeSpan.Zero || dev.LastPassiveAt == default) return;
+        if (DateTimeOffset.Now - dev.LastPassiveAt <= Offline.Silence) return;
+        MarkOffline(dev, $"被动沉默超过 {Offline.Silence.TotalSeconds:0}s，标记离线");
     }
 
     /// <summary>

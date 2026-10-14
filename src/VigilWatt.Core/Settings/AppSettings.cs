@@ -57,7 +57,7 @@ public class AppSettings
     /// <summary>窗口背景材质。取值见 <c>VigilWatt.App.Services.WindowBackdrop</c>：Auto（跟随系统能力）/ Mica（云母，仅 Win11，不满足自动降级）/ Acrylic（磨砂，Win10 1809+）/ Solid（纯色分层底）；未知取值按 Auto。</summary>
     public string WindowBackdrop { get; set; } = "Auto";
 
-    /// <summary>2.4G 插件开关（品牌级）。**这就是该插件的写入授权**：开插件即允许它发送工作所需的帧，
+    /// <summary>2.4G 插件开关（品牌级）。会写帧的插件以此作为写入授权；纯被动插件（如 Inphic）只用它控制监控。
     /// 不再有独立的"写入许可"开关（CR-37）。会写帧的插件默认关闭（见各项注释）。</summary>
     public Dictionary<string, bool> PluginEnabled { get; set; } = new()
     {
@@ -66,6 +66,7 @@ public class AppSettings
         ["Rapoo"] = true,     // 雷柏走纯被动心跳读取，零写入，默认开启
         ["Elan"] = true,      // Elan 只占位不探测，零写入
         ["Betop"] = true,     // 北通手柄：发官方同款只读状态查询（cmd=0x5），默认开启
+        ["Inphic"] = true,    // 英菲克 report 0x03 被动监听，不发送任何帧
     };
 
     /// <summary>是否把本机（笔记本）电池也纳入监控。默认关闭——它是"另一类设备"，不像外设那样需要盯着，用户明确要时才开（见设置页「监控本机电量」）。

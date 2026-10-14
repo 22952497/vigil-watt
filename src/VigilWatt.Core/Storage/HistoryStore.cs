@@ -4,10 +4,10 @@ using Microsoft.Data.Sqlite;
 
 namespace VigilWatt.Core.Storage;
 
-public record HistorySample(long Id, string DeviceId, string Name, int Percent, bool Charging, DateTimeOffset Timestamp);
+public record HistorySample(long Id, string DeviceId, string Name, DeviceKind Kind, int Percent, bool Charging, DateTimeOffset Timestamp);
 
 /// <summary>单台设备的历史聚合（历史管理页列表用）。</summary>
-public record DeviceHistoryStat(string DeviceId, string Name, int Count, DateTimeOffset First, DateTimeOffset Last);
+public record DeviceHistoryStat(string DeviceId, string Name, DeviceKind Kind, int Count, DateTimeOffset First, DateTimeOffset Last);
 
 /// <summary>整库概览（历史管理页顶部卡片用）。空库时 First/Last 为 null。</summary>
 public record HistoryStats(int TotalCount, int DeviceCount, DateTimeOffset? First, DateTimeOffset? Last, long FileBytes);
@@ -52,6 +52,7 @@ public class HistoryStore : IDisposable
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 name TEXT NOT NULL,
+                kind INTEGER NOT NULL DEFAULT 0,
                 percent INTEGER NOT NULL,
                 charging INTEGER NOT NULL,
                 ts INTEGER NOT NULL
@@ -59,6 +60,21 @@ public class HistoryStore : IDisposable
             CREATE INDEX IF NOT EXISTS idx_samples_device_ts ON samples(device_id, ts);
             """;
         cmd.ExecuteNonQuery();
+
+        // 旧版 history.db 没有设备类型列；新增列默认 Unknown，保留已有采样数据。
+        using var columns = _connection.CreateCommand();
+        columns.CommandText = "PRAGMA table_info(samples)";
+        bool hasKind = false;
+        using (var reader = columns.ExecuteReader())
+            while (reader.Read())
+                if (string.Equals(reader.GetString(1), "kind", StringComparison.OrdinalIgnoreCase))
+                    hasKind = true;
+        if (!hasKind)
+        {
+            using var migrate = _connection.CreateCommand();
+            migrate.CommandText = "ALTER TABLE samples ADD COLUMN kind INTEGER NOT NULL DEFAULT 0";
+            migrate.ExecuteNonQuery();
+        }
     }
 
     public void Insert(DeviceStatus device)
@@ -68,9 +84,10 @@ public class HistoryStore : IDisposable
         {
             using var cmd = _connection.CreateCommand();
             cmd.CommandText =
-                "INSERT INTO samples(device_id, name, percent, charging, ts) VALUES($id, $name, $p, $c, $ts)";
+                "INSERT INTO samples(device_id, name, kind, percent, charging, ts) VALUES($id, $name, $kind, $p, $c, $ts)";
             cmd.Parameters.AddWithValue("$id", device.Id);
             cmd.Parameters.AddWithValue("$name", device.DisplayName);
+            cmd.Parameters.AddWithValue("$kind", (int)device.Kind);
             cmd.Parameters.AddWithValue("$p", percent);
             cmd.Parameters.AddWithValue("$c", device.Charging == ChargingState.Charging ? 1 : 0);
             cmd.Parameters.AddWithValue("$ts", device.LastUpdated.ToUnixTimeMilliseconds());
@@ -86,7 +103,7 @@ public class HistoryStore : IDisposable
         {
             using var cmd = _connection.CreateCommand();
             cmd.CommandText =
-                "SELECT id, device_id, name, percent, charging, ts FROM samples " +
+                "SELECT id, device_id, name, kind, percent, charging, ts FROM samples " +
                 "WHERE device_id = $id AND ts BETWEEN $from AND $to ORDER BY ts";
             cmd.Parameters.AddWithValue("$id", deviceId);
             cmd.Parameters.AddWithValue("$from", from.ToUnixTimeMilliseconds());
@@ -98,9 +115,10 @@ public class HistoryStore : IDisposable
                     reader.GetInt64(0),
                     reader.GetString(1),
                     reader.GetString(2),
-                    reader.GetInt32(3),
-                    reader.GetInt32(4) == 1,
-                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(5))));
+                    (DeviceKind)reader.GetInt32(3),
+                    reader.GetInt32(4),
+                    reader.GetInt32(5) == 1,
+                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(6))));
             }
         }
         return list;
@@ -173,8 +191,8 @@ public class HistoryStore : IDisposable
         {
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = $"""
-                SELECT device_id, name, cnt, first_ts, last_ts FROM (
-                    SELECT device_id, name,
+                SELECT device_id, name, kind, cnt, first_ts, last_ts FROM (
+                    SELECT device_id, name, kind,
                            COUNT(*) OVER (PARTITION BY device_id) AS cnt,
                            MIN(ts) OVER (PARTITION BY device_id) AS first_ts,
                            MAX(ts) OVER (PARTITION BY device_id) AS last_ts,
@@ -189,9 +207,9 @@ public class HistoryStore : IDisposable
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
                 list.Add(new DeviceHistoryStat(
-                    reader.GetString(0), reader.GetString(1), reader.GetInt32(2),
-                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(3)),
-                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4))));
+                    reader.GetString(0), reader.GetString(1), (DeviceKind)reader.GetInt32(2), reader.GetInt32(3),
+                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4)),
+                    DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(5))));
         }
         return list;
     }

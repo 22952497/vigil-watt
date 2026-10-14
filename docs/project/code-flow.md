@@ -172,7 +172,7 @@ BatteryPluginBase.Attach(hidDevices, claims)
 |---|---|---|---|
 | `RequestOffline` | 子类发现**零歧义**离线证据 | **立即** | 北通 T9 占位帧（`byte23=0x50`） |
 | `MarkOfflineCandidate` + `OfflinePolicy.Confirm` | 被动帧里的**有歧义**证据 | 确认窗口（雷柏 **6s**） | 雷柏 `[18].bit7=0`（RF 断链位） |
-| `OfflinePolicy.Silence` | 接口**彻底不说话** | 阈值（雷柏 90s），判定发生在 60 秒轮询里 | 雷柏兜底 |
+| `OfflinePolicy.Silence` | 接口**彻底不说话** | 阈值 + 最多约 500ms（被动监听空闲 tick；轮询仍保留兜底） | 雷柏 / 英菲克 |
 | `OfflinePolicy.MaxFailures` 次查询失败 → 熔断 | 主动查询类插件（发过帧却没应答） | ~3 分钟 | 迈从 / 北通主动路径 |
 | `RequestConfirm` → 空闲 tick 立刻核实 | 被动帧里的**触发器**（**不是证据**） | **秒级** | 迈从 `0A` 状态通知 `payload=0x00` |
 
@@ -187,8 +187,8 @@ BatteryPluginBase.Attach(hidDevices, claims)
 默认 `true`（传统查询型插件）；雷柏（无查询命令）/ 迈从 / 北通（null 与"没开写入、熔断中"不可区分）
 置 `false`，改由插件在 `PollDevice` 里调 `ReportPollFailure` 自己报账。
 
-延迟确认的**检查点在被动监听循环的空闲 tick（约 500ms 一次）**，不在 60 秒轮询里——
-否则"6 秒确认"会退化成"6 + 最多 60 秒"。`MarkOfflineCandidate` 是**幂等**的（候选已开始就不刷新
+`OfflinePolicy.Silence` 和延迟确认的**检查点都在被动监听循环的空闲 tick（约 500ms 一次）**，
+不必等待 60 秒轮询；轮询还保留静默检查作为兜底。`MarkOfflineCandidate` 是**幂等**的（候选已开始就不刷新
 起始时刻），否则持续抖动会把判定无限往后推。判定逻辑是 `OfflinePolicy.IsConfirmExpired`
 （纯函数，有单测 `OfflinePolicyTests`）。恢复在线**不必显式做**——设备回来后 `TryApplyReading`
 自己会把 `IsOnline` 翻回来。所有离线路径最后都落到私有 `MarkOffline(dev, reason)`（幂等，已离线则无操作）。

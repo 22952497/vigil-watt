@@ -64,6 +64,7 @@ self-contained，**无需安装 .NET 运行时**。`publish/` 目录里另有解
 | 北通 T9 手柄 | 2.4G · 厂商接口被动流 | ✅ 真机验证 |
 | 罗技 Bolt 接收器（C548 + MX Master 3S） | HID++ 协议 | ✅ 真机验证 |
 | 雷柏 VT3 二代鼠标 | 2.4G · status-report7 被动心跳 | ✅ 真机验证 |
+| 英菲克 ZHEN | 2.4G · report 0x03 被动状态帧 | ⚠️ 85% 放电帧已确认；应用内真机验证与充电标志待校准 |
 | Elan 接收器（04F3:026F） | feature 通道 | ⚠️ 纯观察模式（无电量命令） |
 | 经典蓝牙耳机（EDIFIER W820NB 等） | HFP 网关节点 PnP 属性 | ✅ 实测 |
 | 本机电池 | `GetSystemPowerStatus` | ✅ 只读、零写入 |
