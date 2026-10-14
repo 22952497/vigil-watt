@@ -1,16 +1,8 @@
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 窗口外观的 OS 能力判定（纯逻辑，便于单测与集中管理"哪个系统走哪条路"）。**小组件与任务栏贴片共用**。
-///
-/// 两边都要"无边框 + 圆角 + 阴影 + 半透明"，而两个系统能力差得很多：Win11 有 DWM 原生圆角 + 云母/Acrylic，
-/// 交给系统即可；Win10 没有圆角 API，`SetWindowRgn` 硬裁既无抗锯齿、又会让 DWM 不再画投影，
-/// 所以必须换成"透明窗口 + XAML 自绘圆角"。
-///
-/// **同名陷阱**：这里的"透明"是"让窗口表面不画像素"，Win10 靠 accent 策略、Win11 靠透明 SystemBackdrop，
-/// 两条通道互不通用——Win11 上 accent 策略静默失效（见 runtime-pitfalls §17）。
-///
-/// 做成纯函数是为了让两条路径在同一处集中可见、不散落魔法数字。
+/// 功 能： 窗口外观的 OS 能力判定（纯逻辑，便于单测与集中管理"哪个系统走哪条路"）。
+/// 2026/10/08 17:10:27 xliu
 /// 具体坑与实修记录见 docs/dev/runtime-pitfalls.md §14 / §17。
 /// </summary>
 public static class WidgetCompat

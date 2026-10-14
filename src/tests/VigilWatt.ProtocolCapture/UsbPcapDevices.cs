@@ -1,6 +1,10 @@
 using System.Runtime.InteropServices;
 
 namespace VigilWatt.ProtocolCapture;
+/// <summary>
+/// 功 能： 枚举本机 USBPcap 设备。
+/// 2026/10/11 12:08:46 xliu
+/// </summary>
 
 public static class UsbPcapDevices
 {

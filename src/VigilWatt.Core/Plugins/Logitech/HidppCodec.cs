@@ -19,7 +19,8 @@ internal enum HidppReportPreference
 }
 
 /// <summary>
-/// HID++ 响应解析（纯逻辑，零 I/O，可单测）。<see cref="HidppIO.Request"/> 返回的缓冲从 feature 字节开始：[0]=feature index，[1]=(func&lt;&lt;4)|swId，[2..]=参数——电量/GetFeature 的有效载荷一律从下标 2 起读，勿把 feature 下标当成百分比。
+/// 功 能： HID++ 响应解析（纯逻辑，零 I/O，可单测）。
+/// 2026/10/08 11:27:03 xliu
 /// 报文层与各特征编码见 docs/hardware/protocols.md §3。
 /// </summary>
 internal static class HidppCodec

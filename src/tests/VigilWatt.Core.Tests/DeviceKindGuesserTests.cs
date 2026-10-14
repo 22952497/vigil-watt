@@ -4,7 +4,8 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
     /// <summary>
-    /// DeviceKindGuesser —— 按显示名猜设备类型（插件没声明 Kind 时的兜底）。
+    /// 功 能： DeviceKindGuesser —— 按显示名猜设备类型（插件没声明 Kind 时的兜底）。
+    /// 2026/10/06 15:53:36 xliu
     /// 用例含真机显示名：它们**一个关键字都没有**，正是"靠名字猜不可靠"的证据。
     /// </summary>
     public class DeviceKindGuesserTests

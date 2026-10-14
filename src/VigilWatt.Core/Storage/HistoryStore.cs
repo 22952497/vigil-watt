@@ -12,7 +12,11 @@ public record DeviceHistoryStat(string DeviceId, string Name, int Count, DateTim
 /// <summary>整库概览（历史管理页顶部卡片用）。空库时 First/Last 为 null。</summary>
 public record HistoryStats(int TotalCount, int DeviceCount, DateTimeOffset? First, DateTimeOffset? Last, long FileBytes);
 
-/// <summary>电量历史 SQLite 存储。库文件默认在 %LOCALAPPDATA%\VigilWatt\history.db。</summary>
+/// <summary>
+/// 功 能： 电量历史 SQLite 存储。
+/// 2026/10/06 15:53:36 xliu
+/// 库文件默认在 %LOCALAPPDATA%\VigilWatt\history.db。
+/// </summary>
 public class HistoryStore : IDisposable
 {
     private readonly SqliteConnection _connection;

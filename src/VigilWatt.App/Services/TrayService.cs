@@ -7,10 +7,9 @@ using VigilWatt.Core.Utils;
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 托盘图标，纯 Win32 实现（Shell_NotifyIcon + 原生弹出菜单）：
-/// - 图标实时渲染最低电量设备的百分比数字
-/// - 左键单击/双击打开主窗口，右键弹菜单（设备列表 + 打开主窗口 + 退出）
-/// - 低电量用 NIF_INFO 气泡提醒
+/// 功 能： 托盘图标，纯 Win32 实现（Shell_NotifyIcon + 原生弹出菜单）：
+/// 2026/10/06 15:53:36 xliu
+/// - 图标实时渲染最低电量设备的百分比数字 - 左键单击/双击打开主窗口，右键弹菜单（设备列表 + 打开主窗口 + 退出） - 低电量用 NIF_INFO 气泡提醒
 /// </summary>
 public sealed class TrayService : IDisposable
 {

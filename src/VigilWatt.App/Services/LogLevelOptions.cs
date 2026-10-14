@@ -2,10 +2,11 @@ using VigilWatt.Core.Utils;
 
 namespace VigilWatt.App.Services;
 
-    /// <summary>
-    /// 设置页「日志级别」下拉框的展示与说明。取值定义在 Core 的 <see cref="LogLevelNames"/>
-    /// （**单一来源**），这里只负责"取值 → 中文标签 / 一句话说明"。
-    /// </summary>
+/// <summary>
+/// 功 能： 设置页「日志级别」下拉框的展示与说明。
+/// 2026/10/09 10:13:25 xliu
+/// 取值定义在 Core 的 <see cref="LogLevelNames"/> （**单一来源**），这里只负责"取值 → 中文标签 / 一句话说明"。
+/// </summary>
 public static class LogLevelOptions
 {
     /// <summary>下拉框档位，顺序与展示一致：关闭 → 详细 → 信息 → 警告 → 错误。</summary>

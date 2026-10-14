@@ -4,10 +4,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-    /// <summary>
-    /// RapooCodec —— 雷柏 2.4G 状态帧（report 0x07，19 字节）的纯解析。
-    /// 用例帧全部取自真机日志，其中 R2 是用户给鼠标断电重连那一下抓到的断链帧。
-    /// </summary>
+/// <summary>
+/// 功 能： RapooCodec —— 雷柏 2.4G 状态帧（report 0x07，19 字节）的纯解析。
+/// 2026/10/08 22:25:16 xliu
+/// 用例帧全部取自真机日志，其中 R2 是用户给鼠标断电重连那一下抓到的断链帧。
+/// </summary>
 public class RapooCodecTests
 {
     /// <summary>真机（21:37:12）：鼠标正常使用中，94% / 充电标志 1 / RF=0xC8（bit7=1，RSSI=72）。</summary>

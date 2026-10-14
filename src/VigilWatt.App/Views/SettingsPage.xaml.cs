@@ -15,6 +15,10 @@ using Windows.Foundation;
 using Windows.UI;
 
 namespace VigilWatt.App.Views;
+/// <summary>
+/// 功 能： 设置页。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 
 public sealed partial class SettingsPage : Page
 {

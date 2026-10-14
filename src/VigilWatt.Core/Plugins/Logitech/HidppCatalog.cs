@@ -4,7 +4,10 @@ using System.Text.Json.Serialization;
 
 namespace VigilWatt.Core.Plugins.Logitech;
 
-/// <summary>嵌入的罗技 HID++ 目录：接收器槽位/报文偏好 + 毫伏→百分比曲线；是补充不是白名单，未收录 PID 仍按默认行为打开 HID++ 接口。</summary>
+/// <summary>
+/// 功 能： 嵌入的罗技 HID++ 目录：接收器槽位/报文偏好 + 毫伏→百分比曲线；是补充不是白名单，未收录 PID 仍按默认行为打开 HID++ 接口。
+/// 2026/10/08 11:27:03 xliu
+/// </summary>
 internal static class HidppCatalog
 {
     private static readonly JsonSerializerOptions JsonOptions = new()

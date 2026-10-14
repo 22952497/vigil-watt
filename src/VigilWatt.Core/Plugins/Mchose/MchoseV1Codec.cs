@@ -26,11 +26,9 @@ internal enum V1ResponseKind
 internal readonly record struct V1Push(V1PushKind Kind, byte Type, byte Payload, int Percent, byte ChargeFlag);
 
 /// <summary>
-/// 迈从键盘 V1 协议（report 0x13）的**纯帧编解码**，不碰句柄、不写日志，便于单测。
+/// 功 能： 迈从键盘 V1 协议（report 0x13）的**纯帧编解码**，不碰句柄、不写日志，便于单测。
+/// 2026/10/06 15:53:36 xliu
 /// 帧布局（全部 20 字节，校验 = 前 19 字节之和 mod 256）见 docs/hardware/protocols.md §1。
-///
-/// **推送帧的类型位（下标 5）是关键**：旧代码不看类型位、直接读下标 6 当电量，
-/// 于是把休眠状态帧的 0x01 显示成 1%，误报低电量。
 /// </summary>
 internal static class MchoseV1Codec
 {

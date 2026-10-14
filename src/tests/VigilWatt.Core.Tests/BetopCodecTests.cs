@@ -3,11 +3,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-    /// <summary>
-    /// BetopCodec —— 北通 (BETOP) 手柄状态报告（report 0x02 / header 0x15）帧编解码。
-    /// 用例使用鲲鹏20 真机原始帧（出自开源实现 oitsukiii/betop-battery）；该协议无校验和字段，
-    /// 因此只校验帧头与字段语义。帧结构见 docs/hardware/protocols.md §4。
-    /// </summary>
+/// <summary>
+/// 功 能： BetopCodec —— 北通 (BETOP) 手柄状态报告（report 0x02 / header 0x15）帧编解码。
+/// 2026/10/06 15:53:36 xliu
+/// 帧结构见 docs/hardware/protocols.md §4。
+/// </summary>
 public class BetopCodecTests
 {
     private static byte[] Hex(string s) => Convert.FromHexString(s.Replace(" ", ""));

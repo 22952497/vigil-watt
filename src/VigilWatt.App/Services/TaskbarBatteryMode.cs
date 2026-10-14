@@ -1,8 +1,9 @@
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 任务栏电量贴片的显示内容：取值定义 + 收敛逻辑。两档语义 —— 全部（每台在线设备一格）、
-/// 最低（只显示电量最低的一台）。与 <see cref="WidgetDisplayMode"/> 同一套路：不散落魔法字符串，设置页也好写人话说明。
+/// 功 能： 任务栏电量贴片的显示内容：取值定义 + 收敛逻辑。
+/// 2026/10/10 21:34:00 xliu
+/// 两档语义 —— 全部（每台在线设备一格）、 最低（只显示电量最低的一台）。
 /// </summary>
 public static class TaskbarBatteryMode
 {

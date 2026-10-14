@@ -3,7 +3,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-/// <summary>ClassicDeviceKindResolver 用例；C1 是"RAPOO BT3.0 鼠标被认成耳机"的回归。类别值与服务 UUID 取自真机实测。</summary>
+/// <summary>
+/// 功 能： ClassicDeviceKindResolver 用例；C1 是"RAPOO BT3.0 鼠标被认成耳机"的回归。
+/// 2026/10/09 17:22:33 xliu
+/// 类别值与服务 UUID 取自真机实测。
+/// </summary>
 public class ClassicDeviceKindResolverTests
 {
     [Fact]

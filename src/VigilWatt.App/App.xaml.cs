@@ -53,6 +53,10 @@ public sealed class AppServices : IDisposable
     private bool _disposed;
 }
 
+/// <summary>
+/// 功 能： 应用入口：单实例、全局异常熔断，并拉起主窗口。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 public partial class App : Application
 {
     public static AppServices Services { get; private set; } = null!;

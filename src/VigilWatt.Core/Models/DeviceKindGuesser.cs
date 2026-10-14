@@ -1,6 +1,9 @@
 namespace VigilWatt.Core.Models;
 
-/// <summary>插件没声明设备类型（<c>DeviceStatus.Kind</c>）时按显示名猜（纯逻辑，可单测）；主要给"一个接收器管多种设备"的插件兜底（如罗技）。</summary>
+/// <summary>
+/// 功 能： 插件没声明设备类型（<c>DeviceStatus.Kind</c>）时按显示名猜（纯逻辑，可单测）；主要给"一个接收器管多种设备"的插件兜底（如罗技）。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 public static class DeviceKindGuesser
 {
     /// <summary>按显示名猜类型。⚠️ **手柄必须排在键盘/鼠标之前**：北通产品串 <c>"BEITONG T9 For Keyboard &amp; Mouse"</c> 先匹配键鼠会被认成键盘（真机踩过）。</summary>

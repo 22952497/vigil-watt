@@ -4,7 +4,8 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// BatteryReadingFilter —— 读数异常过滤：数值有效性（休眠占位帧 0/1）+ 双向变化幅度。
+/// 功 能： BatteryReadingFilter —— 读数异常过滤：数值有效性（休眠占位帧 0/1）+ 双向变化幅度。
+/// 2026/10/06 15:53:36 xliu
 /// 用例覆盖正常放电、休眠伪读数、非占位骤降/骤升、持续超窗采信、临界幅度等。
 /// </summary>
 public class BatteryReadingFilterTests

@@ -4,7 +4,8 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// DeviceStatusFormatter —— 设备列表页 / 桌面小组件 / 托盘菜单三处共用的状态判定与文案口径（CR-24 / D2）。
+/// 功 能： DeviceStatusFormatter —— 设备列表页 / 桌面小组件 / 托盘菜单三处共用的状态判定与文案口径（CR-24 / D2）。
+/// 2026/10/10 17:44:33 xliu
 /// 之前这三处各写一份"充电标志怎么算、没读数显示什么"，改一处漏两处；这里锁住口径。
 /// </summary>
 public class DeviceStatusFormatterTests

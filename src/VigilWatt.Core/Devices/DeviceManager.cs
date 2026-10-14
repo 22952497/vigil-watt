@@ -10,7 +10,11 @@ using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Devices;
 
-/// <summary>统一设备管理（中枢）：合并 BLE + 经典蓝牙 + 2.4G 插件状态，写历史、发变更事件；插件反射自动发现，接口认领经 DeviceClaimRegistry 防抢。详见 docs/project/architecture.md §1。</summary>
+/// <summary>
+/// 功 能： 统一设备管理（中枢）：合并 BLE + 经典蓝牙 + 2.4G 插件状态，写历史、发变更事件；插件反射自动发现，接口认领经 DeviceClaimRegistry 防抢。
+/// 2026/10/06 15:53:36 xliu
+/// 详见 docs/project/architecture.md §1。
+/// </summary>
 public sealed class DeviceManager : IDisposable
 {
     private readonly AppSettings _settings;

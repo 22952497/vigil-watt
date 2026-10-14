@@ -4,7 +4,8 @@ using VigilWatt.Core.Models;
 namespace VigilWatt.Core.Plugins.Elan;
 
 /// <summary>
-/// Elan (VID 0x04F3) 2.4G 接收器插件（与本项目的弱水时砂炽天使 38FF:0001 无关，旧记录已修正，见 docs/hardware/protocols.md §3）。
+/// 功 能： Elan (VID 0x04F3) 2.4G 接收器插件（与本项目的弱水时砂炽天使 38FF:0001 无关，旧记录已修正，见 docs/hardware/protocols.md §3）。
+/// 2026/10/06 15:53:36 xliu
 /// 电量协议未公开，当前**只占位、不探测**：不认领设备，探测也不做任何 I/O。
 /// </summary>
 public sealed class ElanHeadsetPlugin : BatteryPluginBase

@@ -3,7 +3,11 @@ using VigilWatt.Core.Models;
 
 namespace VigilWatt.Core.Plugins;
 
-/// <summary>2.4G 品牌插件接口。每个品牌一套私有协议：DeviceManager 每轮扫描喂给它 HID 接口列表，插件认领匹配设备并轮询电量；实现类由反射自动发现（新增品牌 = 加一个类文件）。</summary>
+/// <summary>
+/// 功 能： 2.4G 品牌插件接口。
+/// 2026/10/06 15:53:36 xliu
+/// 每个品牌一套私有协议：DeviceManager 每轮扫描喂给它 HID 接口列表，插件认领匹配设备并轮询电量；实现类由反射自动发现（新增品牌 = 加一个类文件）。
+/// </summary>
 public interface IBatteryPlugin
 {
     /// <summary>品牌标识，与 AppSettings.PluginEnabled 的 key 对应。</summary>

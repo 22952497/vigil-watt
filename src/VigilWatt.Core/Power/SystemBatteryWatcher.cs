@@ -3,7 +3,11 @@ using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Power;
 
-/// <summary>本机电源（系统电池）监视器：仿 <see cref="Ble.BluetoothClassicWatcher"/> 的事件式数据源（不实现 <see cref="Plugins.IBatteryPlugin"/>——系统电量无接口可认领），由 <see cref="Devices.DeviceManager"/> 直接订阅。Id 固定 <see cref="DeviceId"/> 永不变化。详见 docs/project/code-flow.md §3.1。</summary>
+/// <summary>
+/// 功 能： 本机电源（系统电池）监视器：仿 <see cref="Ble.BluetoothClassicWatcher"/> 的事件式数据源（不实现 <see cref="Plugins.IBatteryPlugin"/>——系统电量无接口可认领），由 <see cref="Devices.DeviceManager"/> 直接订阅。
+/// 2026/10/08 18:04:41 xliu
+/// 详见 docs/project/code-flow.md §3.1。
+/// </summary>
 public sealed class SystemBatteryWatcher : IDisposable
 {
     /// <summary>本机电源在设备体系里的稳定 Id。</summary>

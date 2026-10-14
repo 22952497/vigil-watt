@@ -6,11 +6,9 @@ using GdiImaging = System.Drawing.Imaging;
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 任务栏贴片的绘制：把"每台设备一格"画进一张 32 位预乘 ARGB 位图，交给原生分层窗口提交
-/// （贴片是 <c>SetParent</c> 进任务栏的**原生子窗口**，用不了 XAML，原理见 runtime-pitfalls.md §16）。
+/// 功 能： 任务栏贴片的绘制：把"每台设备一格"画进一张 32 位预乘 ARGB 位图，交给原生分层窗口提交 （贴片是 <c>SetParent</c> 进任务栏的**原生子窗口**，用不了 XAML，原理见 runtime-pitfalls.md §16）。
+/// 2026/10/12 17:20:14 xliu
 /// **不画底色与边框**——贴片是浮在任务栏上的一行读数，加了底框就会糊出一个突兀的方块。
-/// 整块位图会先铺一层 alpha=1 的"不可见底"：分层窗口的命中测试按 alpha 判定，
-/// 不铺的话透明处会把鼠标消息漏给任务栏、贴片就拖不动了。
 /// </summary>
 public static class TaskbarPillRenderer
 {

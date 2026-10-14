@@ -3,14 +3,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-    /// <summary>
-    /// <see cref="SystemPowerReader.Interpret"/> 的翻译逻辑测试。
-    ///
-    /// 必须单测这一段：它要区分三种"读不到电量"语义完全不同的情况——台式机根本没电池
-    /// （BatteryFlag=128）与系统状态未知（255）都不该出现在列表里，而有电池但百分比读不到
-    /// （BatteryLifePercent=255）仍算"有电池"，让界面显示降级文案而不是整行消失。
-    /// 真机上没法伪造这些场景，只能靠纯函数覆盖。
-    /// </summary>
+/// <summary>
+/// 功 能： <see cref="SystemPowerReader.Interpret"/> 的翻译逻辑测试。
+/// 2026/10/08 18:04:41 xliu
+/// 必须单测这一段：它要区分三种"读不到电量"语义完全不同的情况——台式机根本没电池 （BatteryFlag=128）与系统状态未知（255）都不该出现在列表里，而有电池但百分比读不到 （BatteryLifePercent=255）仍算"有电池"，让界面显示降级文案而不是整行消失。
+/// </summary>
 public class SystemPowerReaderTests
 {
     // GetSystemPowerStatus 的真实取值：0 = 电池供电，1 = 交流电，255 = 未知

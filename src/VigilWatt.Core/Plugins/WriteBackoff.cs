@@ -1,10 +1,9 @@
 namespace VigilWatt.Core.Plugins;
 
 /// <summary>
-/// 熔断停写后的"递增退避"进度表（纯函数，有单测）。
-///
-/// 退避必须**起点短、逐次变长**：设备（尤其键盘）休眠是常态，长退避会把"唤醒检测"一起挡死，
-/// 详见 docs/reviews/BACKLOG.md CR-53。
+/// 功 能： 熔断停写后的"递增退避"进度表（纯函数，有单测）。
+/// 2026/10/11 21:05:04 xliu
+/// 退避必须**起点短、逐次变长**：设备（尤其键盘）休眠是常态，长退避会把"唤醒检测"一起挡死， 详见 docs/reviews/BACKLOG.md CR-53。
 /// </summary>
 public static class WriteBackoff
 {

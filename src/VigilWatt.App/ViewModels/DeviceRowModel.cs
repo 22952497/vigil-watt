@@ -5,7 +5,10 @@ using Microsoft.UI.Xaml.Media;
 
 namespace VigilWatt.App.ViewModels;
 
-/// <summary>设备列表行（一次性绑定，每次刷新重建；Brush 在 UI 线程的刷新路径里创建）。</summary>
+/// <summary>
+/// 功 能： 设备列表行（一次性绑定，每次刷新重建；Brush 在 UI 线程的刷新路径里创建）。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 public sealed class DeviceRowModel
 {
     public string IconGlyph { get; init; } = "\uE702";

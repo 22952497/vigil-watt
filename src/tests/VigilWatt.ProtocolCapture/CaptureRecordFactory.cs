@@ -4,6 +4,11 @@ namespace VigilWatt.ProtocolCapture;
 
 public sealed record BleAdvertisementSection(byte DataType, string DataHex);
 
+/// <summary>
+/// 功 能： 把各通道的原始数据收成采集记录。
+/// 2026/10/11 12:08:46 xliu
+/// </summary>
+
 public static class CaptureRecordFactory
 {
     public static CaptureRecord FromWebHidJson(string payload, DateTimeOffset timestamp)

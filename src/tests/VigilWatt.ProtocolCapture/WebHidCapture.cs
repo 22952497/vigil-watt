@@ -4,6 +4,10 @@ using System.Text;
 using System.Text.Json;
 
 namespace VigilWatt.ProtocolCapture;
+/// <summary>
+/// 功 能： 经浏览器 WebHID 旁路记录 HID 报文。
+/// 2026/10/11 12:08:46 xliu
+/// </summary>
 
 public static class WebHidCapture
 {

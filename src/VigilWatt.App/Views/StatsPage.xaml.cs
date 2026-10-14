@@ -9,6 +9,10 @@ using VigilWatt.Core.Storage;
 using VigilWatt.Core.Utils;
 
 namespace VigilWatt.App.Views;
+/// <summary>
+/// 功 能： 历史统计页。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 
 public sealed partial class StatsPage : Page
 {

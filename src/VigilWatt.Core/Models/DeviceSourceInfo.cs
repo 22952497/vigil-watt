@@ -1,9 +1,9 @@
 namespace VigilWatt.Core.Models;
 
 /// <summary>
-/// 设备来源的展示元数据（设备列表徽标 / 桌面小组件共用，纯逻辑可单测）。
+/// 功 能： 设备来源的展示元数据（设备列表徽标 / 桌面小组件共用，纯逻辑可单测）。
+/// 2026/10/09 13:37:44 xliu
 /// 标签是**唯一事实来源**：两个 UI 面都调这里，避免各写一份 switch 而慢慢分叉。
-/// 颜色不放这里——Core 不引 WinRT/UI 类型，配色在 App 层 <c>UiPalette.SourceTag</c>。
 /// </summary>
 public static class DeviceSourceInfo
 {

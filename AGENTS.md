@@ -5,9 +5,11 @@
 
 VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用）。不做游戏内显示、HTTP API、账号体系。
 
-## 1. git 红线（最硬，无例外）
+## 1. git 与远程红线（最硬，无例外）
 
-- **未经用户明确确认，不得执行任何 git 写操作**：`commit` / `push` / `merge` / `rebase` / `reset` / `checkout` / `branch` / `tag` / `stash` / 改 remote。
+- **未经用户明确确认，不得执行任何 git 写操作**：`commit` / `merge` / `rebase` / `reset` / `checkout` / `branch` / `tag` / `stash` / 改 remote。
+- **未经用户明确指示，禁止操作远程 GitHub**：推送、删除远程分支或 tag、创建或删除 Release、上传安装包、改仓库设置或权限。`git push`、`gh`、网页、token 都算。用户只说「提交」或「发布」时，**不算**允许动远程。
+- 提交和发布只在本机：`git commit` 不推送；`dotnet publish` / `vpk pack` 只写本机 `publish/` 和 `dist/`。
 - 只读命令可自由执行：`status` / `log` / `diff` / `show` / `blame` / `ls-files`。
 - 要提交时：先说清"改了什么、打算怎么提交"，等用户同意再动。
 - 确认后：提交信息**从简**；一轮改动（哪怕跨几个主题）**合并成一个提交**，不拆分。
@@ -17,13 +19,17 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 
 - 严格按 `docs/dev/comment-style.md`。注释只回答"**为什么**"，且只在不写就会踩坑时才写。
 - "是什么 / 曾经怎样 / 怎么验证的 / 帧长什么样" 一律进 `docs/`，代码里只留指针。
+- `src/` 下每个 `.cs` 的主要类型，类头用文件头：贴在类型声明正上方（`using` 与 `namespace` 之后）。「功 能：」写一句话职责；下一行是创建时间 `yyyy/MM/dd HH:mm:ss`（月、日补零）和当时的 Windows 用户名。why 最多再加一行，类头仍 ≤ 5 行。格式见 `docs/dev/comment-style.md` 的文件头一节。
 - 硬配额：**类头 ≤ 5 行、方法/属性 ≤ 2 行、字段 ≤ 1 行**。超了说明内容该进 `docs/`。
 - 注释引用的 `docs/xxx.md §y` 必须指向真实存在的小节。
 
 ## 3. 动代码前
 
 - 先读 `docs/project/handoff.md`（会话快照）+ 相关专题文档；冲突时以专题文档为准。
-- 逐轮历史在 `docs/project/changelog.md`：**本轮做了什么、为什么这么改，收工后追加到那里**，不要把流水账写回 handoff（那里只放当前状态）。
+- **`handoff.md` 与 `changelog.md` 不许再写长。** 协议、坑、流程进专题文档，这两份只留指针。
+  - `handoff.md` 只改 §1 现状和 §4 未完成待办。不追加本轮经过，不保留已完成待办，不抄发布过程。**全文超过 120 行，先删历史再写。**
+  - `changelog.md` 按日期追加：每条一两句（改了什么、为什么）。不记构建结果、打包耗时、文件清单。发版只在文末版本表加一行。单日新增超过 15 行，就是把专题文档抄进来了。
+  - `docs/reviews/BACKLOG.md` 只留 `open` / `doing`，每条一行。关闭后立刻挪到 `docs/reviews/archive/BACKLOG-CLOSED.md`，编号不复用。调查过程写审查报告或专题文档。**全文超过 120 行，先挪已关闭的再写。**
 - **UI 改版：先出方案，用户确认后再改代码。**
 - 硬件写入类改动：先读 `docs/hardware/safety.md`（零写入原则、写入闸门；各插件开关现状见其 §3.1）。
 - 改读数过滤器 / 帧解析 / 历史库后，**必须重跑单测**。

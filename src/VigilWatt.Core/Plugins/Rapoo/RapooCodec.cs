@@ -22,12 +22,9 @@ internal readonly record struct RapooStatus(
 }
 
 /// <summary>
-/// 雷柏 2.4G 状态帧（report 0x07，19 字节）的**纯帧解析**，不碰句柄、不写日志，便于单测。
+/// 功 能： 雷柏 2.4G 状态帧（report 0x07，19 字节）的**纯帧解析**，不碰句柄、不写日志，便于单测。
+/// 2026/10/08 22:25:16 xliu
 /// 帧布局见 docs/hardware/protocols.md §3。
-///
-/// <c>[18].bit7</c> 是"RF 链路是否连接"（实测：鼠标断电瞬间 dongle 主动吐一帧 <c>… 7F</c>，
-/// 随后静音约 28 秒）。它描述的是 **2.4G 链路**而不是"设备在不在"——关机、移出范围、受干扰
-/// 都会翻 0，所以只能当"离线候选"交给 <see cref="OfflinePolicy.Confirm"/> 延迟确认。
 /// </summary>
 internal static class RapooCodec
 {

@@ -4,9 +4,9 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// WatcherProps —— BLE / 经典蓝牙两个 watcher 共用的属性读取（D1 / CR-13）。
-/// 重点锁"属性缺失返回 null 而不是 false"：这是 2026-10-06 那次 P0 的根因形态
-/// （Updated 事件只带变化的属性，默认 false 会把已连接设备误判离线）。
+/// 功 能： WatcherProps —— BLE / 经典蓝牙两个 watcher 共用的属性读取（D1 / CR-13）。
+/// 2026/10/10 17:44:33 xliu
+/// 重点锁"属性缺失返回 null 而不是 false"：这是 2026-10-06 那次 P0 的根因形态 （Updated 事件只带变化的属性，默认 false 会把已连接设备误判离线）。
 /// </summary>
 public class WatcherPropsTests
 {

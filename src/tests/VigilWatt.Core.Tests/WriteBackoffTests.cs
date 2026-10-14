@@ -4,8 +4,9 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// WriteBackoff —— 熔断停写后的递增退避进度表。锁定"起点短、逐次翻倍、封顶 5 分钟"，
-/// 以及退避期满的边界语义（达到即到期）。起因见 docs/reviews/BACKLOG.md CR-53。
+/// 功 能： WriteBackoff —— 熔断停写后的递增退避进度表。
+/// 2026/10/11 21:05:04 xliu
+/// 起因见 docs/reviews/BACKLOG.md CR-53。
 /// </summary>
 public class WriteBackoffTests
 {

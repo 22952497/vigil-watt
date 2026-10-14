@@ -9,7 +9,8 @@ public readonly record struct PixelRect(int Left, int Top, int Width, int Height
 }
 
 /// <summary>
-/// 任务栏贴片的定位数学：零 WinRT、零 P/Invoke 的纯函数，直接链进测试项目（R8）。
+/// 功 能： 任务栏贴片的定位数学：零 WinRT、零 P/Invoke 的纯函数，直接链进测试项目（R8）。
+/// 2026/10/10 21:34:00 xliu
 /// 窗口类只负责"把值喂进来、把结果写进 AppWindow"——算错位置这种事必须能在单测里复现。
 /// </summary>
 public static class TaskbarLayout

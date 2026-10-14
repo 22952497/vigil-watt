@@ -5,9 +5,9 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// DeviceChangeDetector + DeviceStatus.Clone —— Upsert 变化判定与骤降保护的纯逻辑。
-/// 回归 CR-03 根因：数据源复用并原地改写同一 DeviceStatus 实例，若不快照就入库，
-/// 变化判定会变成"同一对象和自己比"而恒为假（历史即写/UI 刷新/骤降保护全失效）。规则见 architecture.md §6。
+/// 功 能： DeviceChangeDetector + DeviceStatus.Clone —— Upsert 变化判定与骤降保护的纯逻辑。
+/// 2026/10/10 17:44:33 xliu
+/// 回归 CR-03 根因：数据源复用并原地改写同一 DeviceStatus 实例，若不快照就入库， 变化判定会变成"同一对象和自己比"而恒为假（历史即写/UI 刷新/骤降保护全失效）。
 /// </summary>
 public class DeviceChangeDetectorTests
 {

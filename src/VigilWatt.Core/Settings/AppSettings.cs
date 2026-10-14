@@ -4,6 +4,10 @@ using System.Text.Json.Serialization;
 using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Settings;
+/// <summary>
+/// 功 能： 应用设置的加载、保存和默认值。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 
 public class AppSettings
 {

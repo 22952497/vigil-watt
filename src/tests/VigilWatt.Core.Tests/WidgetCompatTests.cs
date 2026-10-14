@@ -4,7 +4,8 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// 小组件 OS 能力判定（W1–W4）。
+/// 功 能： 小组件 OS 能力判定（W1–W4）。
+/// 2026/10/08 17:10:27 xliu
 /// 这两个函数决定"哪个系统走哪条渲染路径"，写错会直接让某一代的观感回退，必须有回归保护。
 /// </summary>
 public class WidgetCompatTests

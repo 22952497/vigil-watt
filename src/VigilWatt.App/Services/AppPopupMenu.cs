@@ -3,9 +3,8 @@ using VigilWatt.Core.Utils;
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 贴片与小组件的右键菜单，走 **Win32 原生弹出菜单**（与托盘同一条路）：自带"点别处即关"。
-/// **不能用 XAML <c>MenuFlyout</c>**——WinUI 的 light-dismiss 靠"窗口去激活"触发，而贴片是
-/// <c>WS_EX_NOACTIVATE</c>、永不激活也就永不"去激活"，菜单弹出后点哪都关不掉。
+/// 功 能： 贴片与小组件的右键菜单，走 **Win32 原生弹出菜单**（与托盘同一条路）：自带"点别处即关"。
+/// 2026/10/12 13:38:41 xliu
 /// 详见 docs/dev/runtime-pitfalls.md §18。
 /// </summary>
 internal static class AppPopupMenu

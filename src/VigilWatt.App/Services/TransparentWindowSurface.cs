@@ -9,9 +9,8 @@ using SystemCompositor = Windows.UI.Composition.Compositor;
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 清掉 WinUI3 窗口表面的**两层**背景，只留 XAML 画的前景：① 内容岛 Visual 的底色（设透明 SystemBackdrop）、
-/// ② Win32 窗口类背景刷（`COLOR_WINDOW`，浅色主题=纯白）。**两层都要清、且与 OS 无关**——
-/// Win10 上少清 ① 会回退成"纯色主题底"，那才是贴片/小组件露出的白框。
+/// 功 能： 清掉 WinUI3 窗口表面的**两层**背景，只留 XAML 画的前景：① 内容岛 Visual 的底色（设透明 SystemBackdrop）、 ② Win32 窗口类背景刷（`COLOR_WINDOW`，浅色主题=纯白）。
+/// 2026/10/12 10:44:44 xliu
 /// 贴片与小组件共用；通道实测与失败记录见 docs/dev/runtime-pitfalls.md §17。
 /// </summary>
 internal static class TransparentWindowSurface

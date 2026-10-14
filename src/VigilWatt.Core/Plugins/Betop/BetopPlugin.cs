@@ -6,17 +6,9 @@ using VigilWatt.Core.Utils;
 namespace VigilWatt.Core.Plugins.Betop;
 
 /// <summary>
-/// 北通 (BETOP) 手柄 2.4G 接收器插件。
-///
-/// 协议出处（符合 safety.md "只发有出处的帧"）：开源实现 oitsukiii/betop-battery（MIT），
-/// 来自对北通官方 Electron 客户端的互操作性分析，鲲鹏20 真机验证。
-///
-/// 接收器是复合设备，4 个接口靠 usage 区分，本插件**只碰厂商接口**（usage_page 0xFF00）。
-/// 标准 API 读不到电量：接收器在标准通道上把自己报告成"有线设备"，必须直接问厂商接口。
-/// 安全：只发官方客户端同款的读命令（cmd=0x5），不碰写配置、固件、灯效。
-///
-/// 帧结构、电量编码、T9 被动流与"未连接占位帧"判定见 <see cref="BetopCodec"/> 及
-/// docs/hardware/protocols.md §4。
+/// 功 能： 北通 (BETOP) 手柄 2.4G 接收器插件。
+/// 2026/10/06 15:53:36 xliu
+/// 帧结构、电量编码、T9 被动流与"未连接占位帧"判定见 <see cref="BetopCodec"/> 及 docs/hardware/protocols.md §4。
 /// </summary>
 public sealed class BetopPlugin : BatteryPluginBase
 {

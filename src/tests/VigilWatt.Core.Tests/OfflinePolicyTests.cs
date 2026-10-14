@@ -3,11 +3,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-    /// <summary>
-    /// OfflinePolicy —— 插件第③层"离线判定策略"参数的集中载体。覆盖默认值（不按沉默、
-    /// 不延迟确认、轮询空读算失败），以及延迟确认窗口的边界语义（标记候选后要等满窗口才判离线，
-    /// 期间任何恢复证据都能撤销它）。
-    /// </summary>
+/// <summary>
+/// 功 能： OfflinePolicy —— 插件第③层"离线判定策略"参数的集中载体。
+/// 2026/10/08 22:25:16 xliu
+/// 覆盖默认值（不按沉默、 不延迟确认、轮询空读算失败），以及延迟确认窗口的边界语义（标记候选后要等满窗口才判离线， 期间任何恢复证据都能撤销它）。
+/// </summary>
 public class OfflinePolicyTests
 {
     private static readonly DateTimeOffset T0 = new(2026, 10, 8, 21, 38, 38, TimeSpan.FromHours(8));

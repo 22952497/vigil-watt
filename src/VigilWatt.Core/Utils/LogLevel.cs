@@ -1,6 +1,10 @@
 namespace VigilWatt.Core.Utils;
 
-/// <summary>日志级别，数值越大越严重。<see cref="Off"/> 是"全关"哨兵，刻意排在 <see cref="Error"/> 之后，使"level &gt;= MinLevel"在 Off 时恒为 false（连错误也一并关掉）。</summary>
+/// <summary>
+/// 功 能： 日志级别，数值越大越严重。
+/// 2026/10/09 10:13:25 xliu
+/// <see cref="Off"/> 是"全关"哨兵，刻意排在 <see cref="Error"/> 之后，使"level &gt;= MinLevel"在 Off 时恒为 false（连错误也一并关掉）。
+/// </summary>
 public enum LogLevel
 {
     Debug = 0,

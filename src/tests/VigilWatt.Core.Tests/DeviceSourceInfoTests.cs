@@ -4,8 +4,9 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// DeviceSourceInfo —— 来源徽标短标签。设备列表页与桌面小组件都调它，
-/// 这里固化映射，防止两个 UI 面各写一份 switch 后慢慢分叉。
+/// 功 能： DeviceSourceInfo —— 来源徽标短标签。
+/// 2026/10/09 13:37:44 xliu
+/// 设备列表页与桌面小组件都调它， 这里固化映射，防止两个 UI 面各写一份 switch 后慢慢分叉。
 /// </summary>
 public class DeviceSourceInfoTests
 {

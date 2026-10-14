@@ -1,10 +1,9 @@
 namespace VigilWatt.Core.Models;
 
 /// <summary>
-/// 设备状态的"人话"格式化与状态判定：设备列表页、桌面小组件、托盘菜单三处共用同一套口径，
-/// 避免"充电标志怎么算 / 没读数显示什么"各写一份（CR-24）。
+/// 功 能： 设备状态的"人话"格式化与状态判定：设备列表页、桌面小组件、托盘菜单三处共用同一套口径， 避免"充电标志怎么算 / 没读数显示什么"各写一份（CR-24）。
+/// 2026/10/10 17:44:33 xliu
 /// 纯逻辑（零 WinRT、零 UI），因此可直接被测试项目链入（R8）。
-/// 具体色值不在这里——那属于 UI 层（App/Services/UiPalette）。
 /// </summary>
 public static class DeviceStatusFormatter
 {

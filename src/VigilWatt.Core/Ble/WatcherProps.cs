@@ -1,10 +1,9 @@
 namespace VigilWatt.Core.Ble;
 
 /// <summary>
-/// BLE 与经典蓝牙两个 watcher 共用的属性读取（D1 / CR-13）。
-/// 这两段之前在两个文件里逐字节重复，而"在线判定语义再分叉"正是 2026-10-06 一次 P0 的根因
-/// （一处默认 false 覆盖现状、一处 Removed 不发离线），所以统一到这里。
-/// 纯逻辑（只依赖 BCL 的字典），可直接单测（R8）。
+/// 功 能： BLE 与经典蓝牙两个 watcher 共用的属性读取（D1 / CR-13）。
+/// 2026/10/10 17:44:33 xliu
+/// 这两段之前在两个文件里逐字节重复，而"在线判定语义再分叉"正是 2026-10-06 一次 P0 的根因 （一处默认 false 覆盖现状、一处 Removed 不发离线），所以统一到这里。
 /// </summary>
 public static class WatcherProps
 {

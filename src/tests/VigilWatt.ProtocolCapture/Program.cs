@@ -2,6 +2,10 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 
 namespace VigilWatt.ProtocolCapture;
+/// <summary>
+/// 功 能： 协议采集工具的命令行入口。
+/// 2026/10/11 12:08:46 xliu
+/// </summary>
 
 internal static class Program
 {

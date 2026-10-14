@@ -4,7 +4,8 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// LogLevelNames —— settings.json 里日志级别的取值收敛（全检报告行动项 5）。
+/// 功 能： LogLevelNames —— settings.json 里日志级别的取值收敛（全检报告行动项 5）。
+/// 2026/10/10 17:44:33 xliu
 /// 手改坏的配置（大小写、空白、未知值、null）不能把日志系统搞崩，必须收敛到 Default。
 /// </summary>
 public class LogLevelNamesTests

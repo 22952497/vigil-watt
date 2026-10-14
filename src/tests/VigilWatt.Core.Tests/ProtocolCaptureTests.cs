@@ -4,6 +4,10 @@ using VigilWatt.ProtocolCapture;
 using Xunit;
 
 namespace VigilWatt.Core.Tests;
+/// <summary>
+/// 功 能： 协议采集记录的解析与写出测试。
+/// 2026/10/11 12:08:46 xliu
+/// </summary>
 
 public sealed class ProtocolCaptureTests
 {

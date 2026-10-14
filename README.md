@@ -2,7 +2,7 @@
 
 > Windows 无线外设电量监控 —— 蓝牙耳机、2.4G 键鼠手柄、笔记本电池，一个托盘图标看全部电量。
 
-![Platform](https://img.shields.io/badge/Windows-10%2F11-0078d4)![.NET](https://img.shields.io/badge/.NET-8-512bd4)![License](https://img.shields.io/badge/license-MIT-green)![Release](https://img.shields.io/badge/release-v1.0.2-blue)
+![Platform](https://img.shields.io/badge/Windows-10%2F11-0078d4) ![.NET](https://img.shields.io/badge/.NET-8-512bd4) ![License](https://img.shields.io/badge/license-MIT-green) ![Release](https://img.shields.io/badge/release-v1.0.2-blue)
 
 ## 为什么做这个
 

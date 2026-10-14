@@ -5,14 +5,8 @@ using VigilWatt.Core.Utils;
 namespace VigilWatt.Core.Plugins.Rapoo;
 
 /// <summary>
-/// 雷柏 (Rapoo) 2.4G 插件 —— 纯被动实现，不向设备写任何字节。
-///
-/// 协议出处（公开逆向，均 MIT 许可，符合 safety.md "只发有出处的帧"）：
-/// pedro3z0/rapoo-software-linux（VT0 Air Max 真机验证）、D3m0nZOnFire/mousectl（VT3 PRO 真机验证）。
-/// 本机 dongle 24AE:1412 = VT3 二代，与 VT3 PRO V2 / VT0 同代同族（帧结构吻合，设备表未收录）。
-///
-/// 电量来自 dongle 每约 3 秒自发推送的 input report 0x07（19 字节）。该世代协议**没有电量查询命令**，
-/// 只能等心跳；"静音"不等于"设备不在"（休眠/停手是常态），故不据此判离线。
+/// 功 能： 雷柏 (Rapoo) 2.4G 插件 —— 纯被动实现，不向设备写任何字节。
+/// 2026/10/06 15:53:36 xliu
 /// 帧布局、充电标志编码与离线两条腿见 <see cref="RapooCodec"/> 及 docs/hardware/protocols.md §3。
 /// </summary>
 public sealed class RapooPlugin : BatteryPluginBase

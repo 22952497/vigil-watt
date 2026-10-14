@@ -6,9 +6,11 @@ using Windows.Devices.Enumeration;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>经典蓝牙（BR/EDR）监视器：单开一路 watcher（BLE watcher 覆盖不到音频设备），提供连接状态 + 电量 + 设备类型。
-/// ⚠️ 该 selector 匹配**所有已配对经典蓝牙设备**（含鼠标/键盘/手机），类型不能预设成耳机，要按类别/服务 UUID 判定。
-/// 详见 docs/project/code-flow.md §3、docs/dev/runtime-pitfalls.md §3.1。</summary>
+/// <summary>
+/// 功 能： 经典蓝牙（BR/EDR）监视器：单开一路 watcher（BLE watcher 覆盖不到音频设备），提供连接状态 + 电量 + 设备类型。
+/// 2026/10/06 15:53:36 xliu
+/// 详见 docs/project/code-flow.md §3、docs/dev/runtime-pitfalls.md §3.1。
+/// </summary>
 public sealed class BluetoothClassicWatcher : IDisposable
 {
     private DeviceWatcher? _watcher;

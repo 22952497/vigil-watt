@@ -7,6 +7,10 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
 namespace VigilWatt.App;
+/// <summary>
+/// 功 能： 主窗口，在设备、统计、历史和设置之间切换。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 
 public sealed partial class MainWindow : Window
 {

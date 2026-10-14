@@ -10,9 +10,9 @@ using Gdi2 = System.Drawing.Drawing2D;
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 设备类型图标的绘制工厂：桌面小组件与任务栏贴片共用同一套图形，避免两处各画一份而慢慢分叉。
+/// 功 能： 设备类型图标的绘制工厂：桌面小组件与任务栏贴片共用同一套图形，避免两处各画一份而慢慢分叉。
+/// 2026/10/10 21:34:00 xliu
 /// 全部用纯形状拼装，**不用字体图标**——Segoe 字体缺字形时会渲染成方块（见 dev/runtime-pitfalls.md §5.3）。
-/// 尺寸按"图标方块 22 DIP"设计；任务栏贴片直接取 <see cref="Glyph"/> 单画图形、不套方块底。
 /// </summary>
 public static class DeviceIconFactory
 {

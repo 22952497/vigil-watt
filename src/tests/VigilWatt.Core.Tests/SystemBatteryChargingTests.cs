@@ -4,13 +4,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-    /// <summary>
-    /// 充电状态推导测试。
-    ///
-    /// <c>GetSystemPowerStatus</c> 只回答"是否接着交流电"、不回答"是否正在充电"，而界面/历史库要的是
-    /// 四态 <see cref="ChargingState"/>。翻译错了会直接影响两件事：界面把"已充满"显示成"充电中"，
-    /// 以及历史库的 charging 位失真。
-    /// </summary>
+/// <summary>
+/// 功 能： 充电状态推导测试。
+/// 2026/10/08 18:04:41 xliu
+/// <c>GetSystemPowerStatus</c> 只回答"是否接着交流电"、不回答"是否正在充电"，而界面/历史库要的是 四态 <see cref="ChargingState"/>。
+/// </summary>
 public class SystemBatteryChargingTests
 {
     private static SystemPowerSnapshot Snap(bool hasBattery, int? percent, bool acOnline)

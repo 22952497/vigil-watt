@@ -49,9 +49,10 @@
 | 构建/发布/环境坑 | `docs/dev/build.md` |
 | 日志格式契约与分级管控 | `docs/dev/logging.md` |
 | 经验教训、"下次接类似项目怎么做" | `docs/project/experience.md` |
-| 当前状态快照、待办 | `docs/project/handoff.md` |
-| 逐轮变更历史（某个决定为什么这么做） | `docs/project/changelog.md` |
-| 审查发现的未修项（open / doing / done / wontfix） | `docs/reviews/BACKLOG.md` |
+| 当前状态、未完成待办（全文 ≤ 120 行，见 `AGENTS.md` §3） | `docs/project/handoff.md` |
+| 某日改了什么、为什么（每条一两句，见 `AGENTS.md` §3） | `docs/project/changelog.md` |
+| 还没修的审查项（`open` / `doing`，全文 ≤ 120 行） | `docs/reviews/BACKLOG.md` |
+| 已关闭的审查项（`done` / `wontfix`） | `docs/reviews/archive/BACKLOG-CLOSED.md` |
 | 代码该守的红线、审查流程 | `docs/dev/review-standard.md` |
 
 **判断不了就先 grep `docs/`**：很多结论早就在里面了，只是代码里又抄了一遍。
@@ -68,12 +69,30 @@
 
 ## 6. 参考：本次精简的判定模板
 
+类头就是下面的文件头。why 只在不写就会踩坑时加一行；指针能代替长说明。
+
 ```csharp
 /// <summary>
-/// 一句话职责（做什么、不做什么）。
-/// 关键约束/陷阱（1–2 行，不写会踩坑的那种）。
-/// 详见 docs/xxx.md §y。
+/// 功 能： 这个类型做什么（一句话）
+/// 2026/10/14 10:08:00 xliu
 /// </summary>
 ```
 
 类头 ≤ 5 行，方法/属性 ≤ 2 行，字段 ≤ 1 行。超出这个量，说明内容该进 `docs/`。
+
+## 7. 文件头
+
+`src/` 下新建 `.cs` 时，主要类型（与文件名相同的那个；否则文件里第一个最外层类型）正上方写：
+
+```csharp
+/// <summary>
+/// 功 能： 这个类型做什么（一句话）
+/// 2026/10/14 10:08:00 xliu
+/// </summary>
+```
+
+- 两行内容都从 `///` 后一个空格开始，日期行不多缩进。
+- 「功 能：」是这一类型的一句话职责。
+- 第二行是创建当时的本机时间，格式 `yyyy/MM/dd HH:mm:ss`（月、日补零），加上当时的 Windows 用户名。用户名创建时读取，不写死。
+- 放在 `using` 和 `namespace` 之后、类型声明之前。中间可以有特性，不要插 `//` 注释，否则 CS1587。
+- 还需要 why 时，在时间行下加一行，使类头不超过 5 行。

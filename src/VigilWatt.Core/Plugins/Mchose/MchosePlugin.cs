@@ -6,17 +6,9 @@ using VigilWatt.Core.Utils;
 namespace VigilWatt.Core.Plugins.Mchose;
 
 /// <summary>
-/// 迈从 (MCHOSE) 2.4G 插件。
-///
-/// 两条协议：**键盘 V1**（本机 G87 dongle，report 0x13，帧校验=前 19 字节之和）与新一代
-/// **QHW**（M HUB WEB 前端逆向，report 0x4D + 命令 0x0904）。帧结构见 <see cref="MchoseV1Codec"/>
-/// 与 docs/hardware/protocols.md §1。
-///
-/// 安全约束（docs/hardware/safety.md）：只发官方/实测帧，禁止任何命令扫描；写入受
-/// <see cref="WritesEnabled"/>（= 插件开关）控制；连续 3 次失败由基类自动停写。
-///
-/// 已知固件行为：键盘空闲时 dongle 对电量查询返回**逐字节相同的缓存帧**，充电标志可能冻结很久，
-/// 唤醒后才刷新；dongle 会话被崩溃进程占住时所有查询静音，重插接收器可恢复。
+/// 功 能： 迈从 (MCHOSE) 2.4G 插件。
+/// 2026/10/06 15:53:36 xliu
+/// 帧结构见 <see cref="MchoseV1Codec"/> 与 docs/hardware/protocols.md §1。
 /// </summary>
 public sealed class MchosePlugin : BatteryPluginBase
 {

@@ -1,13 +1,8 @@
 namespace VigilWatt.Core.Plugins;
 
 /// <summary>
-/// 插件"离线判定策略"（第③层）参数的集中载体 —— 与协议事实、安全声明分开。
-///
-/// 三条判据互相独立，谁先满足谁生效：<see cref="Silence"/>（接口彻底不说话，兜底）、
-/// <see cref="Confirm"/>（设备自报断链，延迟确认滤瞬时抖动）、
-/// <see cref="MaxFailures"/> + <see cref="CountPollFailures"/>（发过帧却没应答）。
-/// 另有"立即核实"通道见 <see cref="BatteryPluginBase.RequestConfirm"/>。
-///
+/// 功 能： 插件"离线判定策略"（第③层）参数的集中载体 —— 与协议事实、安全声明分开。
+/// 2026/10/08 22:25:16 xliu
 /// 分层理由、五条离线路径与各插件取值见 docs/project/code-flow.md §4.2。
 /// </summary>
 public sealed record OfflinePolicy

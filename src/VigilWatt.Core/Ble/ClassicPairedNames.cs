@@ -3,7 +3,11 @@ using Microsoft.Win32;
 
 namespace VigilWatt.Core.Ble;
 
-/// <summary>从经典蓝牙配对记录（注册表 <c>BTHPORT\...\Devices\&lt;mac12&gt;\Name</c>，REG_BINARY UTF-8）读友好名——WinRT AEP 只返回设备 ID 时的可靠兜底。纯读零写入，整表缓存 30 秒。详见 docs/project/handoff.md「经典蓝牙设备显示名修成原始 ID」。</summary>
+/// <summary>
+/// 功 能： 从经典蓝牙配对记录（注册表 <c>BTHPORT\...\Devices\&lt;mac12&gt;\Name</c>，REG_BINARY UTF-8）读友好名——WinRT AEP 只返回设备 ID 时的可靠兜底。
+/// 2026/10/06 15:53:36 xliu
+/// 详见 docs/project/handoff.md「经典蓝牙设备显示名修成原始 ID」。
+/// </summary>
 internal static class ClassicPairedNames
 {
     private const string DevicesKey = @"SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices";

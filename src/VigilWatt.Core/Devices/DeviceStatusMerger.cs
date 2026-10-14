@@ -2,7 +2,11 @@ using VigilWatt.Core.Models;
 
 namespace VigilWatt.Core.Devices;
 
-/// <summary>DeviceStatus 的原地合并规则（纯逻辑，可单测；DeviceManager.Upsert 与"墓碑接管"都走这里）。详见 docs/project/architecture.md §6。</summary>
+/// <summary>
+/// 功 能： DeviceStatus 的原地合并规则（纯逻辑，可单测；DeviceManager.Upsert 与"墓碑接管"都走这里）。
+/// 2026/10/06 22:54:19 xliu
+/// 详见 docs/project/architecture.md §6。
+/// </summary>
 public static class DeviceStatusMerger
 {
     /// <summary>

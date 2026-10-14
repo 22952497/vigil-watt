@@ -1,8 +1,8 @@
 namespace VigilWatt.Core.Models;
 
 /// <summary>
-/// 经典蓝牙设备类型判定（纯逻辑，可单测）：按"Windows 设备类别 → 服务 UUID → 显示名"三级判定，
-/// 猜不出返回 <see cref="DeviceKind.Unknown"/>——**绝不退回 Headset**（那正是蓝牙鼠标被显示成耳机的根因）。
+/// 功 能： 经典蓝牙设备类型判定（纯逻辑，可单测）：按"Windows 设备类别 → 服务 UUID → 显示名"三级判定， 猜不出返回 <see cref="DeviceKind.Unknown"/>——**绝不退回 Headset**（那正是蓝牙鼠标被显示成耳机的根因）。
+/// 2026/10/09 17:22:33 xliu
 /// 详见 docs/dev/runtime-pitfalls.md §3.1。
 /// </summary>
 public static class ClassicDeviceKindResolver

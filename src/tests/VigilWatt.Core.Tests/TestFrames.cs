@@ -1,7 +1,8 @@
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// 真机抓到的原始帧（迈从 G87 键盘，2026-10-06 采集），供解析用例做回归。
+/// 功 能： 真机抓到的原始帧（迈从 G87 键盘，2026-10-06 采集），供解析用例做回归。
+/// 2026/10/06 15:53:36 xliu
 /// 全部是 20 字节、report 0x13 的 V1 帧，帧尾校验和 = 前 19 字节之和。
 /// </summary>
 internal static class TestFrames

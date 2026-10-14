@@ -5,7 +5,8 @@ using Windows.UI;
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 全局统一状态色板：设备列表、历史图表、桌面小组件、托盘图标共用同一组状态色值。
+/// 功 能： 全局统一状态色板：设备列表、历史图表、桌面小组件、托盘图标共用同一组状态色值。
+/// 2026/10/06 15:53:36 xliu
 /// 状态色为明暗主题通用的固定值；中性色（文字/卡片底/分隔线）一律用 ThemeResource，不在这里定义。
 /// </summary>
 public static class UiPalette

@@ -40,7 +40,7 @@
 5. **被动优先**：能靠监听（input report / feature GET）解决的不写入。迈从 dongle 的自发推送（`13 0A` 帧）就是免费数据源。
 6. **新设备接入流程**：先被动监听看日志 → 再查官方驱动是否支持（支持就抓官方的包）→ 拿到精确帧后才允许写入验证。全程用户知情。
 7. **任何"诊断/扫描"代码不得留在正常执行路径上**（哪怕有开关）。要实验就在独立脚本（test-*.ps1 / python）里做，用户点头后再跑。
-   - **2026-10-10 修复轮已清**：Elan 插件的 `FeatureSweep` / `FindBatteryFeature` 已从正常路径剥离（`Probe` 现恒返回 null，不认领设备）；`HidWriteProbe` 的写入变体矩阵（无调用点）已删除。要恢复排查，按本条在独立脚本里做（见 `docs/reviews/BACKLOG.md` CR-10 / CR-14）。
+   - **2026-10-10 修复轮已清**：Elan 插件的 `FeatureSweep` / `FindBatteryFeature` 已从正常路径剥离（`Probe` 现恒返回 null，不认领设备）；`HidWriteProbe` 的写入变体矩阵（无调用点）已删除。要恢复排查，按本条在独立脚本里做（见 `docs/reviews/archive/BACKLOG-CLOSED.md` CR-10 / CR-14）。
 
 ### 3.1 各插件写入开关现状（2026-10-10 取消独立许可后逐条核对）
 

@@ -6,11 +6,8 @@ using VigilWatt.Core.Utils;
 namespace VigilWatt.Core.Plugins;
 
 /// <summary>
-/// "接口认领"型插件的基类：一台设备 = 一个长持有的 HID 接口句柄。
-/// 通用机制（探测冷却 / 写入熔断 / 中央认领 / 生命周期 / 读数异常过滤 / 稳定 Id / 被动监听 /
-/// 离线判定策略）由基类统一保证，子类只实现协议本身：
-/// <see cref="IsCandidate"/> / <see cref="Probe"/> / <see cref="PollDevice"/>（及可选 <see cref="TryParsePassiveInput"/>）。
-/// 会话型插件（罗技）直接实现 IBatteryPlugin，自建通知泵。
+/// 功 能： "接口认领"型插件的基类：一台设备 = 一个长持有的 HID 接口句柄。
+/// 2026/10/06 15:53:36 xliu
 /// 链路全貌见 docs/project/code-flow.md §4。
 /// </summary>
 public abstract class BatteryPluginBase : IBatteryPlugin

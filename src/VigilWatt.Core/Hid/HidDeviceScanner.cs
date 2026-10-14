@@ -3,7 +3,10 @@ using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Hid;
 
-/// <summary>枚举当前在位的所有 HID 接口，收集元数据供插件匹配。</summary>
+/// <summary>
+/// 功 能： 枚举当前在位的所有 HID 接口，收集元数据供插件匹配。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 public static class HidDeviceScanner
 {
     public static List<HidDeviceInfo> Scan()

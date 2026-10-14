@@ -5,11 +5,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-    /// <summary>
-    /// HistoryStore 的删除与统计能力（历史管理页依赖它）。用临时库跑真 SQLite——
-    /// "DELETE 不还文件空间"、"VACUUM 不丢数据"这类行为只有真库能验。
-    /// 每个用例一个独立临时库 + 独立的 Log 重定向，绝不碰真实的 %LOCALAPPDATA%\VigilWatt。
-    /// </summary>
+/// <summary>
+/// 功 能： HistoryStore 的删除与统计能力（历史管理页依赖它）。
+/// 2026/10/06 16:58:42 xliu
+/// 用临时库跑真 SQLite—— "DELETE 不还文件空间"、"VACUUM 不丢数据"这类行为只有真库能验。
+/// </summary>
 public sealed class HistoryStoreTests : IDisposable
 {
     private readonly string _dir;

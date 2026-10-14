@@ -8,10 +8,8 @@ using GdiImaging = System.Drawing.Imaging;
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 任务栏电量贴片：**真嵌进任务栏**——一个原生分层窗口，<c>SetParent</c> 挂成任务栏
-/// （<c>Shell_TrayWnd</c>）的子窗口，内容用 <c>UpdateLayeredWindow</c> 提交 32 位 ARGB 位图。
-/// 因此跟随/隐藏/Z 序都由系统负责，**不需要抢 Z 序**（旧覆盖窗方案那套 16ms 轮询已删）。
-/// **不能用 WinUI 3 窗口去 reparent**——内容岛的 DWM 合成链会断成灰屏，所以这里整条走原生。
+/// 功 能： 任务栏电量贴片：**真嵌进任务栏**——一个原生分层窗口，<c>SetParent</c> 挂成任务栏 （<c>Shell_TrayWnd</c>）的子窗口，内容用 <c>UpdateLayeredWindow</c> 提交 32 位 ARGB 位图。
+/// 2026/10/12 17:20:14 xliu
 /// 三道锁（SetParent / WS_EX_LAYERED / UpdateLayeredWindow）见 docs/dev/runtime-pitfalls.md §16。
 /// </summary>
 public sealed class TaskbarPillWindow : IDisposable

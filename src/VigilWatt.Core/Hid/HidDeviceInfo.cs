@@ -4,7 +4,10 @@ using Microsoft.Win32.SafeHandles;
 
 namespace VigilWatt.Core.Hid;
 
-/// <summary>一个 HID 接口的静态元数据（枚举时收集，不开句柄）。</summary>
+/// <summary>
+/// 功 能： 一个 HID 接口的静态元数据（枚举时收集，不开句柄）。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 public sealed class HidDeviceInfo
 {
     public required string DevicePath { get; init; }

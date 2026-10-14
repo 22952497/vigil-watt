@@ -3,7 +3,11 @@ using Microsoft.Win32.SafeHandles;
 
 namespace VigilWatt.Core.Hid;
 
-/// <summary>Win32 原生声明：CfgMgr32 枚举 HID 接口 + kernel32/hid.dll 设备 I/O。不用 WinRT HumanInterfaceDevice（系统级 collection 被排除、私有协议访问受限）。</summary>
+/// <summary>
+/// 功 能： Win32 原生声明：CfgMgr32 枚举 HID 接口 + kernel32/hid.dll 设备 I/O。
+/// 2026/10/06 15:53:36 xliu
+/// 不用 WinRT HumanInterfaceDevice（系统级 collection 被排除、私有协议访问受限）。
+/// </summary>
 internal static class NativeHid
 {
     public const uint CM_GET_DEVICE_INTERFACE_LIST_PRESENT = 0;

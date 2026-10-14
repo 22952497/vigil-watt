@@ -12,12 +12,9 @@ using Windows.UI;
 namespace VigilWatt.App;
 
 /// <summary>
-/// 桌面小组件：无边框悬浮卡片，纵向显示各设备电量，可拖动，不进 Alt-Tab/任务栏。
-/// 尺寸按 DPI 缩放（AppWindow.Resize 用物理像素），位置始终夹在工作区内。
-///
-/// 两套外壳按 OS 分流（判定见 <see cref="Services.WidgetCompat"/>）：Win11 用 DWM 原生圆角；
-/// Win10 没有圆角 API 且 `SetWindowRgn` 对 WinUI 3 无效，只能"透明窗口 + 圆角交给 XAML 画"，
-/// 并恢复 DWM 投影。完整论证见 docs/dev/runtime-pitfalls.md §14。
+/// 功 能： 桌面小组件：无边框悬浮卡片，纵向显示各设备电量，可拖动，不进 Alt-Tab/任务栏。
+/// 2026/10/06 15:53:36 xliu
+/// 完整论证见 docs/dev/runtime-pitfalls.md §14。
 /// </summary>
 public sealed partial class WidgetWindow : Window
 {

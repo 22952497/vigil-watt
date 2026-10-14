@@ -1,4 +1,8 @@
 namespace VigilWatt.Core.Plugins;
+/// <summary>
+/// 功 能： 插件共用的路径哈希等小工具。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 
 public static class PluginUtils
 {

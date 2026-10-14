@@ -1,4 +1,8 @@
 namespace VigilWatt.ProtocolCapture;
+/// <summary>
+/// 功 能： 把采集记录写成 JSON Lines 文件。
+/// 2026/10/11 12:08:46 xliu
+/// </summary>
 
 public sealed class JsonLinesWriter : IAsyncDisposable
 {

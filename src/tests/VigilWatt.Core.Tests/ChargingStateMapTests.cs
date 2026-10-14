@@ -4,7 +4,8 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// ChargingStateMap —— 迈从 / 北通共用的"充电标志 + 电量 → 状态"收尾规则（D8）。
+/// 功 能： ChargingStateMap —— 迈从 / 北通共用的"充电标志 + 电量 → 状态"收尾规则（D8）。
+/// 2026/10/10 17:44:33 xliu
 /// 之前两个插件各写一份，改一处漏一处。
 /// </summary>
 public class ChargingStateMapTests

@@ -1,6 +1,10 @@
 using System.Buffers.Binary;
 
 namespace VigilWatt.ProtocolCapture;
+/// <summary>
+/// 功 能： 读取 USBPcap 抓包并解析成采集记录。
+/// 2026/10/11 12:08:46 xliu
+/// </summary>
 
 public static class UsbCaptureReader
 {

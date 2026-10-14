@@ -4,7 +4,8 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// ByteSize —— 历史管理页显示库文件大小 / 释放空间用的格式化（1024 进位，最多两位小数）。
+/// 功 能： ByteSize —— 历史管理页显示库文件大小 / 释放空间用的格式化（1024 进位，最多两位小数）。
+/// 2026/10/06 16:58:42 xliu
 /// </summary>
 public class ByteSizeTests
 {

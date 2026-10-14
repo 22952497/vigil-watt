@@ -4,9 +4,9 @@ using Xunit;
 namespace VigilWatt.Core.Tests;
 
 /// <summary>
-/// PluginUtils.StableHash + DeviceClaimRegistry —— 都是零依赖纯逻辑，之前没有覆盖（全检报告行动项 5）。
-/// StableHash 的稳定性是设备 Id 的前提：重启/重扫后同一条路径必须映射到同一个 Id，
-/// 否则历史记录会认不出设备（每条记录都变成新设备）。
+/// 功 能： PluginUtils.StableHash + DeviceClaimRegistry —— 都是零依赖纯逻辑，之前没有覆盖（全检报告行动项 5）。
+/// 2026/10/10 17:44:33 xliu
+/// StableHash 的稳定性是设备 Id 的前提：重启/重扫后同一条路径必须映射到同一个 Id， 否则历史记录会认不出设备（每条记录都变成新设备）。
 /// </summary>
 public class PluginUtilsTests
 {

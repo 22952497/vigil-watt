@@ -18,7 +18,10 @@ public enum ChargingState
     Full,
 }
 
-/// <summary>一台被监控设备的当前状态快照。</summary>
+/// <summary>
+/// 功 能： 一台被监控设备的当前状态快照。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 public class DeviceStatus
 {
     /// <summary>稳定唯一 ID：BLE 用蓝牙地址，2.4G 用 HID 路径哈希 + 设备索引。</summary>

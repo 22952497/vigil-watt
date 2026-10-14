@@ -8,11 +8,11 @@ using Windows.UI;
 
 namespace VigilWatt.App.Views;
 
-    /// <summary>
-    /// 轻量电量曲线图（纯 XAML Shapes 绘制，不引图表库）。数据：若干系列，每系列一组 (时间, 百分比) 点。
-    /// 传入 domainStart/domainEnd 则强制使用指定时间窗——历史页切"7 天/30 天"时轴必须跟着变，
-    /// 否则数据不足 24h 时三个档位渲染完全相同，像"切换没反应"。交互：悬停显示最近采样点。
-    /// </summary>
+/// <summary>
+/// 功 能： 轻量电量曲线图（纯 XAML Shapes 绘制，不引图表库）。
+/// 2026/10/06 15:53:36 xliu
+/// 数据：若干系列，每系列一组 (时间, 百分比) 点。
+/// </summary>
 public sealed class BatteryChartControl : UserControl
 {
     public sealed class Series

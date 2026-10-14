@@ -1,6 +1,10 @@
 using System.Runtime.InteropServices;
 
 namespace VigilWatt.App.Services;
+/// <summary>
+/// 功 能： Win32 互操作声明。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 
 internal static class Native
 {

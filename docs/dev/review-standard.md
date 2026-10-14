@@ -104,9 +104,9 @@ R8 是前置约束而非事后补测。**写代码时就把逻辑和 WinRT 调�
 
 **规则：先更新 BACKLOG，再写报告。** 报告只承载"证据与推理"，条目本体留在 BACKLOG。
 
-- 载体：`docs/reviews/BACKLOG.md`（唯一）。字段：编号 / 级别 / 一句话 / 证据 / 状态 / 来源。
-- 状态机：`open` → `doing` → `done` / `wontfix`。
-- `wontfix` **必须写理由**，否则半年后同一个问题会被重新"发现"一遍，审查成本白付。
+- 载体：`docs/reviews/BACKLOG.md` 只留 `open` / `doing`。字段：编号 / 一句话 / 证据（`文件:符号`）/ 状态。每条一行。
+- 状态机：`open` → `doing` → `done` / `wontfix`。标成后两者时，把该行挪到 `docs/reviews/archive/BACKLOG-CLOSED.md`。编号关闭后不复用。
+- `wontfix` 在归档里写一句理由。调查过程留在审查报告或专题文档，不留在 BACKLOG。全文超过 120 行就先挪已关闭的。
 - 与 `docs/project/handoff.md` §4 的分工（写死，别混）：
   - **BACKLOG = 审查发现的未修项全集**；
   - **handoff §4 = 当前这一轮在做的那几条**。

@@ -2,7 +2,11 @@ using VigilWatt.Core.Models;
 
 namespace VigilWatt.Core.Devices;
 
-/// <summary>设备变化判定与骤降保护（纯逻辑，可单测）。DeviceManager.Upsert 靠它在"存快照"与"原地合并"之间做决策，详见 docs/project/architecture.md §6。</summary>
+/// <summary>
+/// 功 能： 设备变化判定与骤降保护（纯逻辑，可单测）。
+/// 2026/10/10 17:44:33 xliu
+/// DeviceManager.Upsert 靠它在"存快照"与"原地合并"之间做决策，详见 docs/project/architecture.md §6。
+/// </summary>
 public static class DeviceChangeDetector
 {
     /// <summary>电量 / 充电 / 在线三项任一变化即算变化。充电标志必须参与：拔线瞬间电量常停在原值（见 docs/project/changelog.md 2026-10-06）。</summary>

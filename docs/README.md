@@ -7,7 +7,7 @@
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|
 | [handoff.md](project/handoff.md) | **会话交接快照：当前状态、设备清单、待办、给下一个 AI 的注意事项** | 新会话开工第一件事 |
-| [changelog.md](project/changelog.md) | 逐轮变更历史（2026-10-04 → 10-10，第一轮~第十七轮）：每轮做了什么、为什么这么做 | 查某个决定/某段代码的来历时；**新会话不必读** |
+| [changelog.md](project/changelog.md) | 按日的变更原因（2026-10-04 → 10-14）：改了什么、为什么。细节在专题文档 | 查某个决定的来历时；**新会话不必读** |
 | [architecture.md](project/architecture.md) | 项目结构、模块职责、设计决策与理由、线程模型、数据存储 | 了解/修改整体结构时 |
 | [code-flow.md](project/code-flow.md) | 运行时代码流程（启动、轮询主循环、BLE/插件链路、UI 更新、托盘） | 改任何一条链路前 |
 | [experience.md](project/experience.md) | 项目经验复盘：走对的路、弯路、调试直觉、重开项目 checklist（**不含待办**，待办在 handoff §4 与 reviews/BACKLOG.md） | 接手/规划下一阶段时 |
@@ -32,13 +32,13 @@
 
 ## 📁 reviews/ — 审查跟踪与报告
 
-> **`BACKLOG.md` 是审查发现的唯一跟踪载体**（`open → doing → done / wontfix`），日常只读它；
-> 它和 `project/handoff.md` §4 的分工是：BACKLOG = 未修项**全集**，handoff §4 = **当前这一轮在做的那几条**。
-> `archive/` 里是一次性静态审查产物（带文件行号，会随代码漂移），保留备查，不参与日常导航。
+> **`BACKLOG.md` 只留还没修的审查项**（`open` / `doing`）。关掉的在 `archive/BACKLOG-CLOSED.md`。
+> handoff §4 只放这一轮要人做的几条，不抄 BACKLOG。
 
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|
-| [BACKLOG.md](reviews/BACKLOG.md) | **审查发现跟踪（唯一载体）**：P0/P1/P2 分级的未修项、证据（`文件:符号`）、状态、来源 | 每次审查收工时；想知道"还有什么没修"时 |
+| [BACKLOG.md](reviews/BACKLOG.md) | **还没修的审查项**（`open` / `doing`）：一句话 + `文件:符号` | 想知道还有什么没修时 |
+| [archive/BACKLOG-CLOSED.md](reviews/archive/BACKLOG-CLOSED.md) | 已关闭的审查项（`done` / `wontfix`）和不再修的理由 | 查某个旧编号为什么关了 |
 | [archive/code-review-2026-10-06.md](reviews/archive/code-review-2026-10-06.md) | 全仓代码/架构静态审查（基线 `ddd3b39`）：硬件写入边界、状态同步、BLE 判定、体验与测试缺口，含修复顺序 | 规划重构/排优先级（注意行号已漂移） |
 | [archive/code-review-followup-2026-10-06.md](reviews/archive/code-review-followup-2026-10-06.md) | 对上条的独立复核：哪些属实、哪 3 处需修正、报告遗漏了什么（罗技无写入闸门等），以及四阶段优化路线图 | 排长期重构顺序 |
 | [archive/comment-audit-2026-10-09.md](reviews/archive/comment-audit-2026-10-09.md) | 全仓注释审计与 docs 归并映射（基线 2026-10-09 工作树）：逐块处置表（保留/压缩/归纳/删除）、9 条 docs 归纳清单、"不能删"清单 | 想知道某段注释为什么被删或被搬走时 |
@@ -77,7 +77,7 @@
 | 任务栏电量贴片位置怪 / 拖动空走一截 | 位置 = 托盘左边（或上边）+ 拖动偏移；每次落位会把"实际落点"反推回 offset | dev/runtime-pitfalls.md §16.5 |
 | 任务栏电量贴片是一块"白框"/浅色方块，删了 XAML 底色也没用 | 窗口背景分两层，**可见的是 Win32 那层**：窗口类的类背景刷就是 `COLOR_WINDOW`（浅色主题=纯白），删 XAML 底色治不到它；Win11 上 accent 透明通道还会**静默失效**（返回成功、无警告、就是不透明）。正解 = extend-frame + 自接管擦背景 | dev/runtime-pitfalls.md §17 |
 | 自己写的截屏脚本截出来永远一片空白 | 进程没声明 DPI 感知：`GetWindowRect` 给物理坐标、`GetDC(0)`+`BitBlt` 给 DPI 虚拟化后的逻辑坐标，两边对不上。**第一行先 `SetProcessDpiAwarenessContext(-4)`** | dev/runtime-pitfalls.md §17（开头） |
-| 打开主界面后进程内存涨、关到托盘也不回落 | 隐藏时页面已 `Unloaded` 解绑、刷新不跑；**可见时各页 `Loaded` 会无条件重建 `ItemsSource` / 重造图表** → 合成侧资源只涨不退（托管堆与句柄全程恒定，所以不是托管泄漏） | reviews/BACKLOG.md **CR-64**、reviews/archive/memory-growth-2026-10-12.md |
+| 打开主界面后进程内存涨、关到托盘也不回落 | 抬高的是工作集，不是泄漏。判泄漏只看私有提交 | reviews/archive/BACKLOG-CLOSED.md **CR-64**、reviews/archive/memory-growth-2026-10-12.md |
 
 数据与日志位置：`%LOCALAPPDATA%\VigilWatt\`（settings.json / history.db / logs\app-日期.log；**日志按日分文件**，默认保留 14 天，写入异常兜底 `logs\log-error.txt`）。日志分级 `LogLevel`（默认 `Info`，可选 关闭/详细/信息/警告/错误）与保留天数在设置页调整，**改后需重启**，完整设计见 [dev/logging.md](dev/logging.md)。
 

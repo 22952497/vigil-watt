@@ -4,10 +4,11 @@ using Xunit;
 
 namespace VigilWatt.Core.Tests;
 
-    /// <summary>
-    /// HidppCodec —— HID++ 响应解析与 report ID 选择。覆盖 Bolt 长接口必须发 0x11，
-    /// 以及电量/feature 不得读成 feature 下标的回归。
-    /// </summary>
+/// <summary>
+/// 功 能： HidppCodec —— HID++ 响应解析与 report ID 选择。
+/// 2026/10/08 11:27:03 xliu
+/// 覆盖 Bolt 长接口必须发 0x11， 以及电量/feature 不得读成 feature 下标的回归。
+/// </summary>
 public class HidppCodecTests
 {
     [Fact]

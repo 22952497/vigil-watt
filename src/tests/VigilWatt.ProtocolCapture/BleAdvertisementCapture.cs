@@ -4,6 +4,10 @@ using Windows.Storage.Streams;
 using System.Collections.Concurrent;
 
 namespace VigilWatt.ProtocolCapture;
+/// <summary>
+/// 功 能： 被动采集 BLE 广播并写成采集记录。
+/// 2026/10/11 12:08:46 xliu
+/// </summary>
 
 public static class BleAdvertisementCapture
 {

@@ -4,10 +4,9 @@ using Microsoft.UI.Xaml.Media;
 namespace VigilWatt.App.Services;
 
 /// <summary>
-/// 窗口背景材质：取值定义 + "按系统能力回退"的纯逻辑。
-///
+/// 功 能： 窗口背景材质：取值定义 + "按系统能力回退"的纯逻辑。
+/// 2026/10/08 17:10:27 xliu
 /// 必须回退而不能写死：Mica 是 Win11 专属，Desktop Acrylic 要 Win10 1809+，两者都得在运行时先问控制器。
-/// 做成纯函数便于设置页显示"实际生效的是什么"，也便于加单测。
 /// </summary>
 public static class WindowBackdrop
 {

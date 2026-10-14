@@ -6,6 +6,10 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 
 namespace VigilWatt.App.Views;
+/// <summary>
+/// 功 能： 设备电量列表页。
+/// 2026/10/06 15:53:36 xliu
+/// </summary>
 
 public sealed partial class DevicesPage : Page
 {
