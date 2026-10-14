@@ -107,15 +107,27 @@ public class HistoryStore : IDisposable
     }
 
     /// <summary>时间范围内有过采样的设备（历史页设备列表用：按库里的数据走，而不是当前在线设备）。
-    /// 排序 = 最近有数据的在前。</summary>
+    /// 排序 = 最近有数据的在前。名称取窗口内最新非占位名（见 <see cref="PreferredNameSql"/>）。</summary>
     public List<(string DeviceId, string Name, DateTimeOffset LastSeen)> DistinctDevices(DateTimeOffset since)
     {
         var list = new List<(string, string, DateTimeOffset)>();
         lock (_writeGate)
         {
             using var cmd = _connection.CreateCommand();
-            cmd.CommandText =
-                "SELECT device_id, MAX(name), MAX(ts) FROM samples WHERE ts >= $since GROUP BY device_id ORDER BY MAX(ts) DESC";
+            // MAX(name) 会把 ble:BluetoothLE#… 排到 Dell… 前面；窗口内优先非占位、再取最新。
+            cmd.CommandText = $"""
+                SELECT device_id, name, last_ts FROM (
+                    SELECT device_id, name,
+                           MAX(ts) OVER (PARTITION BY device_id) AS last_ts,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY device_id
+                               ORDER BY {PreferredNameSql} ASC, ts DESC, id DESC
+                           ) AS rn
+                    FROM samples
+                    WHERE ts >= $since
+                ) WHERE rn = 1
+                ORDER BY last_ts DESC
+                """;
             cmd.Parameters.AddWithValue("$since", since.ToUnixTimeMilliseconds());
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -152,16 +164,28 @@ public class HistoryStore : IDisposable
         }
     }
 
-    /// <summary>每台设备的聚合（条数 / 名称 / 最早 / 最新），最近有数据的在前。</summary>
+    /// <summary>每台设备的聚合（条数 / 名称 / 最早 / 最新），最近有数据的在前。
+    /// 名称取最新非占位名（见 <see cref="PreferredNameSql"/>）。</summary>
     public List<DeviceHistoryStat> GetDeviceStats()
     {
         var list = new List<DeviceHistoryStat>();
         lock (_writeGate)
         {
             using var cmd = _connection.CreateCommand();
-            cmd.CommandText =
-                "SELECT device_id, MAX(name), COUNT(*), MIN(ts), MAX(ts) FROM samples " +
-                "GROUP BY device_id ORDER BY MAX(ts) DESC";
+            cmd.CommandText = $"""
+                SELECT device_id, name, cnt, first_ts, last_ts FROM (
+                    SELECT device_id, name,
+                           COUNT(*) OVER (PARTITION BY device_id) AS cnt,
+                           MIN(ts) OVER (PARTITION BY device_id) AS first_ts,
+                           MAX(ts) OVER (PARTITION BY device_id) AS last_ts,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY device_id
+                               ORDER BY {PreferredNameSql} ASC, ts DESC, id DESC
+                           ) AS rn
+                    FROM samples
+                ) WHERE rn = 1
+                ORDER BY last_ts DESC
+                """;
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
                 list.Add(new DeviceHistoryStat(
@@ -171,6 +195,10 @@ public class HistoryStore : IDisposable
         }
         return list;
     }
+
+    /// <summary>ORDER BY 用：0 = 可显示名，1 = 占位（空 / 等于 device_id / 含 Bluetooth#）。全是占位时仍取最新一条。</summary>
+    private const string PreferredNameSql =
+        "CASE WHEN name = '' OR name = device_id OR INSTR(name, 'Bluetooth#') > 0 THEN 1 ELSE 0 END";
 
     /// <summary>删除指定设备的全部历史，返回删除条数。空集合直接返回 0（不拼 SQL）。</summary>
     public int DeleteDevices(IReadOnlyCollection<string> deviceIds)

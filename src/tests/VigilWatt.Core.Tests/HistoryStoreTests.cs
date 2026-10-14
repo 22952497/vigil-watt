@@ -190,4 +190,32 @@ public sealed class HistoryStoreTests : IDisposable
         Assert.Equal(0, store.GetStats().TotalCount);
         Assert.True(after <= before, $"VACUUM 后 {after} 字节应不大于删除前 {before} 字节");
     }
+
+    [Fact]
+    public void H11_聚合名取最新非占位名_不取字典序MAX()
+    {
+        using var store = NewStore();
+        const string id = "ble:BluetoothLE#BluetoothLEc8:cb:9e:d2:19:b8-c6:b8:c5:38:c4:a2";
+        // 真实名在前；更晚写入的占位 Id 字典序更大（b > D），旧 MAX(name) 会选错
+        store.Insert(Dev(id, "Dell WK717Keyboard", 80, T0));
+        store.Insert(Dev(id, id, 75, T0.AddHours(1)));
+        store.Insert(Dev(id, "Dell WK717Keyboard", 70, T0.AddHours(2)));
+
+        var stats = store.GetDeviceStats().Single();
+        Assert.Equal("Dell WK717Keyboard", stats.Name);
+
+        var distinct = store.DistinctDevices(T0.AddDays(-1)).Single();
+        Assert.Equal("Dell WK717Keyboard", distinct.Name);
+    }
+
+    [Fact]
+    public void H12_两次真实改名取时间上更晚的()
+    {
+        using var store = NewStore();
+        store.Insert(Dev("mouse", "旧名", 90, T0));
+        store.Insert(Dev("mouse", "新名", 85, T0.AddHours(3)));
+
+        Assert.Equal("新名", store.GetDeviceStats().Single().Name);
+        Assert.Equal("新名", store.DistinctDevices(T0).Single().Name);
+    }
 }

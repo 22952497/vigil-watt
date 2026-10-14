@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -38,6 +39,8 @@ public sealed class BatteryChartControl : UserControl
 
     private IReadOnlyList<Series> _series = Array.Empty<Series>();
     private DateTimeOffset? _domainStart, _domainEnd;
+    /// <summary>相邻采样间隔超过此值视为断档，折线/面积在中间断开（离线/关机不能假装有电量）。</summary>
+    private TimeSpan _gapBreak = TimeSpan.FromMinutes(15);
     private UIElement? _emptyState;
 
     // 最近一次渲染的几何信息，供 hover 反查（pointer x → 时间 → 最近采样点）
@@ -45,10 +48,16 @@ public sealed class BatteryChartControl : UserControl
     private DateTimeOffset _tStart, _tEnd;
     private double _totalSec;
 
+    /// <summary>当前悬停命中的采样点；相同则不重画气泡，避免 PointerMoved 每像素清建造成闪烁。</summary>
+    private (string Series, DateTimeOffset Time, int Percent)? _hoverKey;
+
     public BatteryChartControl()
     {
-        // 透明背景让整块控件可命中，否则空白处收不到 PointerMoved，hover 只在曲线附近才触发
-        Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+        // 透明背景必须设在 Content 根上：子 Canvas 全 IsHitTestVisible=false 时，
+        // 只给 UserControl 设 Background 在 WinUI 里仍可能穿透，导致悬停气泡从不出现。
+        var hit = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+        Background = hit;
+        _root.Background = hit;
         _root.Children.Add(_canvas);
         _root.Children.Add(_hover);
         _root.Children.Add(_legend);
@@ -56,23 +65,25 @@ public sealed class BatteryChartControl : UserControl
         SizeChanged += (_, _) => Render();
         // 明暗主题切换时网格/轴文字颜色来自 ThemeResource，必须重绘才能跟着变
         ActualThemeChanged += (_, _) => Render();
-        PointerMoved += OnPointerMoved;
-        PointerExited += (_, _) => _hover.Children.Clear();
+        _root.PointerMoved += OnPointerMoved;
+        _root.PointerExited += (_, _) => ClearHover();
     }
 
     public void SetData(IReadOnlyList<Series> series,
-        DateTimeOffset? domainStart = null, DateTimeOffset? domainEnd = null)
+        DateTimeOffset? domainStart = null, DateTimeOffset? domainEnd = null,
+        TimeSpan? gapBreak = null)
     {
         _series = series;
         _domainStart = domainStart;
         _domainEnd = domainEnd;
+        if (gapBreak is { } g && g > TimeSpan.Zero) _gapBreak = g;
         Render();
     }
 
     private void Render()
     {
         _canvas.Children.Clear();
-        _hover.Children.Clear();
+        ClearHover();
         if (_emptyState is not null)
         {
             _root.Children.Remove(_emptyState);
@@ -200,45 +211,59 @@ public sealed class BatteryChartControl : UserControl
 
     private void RenderSeries(Series s)
     {
-        var pts = new PointCollection();
-        foreach (var p in s.Points)
-            pts.Add(new Point(TimeToX(p.Time), PctToY(p.Percent)));
+        if (s.Points.Count == 0) return;
 
-        // 面积填充：折线到基线的闭合多边形，低透明度让层次出来但不抢眼
-        var area = new PointCollection();
-        foreach (var pt in pts) area.Add(pt);
-        area.Add(new Point(pts[^1].X, PadT + _plotH));
-        area.Add(new Point(pts[0].X, PadT + _plotH));
-        _canvas.Children.Add(new Polygon
-        {
-            Points = area,
-            Fill = new SolidColorBrush(Color.FromArgb(38, s.Color.R, s.Color.G, s.Color.B)),
-        });
+        var stroke = new SolidColorBrush(s.Color);
+        var fill = new SolidColorBrush(s.Color);
+        var areaFill = new SolidColorBrush(Color.FromArgb(38, s.Color.R, s.Color.G, s.Color.B));
+        bool drawDots = s.Points.Count <= 40;
 
-        _canvas.Children.Add(new Polyline
+        foreach (var seg in SplitByGap(s.Points, _gapBreak))
         {
-            Points = pts,
-            Stroke = new SolidColorBrush(s.Color),
-            StrokeThickness = 2,
-            StrokeLineJoin = PenLineJoin.Round,
-        });
-
-        // 采样点稀疏时补圆点，密集时不画（否则糊成一条粗线）
-        if (pts.Count <= 40)
-        {
-            var fill = new SolidColorBrush(s.Color);
-            foreach (var pt in pts)
+            if (seg.Count == 1)
             {
+                // 孤立采样：不断档连线，只打点
+                var alone = new Point(TimeToX(seg[0].Time), PctToY(seg[0].Percent));
                 var dot = new Ellipse { Width = 5, Height = 5, Fill = fill };
-                Canvas.SetLeft(dot, pt.X - 2.5);
-                Canvas.SetTop(dot, pt.Y - 2.5);
+                Canvas.SetLeft(dot, alone.X - 2.5);
+                Canvas.SetTop(dot, alone.Y - 2.5);
                 _canvas.Children.Add(dot);
+                continue;
+            }
+
+            var pts = new PointCollection();
+            foreach (var p in seg)
+                pts.Add(new Point(TimeToX(p.Time), PctToY(p.Percent)));
+
+            var area = new PointCollection();
+            foreach (var pt in pts) area.Add(pt);
+            area.Add(new Point(pts[^1].X, PadT + _plotH));
+            area.Add(new Point(pts[0].X, PadT + _plotH));
+            _canvas.Children.Add(new Polygon { Points = area, Fill = areaFill });
+
+            _canvas.Children.Add(new Polyline
+            {
+                Points = pts,
+                Stroke = stroke,
+                StrokeThickness = 2,
+                StrokeLineJoin = PenLineJoin.Round,
+            });
+
+            if (drawDots)
+            {
+                foreach (var pt in pts)
+                {
+                    var dot = new Ellipse { Width = 5, Height = 5, Fill = fill };
+                    Canvas.SetLeft(dot, pt.X - 2.5);
+                    Canvas.SetTop(dot, pt.Y - 2.5);
+                    _canvas.Children.Add(dot);
+                }
             }
         }
 
-        // 末端数值标签：用实测宽度决定靠左还是靠右，替代原来"每字符约 7px"的估算
+        // 末端数值标签挂在全系列最后一点（用实测宽度决定靠左还是靠右）
         var last = s.Points[^1];
-        var tip = MakeLabel($"{last.Percent}%", new SolidColorBrush(s.Color), 11);
+        var tip = MakeLabel($"{last.Percent}%", stroke, 11);
         tip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double tipWidth = tip.DesiredSize.Width;
         double tipX = TimeToX(last.Time) + 6;
@@ -246,6 +271,27 @@ public sealed class BatteryChartControl : UserControl
         Canvas.SetLeft(tip, tipX);
         Canvas.SetTop(tip, PctToY(last.Percent) - 8);
         _canvas.Children.Add(tip);
+    }
+
+    /// <summary>按时间断档拆段。间隔 &gt; gapBreak 的相邻点不连线——关机/离线区间不能画成斜坡。</summary>
+    internal static List<List<(DateTimeOffset Time, int Percent)>> SplitByGap(
+        IReadOnlyList<(DateTimeOffset Time, int Percent)> points, TimeSpan gapBreak)
+    {
+        var segments = new List<List<(DateTimeOffset Time, int Percent)>>();
+        if (points.Count == 0) return segments;
+
+        var current = new List<(DateTimeOffset Time, int Percent)> { points[0] };
+        for (int i = 1; i < points.Count; i++)
+        {
+            if (points[i].Time - points[i - 1].Time > gapBreak)
+            {
+                segments.Add(current);
+                current = new List<(DateTimeOffset Time, int Percent)>();
+            }
+            current.Add(points[i]);
+        }
+        segments.Add(current);
+        return segments;
     }
 
     private void RenderEmptyState(Brush axisBrush, Brush textBrush)
@@ -284,15 +330,27 @@ public sealed class BatteryChartControl : UserControl
         _root.Children.Add(panel);
     }
 
-    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
+    private void ClearHover()
     {
         _hover.Children.Clear();
-        if (_series.Count == 0 || _totalSec <= 0) return;
+        _hoverKey = null;
+    }
 
-        var p = e.GetCurrentPoint(_canvas).Position;
+    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_series.Count == 0 || _totalSec <= 0 || !_series.Any(s => s.Points.Count > 0))
+        {
+            ClearHover();
+            return;
+        }
+
+        var p = e.GetCurrentPoint(_root).Position;
         // 只在绘图区内响应，边缘留 6px 容差
         if (p.X < PadL - 6 || p.X > PadL + _plotW + 6 || p.Y < PadT - 6 || p.Y > PadT + _plotH + 6)
+        {
+            ClearHover();
             return;
+        }
 
         // pointer x → 目标时间 → 全局最近的采样点
         double offset = Math.Clamp((p.X - PadL) / _plotW, 0, 1) * _totalSec;
@@ -316,6 +374,11 @@ public sealed class BatteryChartControl : UserControl
         }
         if (bestSeries is null) return;
 
+        var key = (bestSeries.Name, best.Time, best.Percent);
+        if (_hoverKey == key) return;
+        _hoverKey = key;
+
+        _hover.Children.Clear();
         double hx = TimeToX(best.Time);
         double hy = PctToY(best.Percent);
         var color = new SolidColorBrush(bestSeries.Color);
@@ -329,11 +392,14 @@ public sealed class BatteryChartControl : UserControl
             Opacity = 0.55,
         });
 
+        // 描边用主题色，暗色/亮色都能和曲线色点区分开
+        var dotStroke = Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] as Brush
+                        ?? new SolidColorBrush(Color.FromArgb(255, 255, 255, 255));
         var dot = new Ellipse
         {
             Width = 10, Height = 10,
             Fill = color,
-            Stroke = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+            Stroke = dotStroke,
             StrokeThickness = 2,
         };
         Canvas.SetLeft(dot, hx - 5);
@@ -343,40 +409,54 @@ public sealed class BatteryChartControl : UserControl
         _hover.Children.Add(MakeTooltip(bestSeries, best, hx, hy));
     }
 
-    /// <summary>深色气泡：多系列时带上系列名，单系列时只显示时间 + 电量。</summary>
+    /// <summary>跟随采样点的气泡：时间 + 电量；多系列时带系列名。色值走主题资源，明暗模式都可读。</summary>
     private UIElement MakeTooltip(Series series, (DateTimeOffset Time, int Percent) point, double hx, double hy)
     {
-        var content = new StackPanel { Spacing = 1 };
+        var primary = Application.Current.Resources["TextFillColorPrimaryBrush"] as Brush
+                      ?? new SolidColorBrush(Color.FromArgb(255, 255, 255, 255));
+        var secondary = Application.Current.Resources["TextFillColorSecondaryBrush"] as Brush
+                        ?? new SolidColorBrush(Color.FromArgb(200, 200, 200, 200));
+        var tipBg = Application.Current.Resources["SolidBackgroundFillColorTertiaryBrush"] as Brush
+                    ?? new SolidColorBrush(Color.FromArgb(242, 32, 32, 32));
+        var tipBorder = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush
+                        ?? new SolidColorBrush(Color.FromArgb(80, 128, 128, 128));
+
+        var content = new StackPanel { Spacing = 2 };
         if (_series.Count > 1)
         {
             content.Children.Add(new TextBlock
             {
                 Text = series.Name,
                 FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)),
+                Foreground = secondary,
             });
         }
         content.Children.Add(new TextBlock
         {
             Text = point.Time.LocalDateTime.ToString("MM-dd HH:mm"),
-            FontSize = 11,
-            Foreground = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255)),
+            FontSize = 12,
+            Foreground = secondary,
         });
         content.Children.Add(new TextBlock
         {
             Text = $"{point.Percent}%",
-            FontSize = 14,
+            FontSize = 16,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+            Foreground = primary,
         });
 
         var tip = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(242, 32, 32, 32)),
+            Background = tipBg,
+            BorderBrush = tipBorder,
+            BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(10, 6, 10, 6),
             Child = content,
+            // 读屏：时间与电量一并报出（图表本身对读屏不友好）
         };
+        AutomationProperties.SetName(tip,
+            $"{point.Time.LocalDateTime:MM-dd HH:mm}，电量 {point.Percent}%");
         tip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double tw = tip.DesiredSize.Width;
         double th = tip.DesiredSize.Height;

@@ -28,6 +28,9 @@ public sealed partial class StatsPage : Page
     /// <summary>事件是否已订阅：Loaded 可能重复触发，不挡住就会叠加回调。</summary>
     private bool _hooked;
 
+    /// <summary>上次画曲线用的数据指纹；相同时跳过重建，避免 DevicesChanged 把悬停气泡冲掉。</summary>
+    private string? _chartKey;
+
     public StatsPage()
     {
         InitializeComponent();
@@ -131,11 +134,23 @@ public sealed partial class StatsPage : Page
 
         UpdateKpis(device, samples);
 
+        // 指纹不含 DateTime.Now：时间窗右端每秒都变，却不该整图重造；新采样靠条数/末点变化触发。
+        string key = device is null
+            ? $"none|{GetSelectedHours()}"
+            : $"{device.Id}|{device.Name}|{GetSelectedHours()}|{samples.Count}|" +
+              (samples.Count == 0
+                  ? "0"
+                  : $"{samples[^1].Timestamp.ToUnixTimeMilliseconds()}:{samples[^1].Percent}");
+        if (key == _chartKey && ChartHost.Children.Count > 0) return;
+        _chartKey = key;
+
+        // 断档阈值 = 3×采样间隔（最少 15 分钟）：在线时应按间隔落点，更大间隔几乎肯定是离线/关机
+        var gapBreak = TimeSpan.FromMinutes(Math.Max(15, App.Services.Settings.SampleIntervalMinutes * 3));
         var chart = new BatteryChartControl();
         if (device is null)
         {
             // 没有设备：仍画空坐标系，把所选时间窗显式交给图表（切档位能看出轴在变）
-            chart.SetData(Array.Empty<BatteryChartControl.Series>(), from, to);
+            chart.SetData(Array.Empty<BatteryChartControl.Series>(), from, to, gapBreak);
         }
         else
         {
@@ -147,7 +162,7 @@ public sealed partial class StatsPage : Page
                     Color = UiPalette.SeriesColors[0],
                     Points = samples.Select(s => (s.Timestamp, s.Percent)).ToList(),
                 },
-            }, from, to);
+            }, from, to, gapBreak);
         }
 
         ChartHost.Children.Clear();

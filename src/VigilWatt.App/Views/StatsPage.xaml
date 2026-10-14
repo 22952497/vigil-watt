@@ -83,8 +83,8 @@
             </Border>
         </Grid>
 
-        <!-- 曲线卡片 -->
-        <Border Grid.Row="3" Style="{StaticResource AppCardStyle}">
+        <!-- 曲线卡片：内边距给悬停气泡留边，避免贴边裁切 -->
+        <Border Grid.Row="3" Style="{StaticResource AppCardStyle}" Padding="8,8,8,4">
             <Grid x:Name="ChartHost" />
         </Border>
     </Grid>
