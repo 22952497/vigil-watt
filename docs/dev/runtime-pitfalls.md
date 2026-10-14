@@ -501,6 +501,14 @@ Windows 任务栏**自己就有一个电池图标**，贴片再重复一遍纯�
 
 `WM_DPICHANGED` / `WM_DISPLAYCHANGE` 走推迟重建；`WM_SETTINGCHANGE`（主题等）只重绘。
 
+### 16.9 耳机头梁不要用 GDI+ DrawArc（2026-10-14）
+
+**症状**：任务栏贴片上的耳机头梁是斜的。小组件上同一图形的右边没有头梁。
+
+**根因**：贴片走 `DeviceIconFactory.DrawGlyph` 的 GDI 分支。`DrawArc` 画的是 11×14 的半椭圆，并且从 13 宽名义框的左缘起笔。GDI+ 在 Win10 上会把这种弧的两端画得不在同一高度；头梁又偏左，左耳罩接外沿、右耳罩接内侧。XAML 那份 `BorderThickness` 写成了 `(1.2, 1.2, 0, 0)`，右缘没有描边。
+
+**修法**：头梁宽 11、高 7，在名义框里水平居中。上半圆用两段对称三次贝塞尔（不用 `DrawArc` / `AddArc`），圆下用竖线收到开口的底边。XAML 描边改为 `(1.2, 1.2, 1.2, 0)`。两套渲染器改一处要改另一处。
+
 **验证（2026-10-12 实测，本机 Win10 19045）**：
 
 - `dotnet build VigilWatt.sln -c Debug` **0 警告 0 错误**；`dotnet test src/tests/VigilWatt.Core.Tests --no-build`

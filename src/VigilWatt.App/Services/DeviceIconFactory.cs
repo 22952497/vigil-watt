@@ -84,8 +84,10 @@ public static class DeviceIconFactory
                     Width = 11,
                     Height = 7,
                     CornerRadius = new CornerRadius(5.5, 5.5, 0, 0),
-                    BorderThickness = new Thickness(1.2, 1.2, 0, 0),
+                    // 右缘也要描边，底边开口。与 GDI 头梁同一造型，见 runtime-pitfalls.md §16.9。
+                    BorderThickness = new Thickness(1.2, 1.2, 1.2, 0),
                     BorderBrush = brush,
+                    HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Top,
                 });
                 foreach (var h in new[] { HorizontalAlignment.Left, HorizontalAlignment.Right })
@@ -224,8 +226,7 @@ public static class DeviceIconFactory
 
             case DeviceKind.Headset:
             {
-                var bandH = 7 * scale;
-                g.DrawArc(pen, x, y, 11 * scale, bandH * 2, 180, 180);
+                DrawHeadsetBand(g, pen, x, y, w, scale);
                 foreach (var left in new[] { true, false })
                 {
                     var cx = left ? x : x + w - 2.6f * scale;
@@ -270,6 +271,30 @@ public static class DeviceIconFactory
                 }
                 break;
         }
+    }
+
+    /// <summary>头梁用对称贝塞尔并在名义框里居中。不用 DrawArc，见 runtime-pitfalls.md §16.9。</summary>
+    private static void DrawHeadsetBand(Gdi.Graphics g, Gdi.Pen pen, float originX, float originY, float glyphW, float scale)
+    {
+        const float kappa = 0.5522848f; // 四分之一圆的贝塞尔系数，左右控制点镜像
+        float bandW = 11f * scale;
+        float bandX = originX + (glyphW - bandW) / 2f;
+        float inset = pen.Width / 2f;
+        float left = bandX + inset;
+        float right = bandX + bandW - inset;
+        float top = originY + inset;
+        float bottom = originY + 7f * scale;
+        float radius = (right - left) / 2f;
+        float cx = (left + right) / 2f;
+        float cy = top + radius;
+        float k = kappa * radius;
+
+        using var path = new Gdi2.GraphicsPath();
+        path.AddLine(left, bottom, left, cy);
+        path.AddBezier(left, cy, left, cy - k, cx - k, cy - radius, cx, cy - radius);
+        path.AddBezier(cx, cy - radius, cx + k, cy - radius, right, cy - k, right, cy);
+        path.AddLine(right, cy, right, bottom);
+        g.DrawPath(pen, path);
     }
 
     private static (float W, float H) NominalSize(DeviceKind kind) => kind switch
