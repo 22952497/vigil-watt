@@ -49,7 +49,7 @@ VigilWatt：Windows 无线设备电量监控（WinUI 3 / .NET 8，个人自用�
 
 - 构建/发布产物：`bin/`、`obj/`、`publish/`、`dist/`（均已 gitignore）。
 - 助手元数据目录：`.workbuddy/`、`.workbuddy-ai/`、`.zcode/`（已 gitignore，**规则写这里等于没写**）。
-- `.vpk-github-token`（GitHub PAT，绝不入库）。
+- `.vpk-github-token`（**文件名是历史遗留，内容实际是 Gitee 令牌**，已 gitignore，绝不入库）。`publish-github.ps1` 读同名文件当 GitHub 令牌，所以该脚本目前用不了。
 - 仓库根不放临时文件；一次性调试脚本放 `scripts/`，并补 `scripts/README.md` 索引。
 
 ## 6. 静默失败的两个坑（必记）

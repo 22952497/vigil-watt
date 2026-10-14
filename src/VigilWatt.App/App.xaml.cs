@@ -236,6 +236,13 @@ public partial class App : Application
             _ = ShowPendingUpdateAsync();
     }
 
+    /// <summary>窗口首次 Loaded 时补弹启动更新确认框（XamlRoot 就绪前无法弹，见 ShowPendingUpdateAsync）。</summary>
+    private static void RetryWhenLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement root) root.Loaded -= RetryWhenLoaded;
+        _ = ShowPendingUpdateAsync();
+    }
+
     private static async Task ShowPendingUpdateAsync()
     {
         if (Interlocked.Exchange(ref _updatePromptVisible, 1) != 0) return;
@@ -249,9 +256,18 @@ public partial class App : Application
         try
         {
             var window = Services.MainWindow;
-            if (window?.Content is not FrameworkElement root || root.XamlRoot == null)
+            if (window?.Content is not FrameworkElement root)
             {
                 _pendingStartupUpdate = update;
+                return;
+            }
+
+            // 启动瞬间窗口可能还没 Loaded，此时 XamlRoot 为空、弹框必失败；而窗口若已处于激活态
+            // 就不会再触发 Activated，确认框会永久丢失。等根元素 Loaded 再补弹（一次性）。
+            if (root.XamlRoot == null)
+            {
+                _pendingStartupUpdate = update;
+                root.Loaded += RetryWhenLoaded;
                 return;
             }
 
@@ -274,7 +290,15 @@ public partial class App : Application
             }
 
             UpdateStatusMessage = $"正在下载版本 {version}…";
-            await updater.DownloadAsync(update, pct => Log.Info($"启动更新下载进度 {pct}%"));
+            // 进度回调在线程池线程；节流到每 5% 刷一次，既不刷屏也让设置页/托盘能看到进度
+            var lastBucket = -1;
+            await updater.DownloadAsync(update, pct =>
+            {
+                if (pct / 5 == lastBucket) return;
+                lastBucket = pct / 5;
+                UpdateStatusMessage = $"正在下载版本 {version}… {pct}%";
+                Log.Info($"启动更新下载进度 {pct}%");
+            });
             UpdateStatusMessage = $"版本 {version} 下载完成，正在重启应用…";
             Log.Info($"版本 {version} 下载完成，开始应用并重启");
             updater.ApplyAndRestart(update);

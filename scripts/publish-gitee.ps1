@@ -1,5 +1,7 @@
 # Publish the complete Velopack dist folder as a Gitee Release.
-# Requires the version tag to exist on the Gitee remote and GITEE_TOKEN to have repository write access.
+# Requires the version tag to exist on the Gitee remote, and a Gitee token with write access
+# (pass -Token, or set the GITEE_TOKEN env var). The token is sent via the Authorization
+# header, never in the URL query. $owner/$repository must match UpdateService.RepoUrl.
 param(
     [string]$Token = ""
 )
@@ -36,9 +38,9 @@ if ($LASTEXITCODE -ne 0 -or -not $tagRef) {
 }
 
 $existing = $null
-$tagUri = "$apiUrl/releases/tags/$([uri]::EscapeDataString($tag))?access_token=$([uri]::EscapeDataString($Token))"
+$tagUri = "$apiUrl/releases/tags/$([uri]::EscapeDataString($tag))"
 try {
-    $existing = Invoke-RestMethod -Method Get -Uri $tagUri
+    $existing = Invoke-RestMethod -Method Get -Uri $tagUri -Headers @{ Authorization = "token $Token" }
 }
 catch {
     $statusCode = 0
@@ -50,6 +52,8 @@ if ($existing) { throw "Gitee Release $tag already exists; refusing to replace o
 Add-Type -AssemblyName System.Net.Http
 $client = [System.Net.Http.HttpClient]::new()
 $client.Timeout = [TimeSpan]::FromMinutes(10)
+# Token goes in the Authorization header, never in the URL query, so it stays out of server/proxy logs.
+$client.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("token", $Token)
 
 try {
     $releaseBody = @{
@@ -58,7 +62,7 @@ try {
         body = "VigilWatt $version release. The attached files include the Velopack update feed and packages."
         prerelease = $false
     } | ConvertTo-Json
-    $createUri = "$apiUrl/releases?access_token=$([uri]::EscapeDataString($Token))"
+    $createUri = "$apiUrl/releases"
     $json = [System.Net.Http.StringContent]::new($releaseBody, [System.Text.Encoding]::UTF8, "application/json")
     $createResponse = $client.PostAsync($createUri, $json).GetAwaiter().GetResult()
     $createText = $createResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
@@ -74,7 +78,6 @@ try {
     foreach ($file in $files) {
         Write-Host "Uploading $($file.Name)"
         $form = [System.Net.Http.MultipartFormDataContent]::new()
-        $form.Add([System.Net.Http.StringContent]::new($Token), "access_token")
         $stream = [System.IO.File]::OpenRead($file.FullName)
         $content = [System.Net.Http.StreamContent]::new($stream)
         $form.Add($content, "file", $file.Name)

@@ -105,12 +105,13 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 4. **PowerShell 5.1 的编码坑**：.ps1 含中文必须存成 **UTF-8 带 BOM**，否则中文注释被当 GBK 读、字符串终止符解析直接报错。改 build-installer.ps1 后确认 BOM 还在（VS Code 右下角选"通过编码保存 → UTF-8 with BOM"）。
 5. **未签名**：安装/运行时 SmartScreen 可能弹"未知发布者"，点"仍要运行"即可；要消除需买代码签名证书后给 vpk 加 `--signParams`。
 6. **从 bin/publish 直接跑的副本不能自更新**（Velopack `IsInstalled=false`），设置页"检查更新"会明确提示。装了的实例启动时还会**自动应用已下载的更新**（Velopack 默认行为，无需写代码）。
+7. **`/releases/latest` 在"仓库一个 Release 都没有"时返回 404**（端点本身正常：有 Release 的仓库返回 200 + `tag_name`）。曾自写的 Gitee 适配器用这个端点定位最新 tag，`EnsureSuccessStatusCode()` 一撞 404 就把"没发过版"报成"检查失败"。改用内置 `GiteaSource` 后走的是 `/releases` 列表端点，空仓库返回 `[]`、视为"无新版本"，不再抛错。
 
 ### 应用侧接入（已做，改这些文件时注意）
 
 - `Program.cs`：自定义入口（csproj `DISABLE_XAML_GENERATED_MAIN` 关掉了 XAML 生成的 Main）。`VelopackApp.Build().Run()` 必须最先跑——安装/更新/卸载钩子进程带 `--veloapp-*` 参数被拉起，在这里被消费后直接退出，所以 `App.OnLaunched` 的单实例互斥不会误杀钩子进程，也不用改。
 - 卸载清理：`OnBeforeUninstallFastCallback` 里调 `AutostartService.SetEnabled(false)` 删 HKCU Run 自启动残留。
-- `Services/UpdateService.cs` + 设置页"软件更新"区：启动时检查公开 Gitee 仓库的最新 Release；设置页保留手动检查。运行副本未安装时不执行安装更新。
+- `Services/UpdateService.cs` + 设置页"软件更新"区：更新源是 Velopack **内置的 `GiteaSource`**，不是自写适配器——Gitee 的 `/api/v1` 与 `/api/v5` 返回一致（2026-10-14 实测：同仓库同键同值），而 `GiteaSource` 的 API 基址正是硬编码的 `{host}/api/v1/`，所以直接可用。仓库 URL 是常量 `UpdateService.RepoUrl`，必须与 `scripts/publish-gitee.ps1` 的 `$owner/$repository` 指向同一个仓库。启动时检查一次，设置页保留手动检查。运行副本未安装时不执行安装更新。
 - 版本号唯一来源：`VigilWatt.App.csproj` 的 `<Version>`，exe FileVersion、设置页显示、安装包版本都从它来。
 
 ### 已验证（2026-10-06）
@@ -119,9 +120,9 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 
 ### 发布到 Gitee（Release 即更新源）
 
-自动更新读取公开仓库 `gitee.com/YGWG-LX/vigil-watt` 的最新 Release。Gitee API 用于定位最新 tag，Velopack 清单与包从该 Release 的附件下载；Gitee Release 下载路由见[官方说明](https://blog.gitee.com/2022/08/18/update/)，Velopack 静态源从目录读取 `releases.{channel}.json` 和包文件。
+自动更新读取公开仓库 `gitee.com/YGWG-LX/vigil-watt` 的 Release：`GiteaSource` 经 `/api/v1/repos/.../releases` 列出版本（空仓库返回 `[]`，视为无新版本），Velopack 清单与包从 Release 附件下载。Gitee Release 下载路由见[官方说明](https://blog.gitee.com/2022/08/18/update/)；`vpk pack` 产出的 `releases.win.json` 与各 `.nupkg` 都要作为附件上传，确保清单引用的包都可下载。
 
-**一次性配置**：创建具有仓库写入权限的 Gitee 个人访问令牌，并在当前 PowerShell 会话设置 `GITEE_TOKEN`。令牌只用于发布脚本，不放进客户端或仓库文件。
+**一次性配置**：Gitee 个人访问令牌（需仓库写权限）。用 `-Token` 传给脚本，或设 `GITEE_TOKEN` 环境变量。本机放在仓库根 `.vpk-github-token`——**文件名是历史遗留，内容是 Gitee 令牌**（已 gitignore）。令牌只用于发布脚本，不放进客户端或仓库文件；脚本经 `Authorization` 头传递，不走 URL query。
 
 **日常发布**：提交版本号变更后创建并推送对应 tag，再打包并上传 Release 附件（以下以 `1.0.11` 为例，替换为本次版本）：
 
