@@ -75,10 +75,13 @@
 - **历史曲线悬停**：命中层设在 Content 根上，气泡才稳定出现；后台刷新不再无谓重建曲线冲掉气泡。内容仍是时间 + 电量。
 - **历史曲线断档**：相邻采样间隔过大时不再连线（默认 3×采样间隔），离线/关机区间不再画成假斜坡。
 - **英菲克 ZHEN**：新增纯被动电量插件；按官方网页驱动抓包确认 85% 放电帧，不发送配置命令。
+- **自动更新改用内置 GiteaSource**：Velopack 1.2.161 已内置 `GiteaSource`，而 Gitee 的 `/api/v1` 与 `/api/v5` 返回一致（实测同键同值），自写的 Gitee 适配器整段删除。旧适配器用 `/releases/latest` 定位 tag，仓库还没有 Release 时该端点返 404，`EnsureSuccessStatusCode()` 会把"没发过版"报成"检查失败"。见 `dev/build.md` §8。
+- **启动更新弹窗**：`XamlRoot` 未就绪时改为等窗口 `Loaded` 再补弹，避免确认框永久丢失；下载进度节流刷新状态文本。发布 1.0.11（首个 Gitee Release）。
+- **publish-gitee.ps1 三处真机踩坑**（不跑一次根本发现不了）：① PowerShell 5.1 把 JSON 的 `null` 反序列化成字符串 `"null"`（真值），存在性判断把首次发布误判成"Release 已存在"；② Gitee 建 Release 只收表单参数，发 JSON body 返 400；③ Gitee 强制要求 `target_commitish`（Gitea/GitHub 不要求）。
 
 ## 版本
 
-发新版留着上一版全量包才有 delta；清空 `dist/` 再打同版本就没有。见 `dev/build.md` §8。1.0.10 尚未上传 Gitee Release。
+发新版留着上一版全量包才有 delta；清空 `dist/` 再打同版本就没有。见 `dev/build.md` §8。**1.0.11 是首个上传 Gitee Release 的版本**（1.0.10 及以前只在本地 `dist/`，故 1.0.11 的 delta 是拿本地留存的 1.0.10 全量包做基准算出来的）。
 
 | 版本 | 日期 | 相对上一包多了什么 |
 |---|---|---|
@@ -91,3 +94,4 @@
 | 1.0.8 | 10-14 | Win10 任务栏耳机图标扶正；相对 1.0.7 的 delta 约 80KB |
 | 1.0.9 | 10-14 | 历史设备名取最新非占位；曲线悬停气泡稳定 |
 | 1.0.10 | 10-14 | 历史曲线断档不连线；相对 1.0.9 有 delta |
+| 1.0.11 | 10-14 | 更新源换内置 GiteaSource；启动弹窗与进度修复；**首个 Gitee Release**；相对 1.0.10 的 delta 约 68KB |

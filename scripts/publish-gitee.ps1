@@ -36,6 +36,11 @@ $tagRef = git ls-remote --exit-code origin "refs/tags/$tag"
 if ($LASTEXITCODE -ne 0 -or -not $tagRef) {
     throw "Tag $tag is not present on origin. Push the matching version tag to Gitee before publishing."
 }
+# Gitee requires target_commitish when creating a release (Gitea/GitHub do not). Use the commit the tag points at.
+$targetCommit = (($tagRef | Select-Object -First 1) -split "\s+")[0]
+if ([string]::IsNullOrWhiteSpace($targetCommit)) {
+    throw "Could not resolve the commit that tag $tag points at."
+}
 
 $existing = $null
 $tagUri = "$apiUrl/releases/tags/$([uri]::EscapeDataString($tag))"
@@ -47,6 +52,10 @@ catch {
     if ($_.Exception.Response) { $statusCode = [int]$_.Exception.Response.StatusCode }
     if ($statusCode -ne 404) { throw "Could not check for an existing Gitee Release (HTTP $statusCode)." }
 }
+# Windows PowerShell 5.1 deserialises a JSON null body into the *string* "null", which is truthy.
+# Normalise anything that is not a release object to $null before the existence check, otherwise the
+# first ever release (no release yet -> body "null") is rejected as "already exists".
+if ($existing -is [string]) { $existing = $null }
 if ($existing) { throw "Gitee Release $tag already exists; refusing to replace or duplicate its assets." }
 
 Add-Type -AssemblyName System.Net.Http
@@ -56,18 +65,19 @@ $client.Timeout = [TimeSpan]::FromMinutes(10)
 $client.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new("token", $Token)
 
 try {
-    $releaseBody = @{
-        tag_name = $tag
-        name = "VigilWatt $version"
-        body = "VigilWatt $version release. The attached files include the Velopack update feed and packages."
-        prerelease = $false
-    } | ConvertTo-Json
+    # Gitee's API v5 takes the release fields as form parameters; a JSON body is rejected with HTTP 400.
+    $fields = [System.Collections.Generic.Dictionary[string, string]]::new()
+    $fields["tag_name"] = $tag
+    $fields["target_commitish"] = $targetCommit
+    $fields["name"] = "VigilWatt $version"
+    $fields["body"] = "VigilWatt $version release. The attached files include the Velopack update feed and packages."
+    $fields["prerelease"] = "false"
     $createUri = "$apiUrl/releases"
-    $json = [System.Net.Http.StringContent]::new($releaseBody, [System.Text.Encoding]::UTF8, "application/json")
-    $createResponse = $client.PostAsync($createUri, $json).GetAwaiter().GetResult()
+    $formContent = [System.Net.Http.FormUrlEncodedContent]::new($fields)
+    $createResponse = $client.PostAsync($createUri, $formContent).GetAwaiter().GetResult()
     $createText = $createResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     if (-not $createResponse.IsSuccessStatusCode) {
-        throw "Gitee Release creation failed with HTTP $([int]$createResponse.StatusCode)."
+        throw "Gitee Release creation failed with HTTP $([int]$createResponse.StatusCode): $createText"
     }
     $release = $createText | ConvertFrom-Json
     $releaseId = $release.id
@@ -85,7 +95,8 @@ try {
             $uploadUri = "$apiUrl/releases/$releaseId/attach_files"
             $uploadResponse = $client.PostAsync($uploadUri, $form).GetAwaiter().GetResult()
             if (-not $uploadResponse.IsSuccessStatusCode) {
-                throw "Gitee attachment upload failed with HTTP $([int]$uploadResponse.StatusCode) for $($file.Name)."
+                $uploadText = $uploadResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                throw "Gitee attachment upload failed with HTTP $([int]$uploadResponse.StatusCode) for $($file.Name): $uploadText"
             }
         }
         finally {
