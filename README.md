@@ -10,7 +10,11 @@ Windows 看不到 2.4G 鼠标的电量——游戏打得正激烈时突然提示
 
 ## 界面预览
 
-<img src="assets/screenshot-devices.png" width="720" alt="设备电量：设备列表、来源徽标与充电标识">
+设备列表、来源徽标与充电标识：
+
+![设备电量](assets/screenshot-devices.png)
+
+历史统计 · 历史管理 · 设置：
 
 <p align="center">
   <img src="assets/screenshot-stats.png" width="31%" alt="历史统计">
