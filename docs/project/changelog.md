@@ -77,7 +77,7 @@
 - **英菲克 ZHEN**：新增纯被动电量插件；按官方网页驱动抓包确认 85% 放电帧，不发送配置命令。
 - **自动更新改用内置 GiteaSource**：Velopack 1.2.161 已内置 `GiteaSource`，而 Gitee 的 `/api/v1` 与 `/api/v5` 返回一致（实测同键同值），自写的 Gitee 适配器整段删除。旧适配器用 `/releases/latest` 定位 tag，仓库还没有 Release 时该端点返 404，`EnsureSuccessStatusCode()` 会把"没发过版"报成"检查失败"。见 `dev/build.md` §8。
 - **启动更新弹窗**：`XamlRoot` 未就绪时改为等窗口 `Loaded` 再补弹，避免确认框永久丢失；下载进度节流刷新状态文本。发布 1.0.11（首个 Gitee Release）。
-- **publish-gitee.ps1 三处真机踩坑**（不跑一次根本发现不了）：① PowerShell 5.1 把 JSON 的 `null` 反序列化成字符串 `"null"`（真值），存在性判断把首次发布误判成"Release 已存在"；② Gitee 建 Release 只收表单参数，发 JSON body 返 400；③ Gitee 强制要求 `target_commitish`（Gitea/GitHub 不要求）。
+- **publish-gitee.ps1 三处 Gitee 特有坑**已修（PS 5.1 把 JSON `null` 读成字符串 `"null"`、建 Release 只收表单参数、强制要求 `target_commitish`），细节见 `dev/build.md` §8。
 
 ## 版本
 

@@ -106,6 +106,10 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 5. **未签名**：安装/运行时 SmartScreen 可能弹"未知发布者"，点"仍要运行"即可；要消除需买代码签名证书后给 vpk 加 `--signParams`。
 6. **从 bin/publish 直接跑的副本不能自更新**（Velopack `IsInstalled=false`），设置页"检查更新"会明确提示。装了的实例启动时还会**自动应用已下载的更新**（Velopack 默认行为，无需写代码）。
 7. **`/releases/latest` 在"仓库一个 Release 都没有"时返回 404**（端点本身正常：有 Release 的仓库返回 200 + `tag_name`）。曾自写的 Gitee 适配器用这个端点定位最新 tag，`EnsureSuccessStatusCode()` 一撞 404 就把"没发过版"报成"检查失败"。改用内置 `GiteaSource` 后走的是 `/releases` 列表端点，空仓库返回 `[]`、视为"无新版本"，不再抛错。
+8. **`publish-gitee.ps1` 有三个 Gitee 特有坑**（2026-10-14 首发 1.0.11 实踩，不真跑一次发现不了）：
+   - **PowerShell 5.1 把 JSON 的 `null` 反序列化成字符串 `"null"`**（`[bool]"null"` = `$true`）。存在性判断因此把"还没有 Release"误判成"Release 已存在"，**首次发布必踩**。判据：`Invoke-RestMethod` 返回类型是 `System.String`、值是 `null`，脚本里显式归一化掉。
+   - **Gitee 建 Release 只收表单参数**（`application/x-www-form-urlencoded`）。发 JSON body 返 **HTTP 400**，且响应体不说明原因。
+   - **Gitee 强制要求 `target_commitish`**（Gitea/GitHub 不要求）。缺了报 `{"messages":["target_commitish is missing"]}`；脚本用 `git ls-remote` 取到的 tag 指向的 commit 填。
 
 ### 应用侧接入（已做，改这些文件时注意）
 
@@ -122,16 +126,37 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 
 自动更新读取公开仓库 `gitee.com/YGWG-LX/vigil-watt` 的 Release：`GiteaSource` 经 `/api/v1/repos/.../releases` 列出版本（空仓库返回 `[]`，视为无新版本），Velopack 清单与包从 Release 附件下载。Gitee Release 下载路由见[官方说明](https://blog.gitee.com/2022/08/18/update/)；`vpk pack` 产出的 `releases.win.json` 与各 `.nupkg` 都要作为附件上传，确保清单引用的包都可下载。
 
-**一次性配置**：Gitee 个人访问令牌（需仓库写权限）。用 `-Token` 传给脚本，或设 `GITEE_TOKEN` 环境变量。本机放在仓库根 `.vpk-github-token`——**文件名是历史遗留，内容是 Gitee 令牌**（已 gitignore）。令牌只用于发布脚本，不放进客户端或仓库文件；脚本经 `Authorization` 头传递，不走 URL query。
-
-**日常发布**：提交版本号变更后创建并推送对应 tag，再打包并上传 Release 附件（以下以 `1.0.11` 为例，替换为本次版本）：
+**一次性配置**：Gitee 个人访问令牌（需仓库写权限）。脚本只认两种来源：`-Token` 参数，或 `GITEE_TOKEN` 环境变量——**它不会自己去读令牌文件**（读文件的是 `publish-github.ps1`）。本机的令牌在仓库根 `.vpk-github-token`（**文件名是历史遗留，内容是 Gitee 令牌**，已 gitignore），所以要先把它读进环境变量再跑脚本：
 
 ```
-$version = "1.0.11"
-git tag "v$version"
-git push origin "v$version"
-powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
+$env:GITEE_TOKEN = (Get-Content .vpk-github-token -Raw).Trim()
 powershell -ExecutionPolicy Bypass -File scripts\publish-gitee.ps1
 ```
 
-`publish-gitee.ps1` 自动读取版本号，要求 `v<版本>` 已存在于 Gitee，并将 `dist/` 下全部文件上传到该版本 Release。Release 必须包含 `releases.win.json` 及其引用的全部 `.nupkg`。客户端启动时检查一次；新版本会提示用户确认，启动到托盘时先显示托盘通知，用户打开窗口后再显示安装确认框。
+令牌只用于发布脚本，不放进客户端或仓库文件；脚本经 `Authorization` 头传递，不走 URL query。
+
+**日常发布**（以 `1.0.12` 为例，替换为本次版本）。**顺序不能变**：`publish-gitee.ps1` 用 `git ls-remote --exit-code origin refs/tags/<tag>` 校验 tag 已在 origin，没推 tag 会直接 throw。
+
+```
+# 1) 改 src/VigilWatt.App/VigilWatt.App.csproj 的 <Version>，然后提交（本地，不推送）
+#    中文提交信息先写文件，见 AGENTS.md §1
+git commit -F <提交信息文件>
+
+# 2) 打 tag 并推送。分支和 tag 都要推：只推 tag，main 不会前进
+$version = "1.0.12"
+git tag "v$version"
+git push origin HEAD
+git push origin "v$version"
+
+# 3) 打包。别清 dist\，留着上一版全量包才有 delta（见上文第 3 条）
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
+
+# 4) 发布。先把令牌读进环境变量（见上文「一次性配置」）
+$env:GITEE_TOKEN = (Get-Content .vpk-github-token -Raw).Trim()
+powershell -ExecutionPolicy Bypass -File scripts\publish-gitee.ps1
+
+# 5) 复核附件是否齐全（应含 releases.win.json + 全部 .nupkg）：
+#    GET https://gitee.com/api/v5/repos/YGWG-LX/vigil-watt/releases
+```
+
+`publish-gitee.ps1` 自动从 csproj 读版本号，拒绝覆盖已存在的 Release，并把 `dist/` 下全部文件上传到该版本 Release。Release 必须包含 `releases.win.json` 及其引用的全部 `.nupkg`。客户端启动时检查一次；新版本会提示用户确认，启动到托盘时先显示托盘通知，用户打开窗口后再显示安装确认框。
