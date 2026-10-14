@@ -34,6 +34,8 @@ public sealed partial class SettingsPage : Page
     public SettingsPage()
     {
         InitializeComponent();
+        App.UpdateStatusChanged += status => DispatcherQueue.TryEnqueue(() =>
+            UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)} · {status}");
         // 页面被缓存复用：构造函数只跑一次，所以"建一次"的活留这里，"每次进来都要重读"的活放 Loaded
         NavigationCacheMode = NavigationCacheMode.Required;
         BuildOptions();
@@ -78,8 +80,7 @@ public sealed partial class SettingsPage : Page
         AutostartToggle.IsOn = AutostartService.IsEnabled();
         WidgetToggle.IsOn = s.WidgetEnabled;
         SystemBatteryToggle.IsOn = s.MonitorSystemBattery;
-        UpdateSourceBox.Text = s.UpdateUrl;
-        UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)}";
+        UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)} · {App.UpdateStatusMessage}";
 
         // 小组件显示方式：与"窗口背景"同一套路，下拉框存偏好、副标题写实际行为
         var mode = WidgetDisplayMode.Normalize(s.WidgetDisplayMode);
@@ -433,7 +434,6 @@ public sealed partial class SettingsPage : Page
                                      && taskbarMaxItem.Tag is int taskbarMaxValue
             ? TaskbarBatteryOptions.Clamp(taskbarMaxValue)
             : TaskbarBatteryOptions.Default;
-        s.UpdateUrl = UpdateSourceBox.Text.Trim();
         s.WindowBackdrop = (BackdropCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? WindowBackdrop.Auto;
         s.LogLevel = LogLevelNames.Normalize((LogLevelCombo.SelectedItem as ComboBoxItem)?.Tag as string);
         s.LogRetentionDays = (int)LogRetentionBox.Value;
@@ -491,29 +491,24 @@ public sealed partial class SettingsPage : Page
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
     {
-        // 直接用输入框的值（可能还没保存），避免"明明填了却提示未配置"
-        var url = UpdateSourceBox.Text.Trim();
-        if (url.Length == 0)
-        {
-            UpdateStatusText.Text = "未配置更新源，请先填写并保存设置";
-            return;
-        }
-
         CheckUpdateButton.IsEnabled = false;
+        App.UpdateStatusMessage = "正在检查 Gitee 更新…";
         UpdateStatusText.Text = "正在检查更新…";
         try
         {
-            var svc = new UpdateService(url);
+            var svc = new UpdateService();
             if (!svc.IsInstalled)
             {
-                UpdateStatusText.Text = "当前是未安装的运行副本（bin/publish），无法自动更新";
+                App.UpdateStatusMessage = "当前是未安装的运行副本（bin/publish），无法自动更新";
+                UpdateStatusText.Text = App.UpdateStatusMessage;
                 return;
             }
 
             var info = await svc.CheckAsync();
             if (info == null)
             {
-                UpdateStatusText.Text = $"已是最新版本（{svc.CurrentVersion}）";
+                App.UpdateStatusMessage = $"已是最新版本（{svc.CurrentVersion}）";
+                UpdateStatusText.Text = App.UpdateStatusMessage;
                 return;
             }
 
@@ -528,23 +523,29 @@ public sealed partial class SettingsPage : Page
             };
             if (await dialog.ShowAsync() != ContentDialogResult.Primary)
             {
-                UpdateStatusText.Text = "已取消更新";
+                App.UpdateStatusMessage = "已取消更新";
+                UpdateStatusText.Text = App.UpdateStatusMessage;
                 return;
             }
 
             // 进度回调在线程池线程，回 UI 线程刷新
             var dispatcher = DispatcherQueue;
             UpdateStatusText.Text = "下载中…";
-            await svc.DownloadAsync(info, pct =>
-                dispatcher.TryEnqueue(() => UpdateStatusText.Text = $"下载中 {pct}%"));
+            await svc.DownloadAsync(info, pct => dispatcher.TryEnqueue(() =>
+            {
+                App.UpdateStatusMessage = $"下载中 {pct}%";
+                UpdateStatusText.Text = App.UpdateStatusMessage;
+            }));
 
-            UpdateStatusText.Text = "下载完成，正在应用更新并重启…";
+            App.UpdateStatusMessage = "下载完成，正在应用更新并重启…";
+            UpdateStatusText.Text = App.UpdateStatusMessage;
             svc.ApplyAndRestart(info);
         }
         catch (Exception ex)
         {
             Log.Warn("检查更新失败: " + ex.Message);
-            UpdateStatusText.Text = "检查更新失败：" + ex.Message;
+            App.UpdateStatusMessage = "检查更新失败：" + ex.Message;
+            UpdateStatusText.Text = App.UpdateStatusMessage;
         }
         finally
         {

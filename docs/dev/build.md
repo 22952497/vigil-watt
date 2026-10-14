@@ -92,7 +92,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 
 - `VigilWattApp-win-Setup.exe`：安装包（**仅当前用户**、无 UAC、装到 `%LocalAppData%\VigilWattApp`，自动建桌面+开始菜单快捷方式、写卸载条目）
 - `VigilWattApp-win-Portable.zip`：绿色免安装版（vpk 顺带生成）
-- `VigilWattApp-*-full.nupkg` + `RELEASES`：**这组文件就是"更新源"**，整体拷到任意静态目录/网盘/GitHub Releases 即可分发更新；发新版只需 bump csproj 的 `<Version>` 重跑脚本，新旧 nupkg 共存时自动增量
+- `VigilWattApp-*-full.nupkg`、`RELEASES`、`releases.win.json`：Velopack 更新数据；发布到 Gitee Release 时需将 `dist/` 全部产物作为附件上传，确保清单引用的包都可下载
 
 ### 关键决策与坑
 
@@ -110,31 +110,27 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 
 - `Program.cs`：自定义入口（csproj `DISABLE_XAML_GENERATED_MAIN` 关掉了 XAML 生成的 Main）。`VelopackApp.Build().Run()` 必须最先跑——安装/更新/卸载钩子进程带 `--veloapp-*` 参数被拉起，在这里被消费后直接退出，所以 `App.OnLaunched` 的单实例互斥不会误杀钩子进程，也不用改。
 - 卸载清理：`OnBeforeUninstallFastCallback` 里调 `AutostartService.SetEnabled(false)` 删 HKCU Run 自启动残留。
-- `Services/UpdateService.cs` + 设置页"软件更新"区：更新源存 settings.json 的 `updateUrl`（本地目录/网盘同步目录/GitHub 仓库 URL 都行），留空 = 不检查。
+- `Services/UpdateService.cs` + 设置页"软件更新"区：启动时检查公开 Gitee 仓库的最新 Release；设置页保留手动检查。运行副本未安装时不执行安装更新。
 - 版本号唯一来源：`VigilWatt.App.csproj` 的 `<Version>`，exe FileVersion、设置页显示、安装包版本都从它来。
 
 ### 已验证（2026-10-06）
 
 安装（静默）→ 目录/快捷方式/卸载条目正确、数据目录不冲突；自动更新（把 1.0.1 nupkg 丢进 `packages\` 后启动 1.0.0 → 自动升级重启到 1.0.1）；卸载 → 安装目录/快捷方式/卸载条目/HKCU Run 残留全部清掉，用户数据保留。
 
-### 发布到 GitHub（Release 即更新源）
+### 发布到 Gitee（Release 即更新源）
 
-仓库公开：github.com/ACoolOctober/VigilWatt。GitHub Release 里的资产本身就是更新源，发一次 Release = 发布一个版本。
+自动更新读取公开仓库 `gitee.com/YGWG-LX/vigil-watt` 的最新 Release。Gitee API 用于定位最新 tag，Velopack 清单与包从该 Release 的附件下载；Gitee Release 下载路由见[官方说明](https://blog.gitee.com/2022/08/18/update/)，Velopack 静态源从目录读取 `releases.{channel}.json` 和包文件。
 
-**一次性配置**：建一个 PAT（GitHub → Settings → Developer settings → Fine-grained tokens，只勾本仓库 + Contents: Read and write；classic token 则勾 repo），存到仓库根 `.vpk-github-token` 文件（一行纯 token，**已被 gitignore，绝不入库**）。也可改用环境变量 `VPK_GITHUB_TOKEN` 或 `-Token` 参数临时传，三者优先级：参数 > 环境变量 > 文件。
+**一次性配置**：创建具有仓库写入权限的 Gitee 个人访问令牌，并在当前 PowerShell 会话设置 `GITEE_TOKEN`。令牌只用于发布脚本，不放进客户端或仓库文件。
 
-**日常发布两步**：
+**日常发布**：提交版本号变更后创建并推送对应 tag，再打包并上传 Release 附件（以下以 `1.0.11` 为例，替换为本次版本）：
 
 ```
-powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1     # 打包（版本号取自 csproj <Version>）
-powershell -ExecutionPolicy Bypass -File scripts\publish-github.ps1      # 上传为 Release v<版本>
+$version = "1.0.11"
+git tag "v$version"
+git push origin "v$version"
+powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
+powershell -ExecutionPolicy Bypass -File scripts\publish-gitee.ps1
 ```
 
-- `publish-github.ps1` 自动读 csproj 版本号生成 `--releaseName "VigilWatt <版本>" --tag v<版本>`，无需手填
-- **加 `-Merge`**：与已有 Release 的资产合并（同一版本重传补资产、或需要保留旧版本资产时用）
-- **加 `-Draft`**：只建草稿，去 GitHub 网页确认后再发布
-- 手动兜底：GitHub 网页 → Releases → Draft a new release → tag `v<版本>` → 把 `dist/` 下全部文件拖进去 → Publish
-
-用户侧：设置页"更新源"填 `https://github.com/ACoolOctober/VigilWatt` 即可收到后续更新（公开仓库免 token；GithubSource 未登录有每小时 60 次 API 限速，个人使用足够）。
-
-**坑**：`UpdateManager` 的字符串构造**不识别** GitHub 地址——它按普通 web 源去抓 `{url}/RELEASES`，GitHub 上没有这个路径，必 404。所以 `UpdateService` 里 GitHub 地址必须走 `GithubSource`（走 API 列 Release 资产）。若仓库转私有，Release 资产也随之私有，GithubSource 需要传 accessToken（当前实现不传，仅支持公开仓库）。
+`publish-gitee.ps1` 自动读取版本号，要求 `v<版本>` 已存在于 Gitee，并将 `dist/` 下全部文件上传到该版本 Release。Release 必须包含 `releases.win.json` 及其引用的全部 `.nupkg`。客户端启动时检查一次；新版本会提示用户确认，启动到托盘时先显示托盘通知，用户打开窗口后再显示安装确认框。

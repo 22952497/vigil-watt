@@ -37,8 +37,10 @@ internal static class Native
     public const uint NIF_INFO = 0x10;
 
     public const uint NIIF_WARNING = 0x2;
+    public const uint NIIF_INFO = 0x1;
 
     public const uint WM_LBUTTONUP = 0x0202;
+    public const uint NIN_BALLOONUSERCLICK = 0x0405;
     public const uint WM_LBUTTONDBLCLK = 0x0203;
     public const uint WM_RBUTTONUP = 0x0205;
     public const uint WM_NULL = 0x0000;

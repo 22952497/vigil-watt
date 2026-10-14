@@ -6,7 +6,7 @@
 
 ## 1. 当前状态
 
-当前安装包 **1.0.10**（`dist/`，未上传 GitHub Release）。发新版时留着上一版 `*-full.nupkg`，才会有 delta；规则见 `dev/build.md` §8。
+当前安装包 **1.0.10**（`dist/`，未上传 Gitee Release）。发新版时留着上一版 `*-full.nupkg`，才会有 delta；规则见 `dev/build.md` §8。
 
 本机已打通：迈从 G87（0x13）、雷柏 VT3（status-report7，纯被动）、北通 T9（被动流）、经典蓝牙耳机（HFP 网关节点 `DEVPKEY_Device_BatteryLevel`）。本机电量可选，默认关。弱水时砂 2.4G 无电量通道，不再投入。罗技 HID++ 已实现，本机无 VID_046D，未真机验证。
 

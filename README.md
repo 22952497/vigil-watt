@@ -39,14 +39,12 @@ Windows 看不到 2.4G 鼠标的电量——游戏打得正激烈时突然提示
 
 ## 下载
 
-[Releases 页面](https://github.com/ACoolOctober/VigilWatt/releases) 或本地 `dist/`：
+[Gitee Releases 页面](https://gitee.com/YGWG-LX/vigil-watt/releases) 或本地 `dist/`：
 
 - `VigilWattApp-win-Setup.exe`（44 MB，含 Velopack 自动更新）—— **推荐**
 - `VigilWattApp-win-Portable.zip`（37 MB，免安装）
 
 self-contained，**无需安装 .NET 运行时**。`publish/` 目录里另有解压即用的 self-contained 版。
-
-> 仓库主分支本地领先 `origin/main` 12 个提交（账号 `ACoolOctober` 被 GitHub 停用期间未推送），本地版 ≥ 远端。
 
 ## 快速上手
 

@@ -1,6 +1,6 @@
-# scripts/ — 临时调试脚本
+# scripts/ — 构建、发布与调试脚本
 
-> **本目录只放一次性 / 临时调试脚本**（PowerShell / Python / 一次性 P/Invoke 探针），用完即删或归档。
+> 本目录放构建/发布流程脚本与一次性 / 临时调试脚本（PowerShell / Python / 一次性 P/Invoke 探针）。
 > **长期存在的 C# 项目不放这里**：测试项目在 [`src/tests/`](../src/tests/)，工程源码在 [`src/`](../src/)。
 > 临时产物用 `%TEMP%`，仓库根目录只放工程文件。新增脚本后在下面补一行索引。
 
@@ -8,6 +8,7 @@
 
 | 脚本 | 用途 |
 |---|---|
+| `publish-gitee.ps1` | 将 `dist/` 全部打包产物作为当前版本的 Gitee Release 附件发布；需要已推送的 `v<版本>` 标签与 `GITEE_TOKEN` |
 | `code-fingerprint.py` | **代码指纹校验器**（纯标准库）：剥掉注释与空白后对代码 token 序列算 sha256，用来**证明"只改了注释、逻辑一行没动"**。`snapshot <out.json>` 记基线 / `verify <in.json>` 比对（`-xaml` 后缀对 `.xaml` 生效，剥 `<!-- -->` 后比空白归一化文本）。做注释精简、批量重排这类"只该动注释"的改动前先 `snapshot`，改完 `verify` 必须输出 `[OK]` |
 | `make-app-icon.py` | **程序图标生成器**（纯标准库，无需 Pillow）：解析式绘制绿色圆角方块 + 白色闪电，超采样抗锯齿，输出 `src/VigilWatt.App/Assets/VigilWatt.ico`（16~256 共 9 档）。`--preview x.png` 出一张放大预览图便于肉眼比对。**改图标配色/字形改这个脚本后重跑即可，不要手改 .ico** |
 | `probe-devnode-battery.py` | **PnP 设备节点电量探针**（纯 ctypes + SetupAPI）：枚举全机节点读 `DEVPKEY_Device_BatteryLevel`。经典蓝牙耳机电量就是这么找到的（EDIFIER W820NB 挂在 HFP 网关节点上）；`--all --match X` 可 dump 匹配节点的全部属性，查任何"Windows 能看到但代码读不到"的设备属性都用它 |

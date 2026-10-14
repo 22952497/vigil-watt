@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
 
         ApplyBackdrop();
         SyncTitleBarButtonColors();
+        Activated += (_, _) => App.OnMainWindowActivated();
         Root.Loaded += (_, _) => SyncTitleBarButtonColors();
         Root.ActualThemeChanged += (_, _) => SyncTitleBarButtonColors();
 

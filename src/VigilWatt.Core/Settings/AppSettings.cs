@@ -51,9 +51,6 @@ public class AppSettings
 
     public bool StartMinimized { get; set; } = true;
 
-    /// <summary>Velopack 更新源：本地文件夹路径、网络共享或 GitHub 仓库 URL；空 = 不检查更新。</summary>
-    public string UpdateUrl { get; set; } = "";
-
     /// <summary>窗口背景材质。取值见 <c>VigilWatt.App.Services.WindowBackdrop</c>：Auto（跟随系统能力）/ Mica（云母，仅 Win11，不满足自动降级）/ Acrylic（磨砂，Win10 1809+）/ Solid（纯色分层底）；未知取值按 Auto。</summary>
     public string WindowBackdrop { get; set; } = "Auto";
 

@@ -1,10 +1,12 @@
 using System.Threading;
+using Velopack;
 using VigilWatt.App.Services;
 using VigilWatt.Core.Devices;
 using VigilWatt.Core.Settings;
 using VigilWatt.Core.Storage;
 using VigilWatt.Core.Utils;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace VigilWatt.App;
 
@@ -60,11 +62,25 @@ public sealed class AppServices : IDisposable
 public partial class App : Application
 {
     public static AppServices Services { get; private set; } = null!;
+    private static string _updateStatusMessage = "启动时检查 Gitee 更新";
+    public static event Action<string>? UpdateStatusChanged;
+    public static string UpdateStatusMessage
+    {
+        get => _updateStatusMessage;
+        internal set
+        {
+            _updateStatusMessage = value;
+            UpdateStatusChanged?.Invoke(value);
+        }
+    }
     private static Mutex? _singleInstanceMutex;
 
     /// <summary>全局异常熔断：窗口内累计次数（见构造里的 UnhandledException）。</summary>
     private static int _unhandledBurst;
     private static DateTimeOffset _lastUnhandledAt;
+    private static UpdateService? _startupUpdateService;
+    private static UpdateInfo? _pendingStartupUpdate;
+    private static int _updatePromptVisible;
 
     /// <summary>熔断统计窗口：距上次异常超过它就重新计数（"连续"= 短时间内密集发生）。</summary>
     private static readonly TimeSpan UnhandledBurstWindow = TimeSpan.FromMinutes(1);
@@ -166,6 +182,111 @@ public partial class App : Application
         if (Services.Settings.TaskbarBatteryEnabled)
         {
             Services.TaskbarBattery = new TaskbarPillWindow();
+        }
+
+        _ = CheckForStartupUpdateAsync();
+    }
+
+    private static async Task CheckForStartupUpdateAsync()
+    {
+        try
+        {
+            var updater = new UpdateService();
+            _startupUpdateService = updater;
+            if (!updater.IsInstalled)
+            {
+                UpdateStatusMessage = "当前是未安装的运行副本，无法自动安装更新";
+                Log.Info("当前运行副本未通过安装器安装，跳过启动更新检查");
+                return;
+            }
+
+            UpdateStatusMessage = "正在检查 Gitee 更新…";
+            Log.Info("启动时检查 Gitee 更新");
+            var update = await updater.CheckAsync();
+            if (update == null)
+            {
+                UpdateStatusMessage = $"已是最新版本（{updater.CurrentVersion}）";
+                Log.Info($"Gitee 更新检查完成，当前已是最新版本 {updater.CurrentVersion}");
+                return;
+            }
+
+            _pendingStartupUpdate = update;
+            var version = update.TargetFullRelease.Version.ToString();
+            UpdateStatusMessage = $"发现新版本 {version}";
+            Log.Info($"Gitee 发现新版本 {version}");
+            if (Services.Settings.StartMinimized)
+            {
+                Services.Tray.ShowUpdateAvailable(version);
+            }
+            else
+            {
+                Services.MainWindow?.DispatcherQueue.TryEnqueue(() => _ = ShowPendingUpdateAsync());
+            }
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusMessage = "自动检查失败：" + ex.Message;
+            Log.Warn("启动时检查 Gitee 更新失败: " + ex.Message);
+        }
+    }
+
+    internal static void OnMainWindowActivated()
+    {
+        if (_pendingStartupUpdate != null)
+            _ = ShowPendingUpdateAsync();
+    }
+
+    private static async Task ShowPendingUpdateAsync()
+    {
+        if (Interlocked.Exchange(ref _updatePromptVisible, 1) != 0) return;
+        var update = Interlocked.Exchange(ref _pendingStartupUpdate, null);
+        if (update == null)
+        {
+            Interlocked.Exchange(ref _updatePromptVisible, 0);
+            return;
+        }
+
+        try
+        {
+            var window = Services.MainWindow;
+            if (window?.Content is not FrameworkElement root || root.XamlRoot == null)
+            {
+                _pendingStartupUpdate = update;
+                return;
+            }
+
+            var updater = _startupUpdateService ?? new UpdateService();
+            var version = update.TargetFullRelease.Version.ToString();
+            var dialog = new ContentDialog
+            {
+                Title = "发现新版本 " + version,
+                Content = $"当前 {updater.CurrentVersion} → 最新 {version}，下载并安装？\n安装完成后应用会自动重启。",
+                PrimaryButtonText = "下载并安装",
+                CloseButtonText = "稍后",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = root.XamlRoot,
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                UpdateStatusMessage = $"已选择稍后安装版本 {version}";
+                Log.Info($"用户选择稍后安装版本 {version}");
+                return;
+            }
+
+            UpdateStatusMessage = $"正在下载版本 {version}…";
+            await updater.DownloadAsync(update, pct => Log.Info($"启动更新下载进度 {pct}%"));
+            UpdateStatusMessage = $"版本 {version} 下载完成，正在重启应用…";
+            Log.Info($"版本 {version} 下载完成，开始应用并重启");
+            updater.ApplyAndRestart(update);
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusMessage = "更新安装失败：" + ex.Message;
+            Log.Warn("启动更新安装失败: " + ex.Message);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _updatePromptVisible, 0);
         }
     }
 }

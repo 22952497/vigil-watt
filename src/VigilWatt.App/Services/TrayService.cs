@@ -127,7 +127,8 @@ public sealed class TrayService : IDisposable
     private void HandleTrayMessage(uint mouseMessage)
     {
         Log.Debug($"收到托盘回调: 0x{mouseMessage:X4}");
-        if (mouseMessage == Native.WM_LBUTTONUP || mouseMessage == Native.WM_LBUTTONDBLCLK)
+        if (mouseMessage == Native.WM_LBUTTONUP || mouseMessage == Native.WM_LBUTTONDBLCLK
+            || mouseMessage == Native.NIN_BALLOONUSERCLICK)
         {
             ShowMainWindow();
         }
@@ -324,6 +325,28 @@ public sealed class TrayService : IDisposable
         catch (Exception ex)
         {
             Log.Warn($"低电量气泡失败: {ex.Message}");
+        }
+    }
+
+    public void ShowUpdateAvailable(string version)
+    {
+        try
+        {
+            var data = new Native.NOTIFYICONDATAW
+            {
+                cbSize = (uint)Marshal.SizeOf<Native.NOTIFYICONDATAW>(),
+                hWnd = _hwnd,
+                uID = 1,
+                uFlags = Native.NIF_INFO,
+                szInfo = $"版本 {version} 已就绪。打开 VigilWatt 后可选择下载并安装。",
+                szInfoTitle = "发现 VigilWatt 更新",
+                dwInfoFlags = Native.NIIF_INFO,
+            };
+            Native.Shell_NotifyIconW(Native.NIM_MODIFY, ref data);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"更新提示气泡失败: {ex.Message}");
         }
     }
 

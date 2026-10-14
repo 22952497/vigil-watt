@@ -1,6 +1,6 @@
 ﻿# 打安装包：dotnet publish（self-contained）+ vpk pack（Velopack），产物在 dist\。
 # 产物：VigilWattApp-win-Setup.exe（仅当前用户安装、无 UAC、自动建开始菜单+桌面快捷方式）
-#       RELEASES + *.nupkg（全量/增量包，即自动更新的"更新源"目录内容）
+#       releases.win.json + RELEASES + *.nupkg（Velopack 更新清单与全量/增量包）
 # 用法：powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1 [-Version 1.0.1]
 param(
     [string]$Version = ""
@@ -41,6 +41,9 @@ vpk pack `
     --outputDir $dist
 if ($LASTEXITCODE -ne 0) { throw "vpk pack 失败" }
 
+$feed = Join-Path $dist "releases.win.json"
+if (-not (Test-Path -LiteralPath $feed)) { throw "vpk pack 未生成 releases.win.json 更新清单" }
+
 $setup = Get-ChildItem $dist -Filter "*-win-Setup.exe" | Select-Object -First 1
 Write-Host "==> 完成。安装包: $($setup.FullName)"
-Write-Host "    自动更新源 = 本 dist 目录（或整体拷到任意静态目录/网盘/GitHub Releases）"
+Write-Host "    更新产物需整体上传到 Gitee Release，发布脚本会上传本 dist 目录全部文件"
