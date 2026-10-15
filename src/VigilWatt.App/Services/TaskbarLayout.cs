@@ -75,4 +75,47 @@ public static class TaskbarLayout
         if (storedDpi == 0 || currentDpi == 0 || storedDpi == currentDpi) return offsetPx;
         return (int)Math.Round(offsetPx * (double)currentDpi / storedDpi);
     }
+
+    /// <summary>客户区 X 落在哪一格；分隔缝返回 -1。</summary>
+    public static int HitTest(IReadOnlyList<(int X, int Width)> regions, int clientX)
+    {
+        for (int i = 0; i < regions.Count; i++)
+        {
+            var r = regions[i];
+            if (clientX >= r.X && clientX < r.X + r.Width) return i;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// 提示框左上角（屏幕坐标）：摆在任务栏朝桌面一侧，水平/竖直对准格子中心，再夹进工作区。
+    /// </summary>
+    public static (int X, int Y) PlaceTooltip(
+        PixelRect taskbar, PixelRect chipScreen, int tipW, int tipH, int gapPx, PixelRect workArea)
+    {
+        int x, y;
+        if (IsHorizontal(taskbar))
+        {
+            x = chipScreen.Left + (chipScreen.Width - tipW) / 2;
+            // Top==0 视为顶栏，否则底栏（主屏底栏 Top 很大；副屏同理）
+            y = taskbar.Top <= 0
+                ? chipScreen.Bottom + gapPx
+                : chipScreen.Top - tipH - gapPx;
+        }
+        else
+        {
+            y = chipScreen.Top + (chipScreen.Height - tipH) / 2;
+            // Left==0 左停靠 → 提示往右伸到桌面；否则右停靠往左
+            x = taskbar.Left <= 0
+                ? chipScreen.Right + gapPx
+                : chipScreen.Left - tipW - gapPx;
+        }
+
+        if (workArea.Width > 0 && workArea.Height > 0)
+        {
+            x = Math.Clamp(x, workArea.Left, Math.Max(workArea.Left, workArea.Right - tipW));
+            y = Math.Clamp(y, workArea.Top, Math.Max(workArea.Top, workArea.Bottom - tipH));
+        }
+        return (x, y);
+    }
 }

@@ -323,9 +323,49 @@ internal static class Native
     public const uint WM_SETTINGCHANGE = 0x001A;
     public const uint WM_MOUSEMOVE = 0x0200;
     public const uint WM_LBUTTONDOWN = 0x0201;
+    public const uint WM_MOUSEHOVER = 0x02A1;
+    public const uint WM_MOUSELEAVE = 0x02A3;
 
     /// <summary>UpdateLayeredWindow 的逐像素 alpha 模式（配合 AC_SRC_ALPHA 使用）。</summary>
     public const uint ULW_ALPHA = 0x00000002;
+
+    // ---- 贴片悬停（自绘提示窗 + TrackMouseEvent；勿挂进任务栏，见 runtime-pitfalls.md §16.10）----
+    public const uint TME_HOVER = 0x00000001;
+    public const uint TME_LEAVE = 0x00000002;
+    public const uint SPI_GETMOUSEHOVERTIME = 0x0066;
+    public const int WS_EX_TOPMOST = 0x00000008;
+    public const uint SWP_SHOWWINDOW = 0x0040;
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TRACKMOUSEEVENT
+    {
+        public uint cbSize;
+        public uint dwFlags;
+        public IntPtr hwndTrack;
+        public uint dwHoverTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO
+    {
+        public uint cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT tme);
+
+    [DllImport("user32.dll")]
+    public static extern bool SystemParametersInfoW(uint action, uint uiParam, ref uint pvParam, uint fWinIni);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFO info);
 
     public const byte AC_SRC_OVER = 0x00;
     public const byte AC_SRC_ALPHA = 0x01;

@@ -132,6 +132,56 @@ public class TaskbarLayoutTests
     [InlineData(100, 144u, 0u, 100)]
     public void ScaleOffset_LegacyOrUnchanged_Passthrough(int offset, uint stored, uint current, int expected)
         => Assert.Equal(expected, TaskbarLayout.ScaleOffset(offset, stored, current));
+
+    // T15：命中落在格内；分隔缝（格与格之间）返回 -1
+    [Fact]
+    public void HitTest_ChipVersusGap()
+    {
+        (int X, int Width)[] regions = [(6, 40), (56, 40)];
+        Assert.Equal(0, TaskbarLayout.HitTest(regions, 6));
+        Assert.Equal(0, TaskbarLayout.HitTest(regions, 45));
+        Assert.Equal(-1, TaskbarLayout.HitTest(regions, 50)); // 缝
+        Assert.Equal(1, TaskbarLayout.HitTest(regions, 56));
+        Assert.Equal(-1, TaskbarLayout.HitTest(regions, 100));
+    }
+
+    // T16：底栏提示在格子上方；顶栏在下方；靠边时夹进工作区
+    [Fact]
+    public void PlaceTooltip_OutsideTaskbarAndClamps()
+    {
+        var work = new PixelRect(0, 0, 1920, 1080);
+        var chip = new PixelRect(1494, 1038, 40, 36);
+
+        var (bx, by) = TaskbarLayout.PlaceTooltip(BottomTaskbar, chip, 120, 28, 4, work);
+        Assert.Equal(1494 + (40 - 120) / 2, bx);
+        Assert.Equal(1038 - 28 - 4, by);
+
+        var topBar = new PixelRect(0, 0, 1920, 48);
+        var topChip = new PixelRect(1494, 6, 40, 36);
+        var (_, ty) = TaskbarLayout.PlaceTooltip(topBar, topChip, 120, 28, 4, work);
+        Assert.Equal(6 + 36 + 4, ty);
+
+        // 格子贴左缘：提示左缘夹到工作区左缘
+        var edgeChip = new PixelRect(2, 1038, 40, 36);
+        var (ex, _) = TaskbarLayout.PlaceTooltip(BottomTaskbar, edgeChip, 200, 28, 4, work);
+        Assert.Equal(0, ex);
+    }
+
+    // T17：左停靠提示往右；右停靠往左
+    [Fact]
+    public void PlaceTooltip_VerticalTaskbar_TowardDesktop()
+    {
+        var work = new PixelRect(0, 0, 1920, 1080);
+        var leftBar = new PixelRect(0, 0, 48, 1080);
+        var leftChip = new PixelRect(0, 400, 200, 36);
+        var (lx, _) = TaskbarLayout.PlaceTooltip(leftBar, leftChip, 120, 28, 4, work);
+        Assert.Equal(200 + 4, lx);
+
+        var rightBar = new PixelRect(1872, 0, 48, 1080);
+        var rightChip = new PixelRect(1720, 400, 200, 36);
+        var (rx, _) = TaskbarLayout.PlaceTooltip(rightBar, rightChip, 120, 28, 4, work);
+        Assert.Equal(1720 - 120 - 4, rx);
+    }
 }
 
 /// <summary>任务栏贴片的两个设置项收敛（T10–T12）：手改坏了的 settings.json 不能把界面带崩。</summary>

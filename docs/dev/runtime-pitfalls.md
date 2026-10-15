@@ -525,6 +525,15 @@ Windows 任务栏**自己就有一个电池图标**，贴片再重复一遍纯�
 **未做**：竖向任务栏 / 多显示器 / 自动隐藏三条路径未真机验证（本机底部任务栏、单屏）；
 未向任何设备发帧。相关条目见 BACKLOG CR-41。
 
+### 16.10 悬停设备名：自绘提示窗 + TME_HOVER（2026-10-15）
+
+贴片是跨进程挂进 `Shell_TrayWnd` 的分层子窗口，且带 `WS_EX_NOACTIVATE`：
+
+1. **WinUI `ToolTip` / `TOOLTIPS_CLASS` 都不稳**——系统提示框绑这种子窗口时常常不出现。
+2. **提示窗自己 `CreateWindowEx`（分层 + 置顶、不激活、不挂任务栏）**，`TaskbarTipRenderer` 画类 Win11 圆角气泡（浅/深主题、细边框、轻阴影）。
+3. **悬停用 `TrackMouseEvent(TME_HOVER)`**——在 `WndProc` 里启 `DispatcherQueueTimer` 不可靠；等 `WM_MOUSEHOVER` 期间不要再次 Track，否则计时被清零。
+4. 命中矩形与绘制同源；定位在 `TaskbarLayout.PlaceTooltip` / `HitTest`。
+
 ## 17. WinUI3 窗口的两层背景：小组件白底（2026-10-10 起；§17.1 于 10-12 更正）
 
 > **2026-10-12 起，本节只对"小组件"（`WidgetWindow`，仍是 WinUI 3 窗口）适用。**

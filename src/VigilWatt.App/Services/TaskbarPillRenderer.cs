@@ -42,9 +42,16 @@ public static class TaskbarPillRenderer
             IconStroke: Gdi.Color.FromArgb(0xFF, 0xD2, 0xD2, 0xD2),
             Text: Gdi.Color.FromArgb(0xFF, 0xFF, 0xFF));
 
+    /// <summary>悬停命中一格：客户区 X/宽与提示文案同源自绘制，避免另算宽度偏一两个像素。</summary>
+    public readonly record struct HitChip(string Id, string Tip, int X, int Width);
+
+    /// <summary>折叠格（+N）的稳定 Id，重绘后仍能对上同一悬停目标。</summary>
+    public const string OverflowHitId = ":overflow:";
+
     /// <summary>画一整条贴片，返回位图；<paramref name="widthPx"/> 是裁掉右侧空白后的实际宽度。</summary>
     public static Gdi.Bitmap Render(
-        IReadOnlyList<DeviceStatus> devices, int overflow, Skin skin, int heightPx, float scale, out int widthPx)
+        IReadOnlyList<DeviceStatus> devices, IReadOnlyList<string> overflowNames,
+        Skin skin, int heightPx, float scale, out int widthPx, out IReadOnlyList<HitChip> hits)
     {
         using var percentFont = new Gdi.Font("Microsoft YaHei UI", (float)(PercentFontSize * scale), Gdi.FontStyle.Bold, Gdi.GraphicsUnit.Pixel);
         using var plainFont = new Gdi.Font("Microsoft YaHei UI", (float)(EmptyFontSize * scale), Gdi.FontStyle.Regular, Gdi.GraphicsUnit.Pixel);
@@ -52,7 +59,7 @@ public static class TaskbarPillRenderer
         sf.FormatFlags |= Gdi.StringFormatFlags.NoWrap | Gdi.StringFormatFlags.MeasureTrailingSpaces;
         sf.LineAlignment = Gdi.StringAlignment.Center;
 
-        var pieces = BuildPieces(devices, overflow, scale, percentFont, plainFont, sf, out float contentW);
+        var pieces = BuildPieces(devices, overflowNames, scale, percentFont, plainFont, sf, out float contentW);
         int width = (int)Math.Ceiling(contentW + PadH * 2 * scale) + SlackPx;
         var bmp = new Gdi.Bitmap(width, heightPx, GdiImaging.PixelFormat.Format32bppPArgb);
 
@@ -67,24 +74,26 @@ public static class TaskbarPillRenderer
         }
 
         widthPx = Math.Min(width, ContentRight(bmp) + (int)Math.Ceiling(PadH * scale));
+        hits = BuildHits(pieces, scale);
         return bmp;
     }
 
     private enum PieceKind { Chip, Divider, Overflow, Empty }
 
-    private readonly record struct Piece(PieceKind Kind, DeviceStatus? Device, int Overflow, float X, float Width);
+    private readonly record struct Piece(PieceKind Kind, DeviceStatus? Device, int Overflow, string? OverflowTip, float X, float Width);
 
     private static List<Piece> BuildPieces(
-        IReadOnlyList<DeviceStatus> devices, int overflow, float scale,
+        IReadOnlyList<DeviceStatus> devices, IReadOnlyList<string> overflowNames, float scale,
         Gdi.Font percentFont, Gdi.Font plainFont, Gdi.StringFormat sf, out float contentWidth)
     {
         var pieces = new List<Piece>();
         float x = 0;
+        int overflow = overflowNames.Count;
 
         if (devices.Count == 0)
         {
             float w = (float)(EmptyTextWidthDip * scale);
-            pieces.Add(new Piece(PieceKind.Empty, null, 0, x, w));
+            pieces.Add(new Piece(PieceKind.Empty, null, 0, null, x, w));
             x += w;
         }
         else
@@ -94,26 +103,49 @@ public static class TaskbarPillRenderer
                 if (i > 0)
                 {
                     x += (float)(IconTextGap * scale);
-                    pieces.Add(new Piece(PieceKind.Divider, null, 0, x, (float)(DividerW * scale)));
+                    pieces.Add(new Piece(PieceKind.Divider, null, 0, null, x, (float)(DividerW * scale)));
                     x += (float)(DividerW * scale) + (float)(IconTextGap * scale);
                 }
                 float w = ChipWidth(devices[i], scale, percentFont, sf);
-                pieces.Add(new Piece(PieceKind.Chip, devices[i], 0, x, w));
+                pieces.Add(new Piece(PieceKind.Chip, devices[i], 0, null, x, w));
                 x += w;
             }
             if (overflow > 0)
             {
                 x += (float)(IconTextGap * scale);
-                pieces.Add(new Piece(PieceKind.Divider, null, 0, x, (float)(DividerW * scale)));
+                pieces.Add(new Piece(PieceKind.Divider, null, 0, null, x, (float)(DividerW * scale)));
                 x += (float)(DividerW * scale) + (float)(IconTextGap * scale);
                 float w = Measure(MeasureG, $"+{overflow}", plainFont, sf);
-                pieces.Add(new Piece(PieceKind.Overflow, null, overflow, x, w));
+                string tip = string.Join("\n", overflowNames);
+                pieces.Add(new Piece(PieceKind.Overflow, null, overflow, tip, x, w));
                 x += w;
             }
         }
 
         contentWidth = x;
         return pieces;
+    }
+
+    private static List<HitChip> BuildHits(List<Piece> pieces, float scale)
+    {
+        float padLeft = (float)(PadH * scale);
+        var hits = new List<HitChip>();
+        foreach (var piece in pieces)
+        {
+            if (piece.Kind == PieceKind.Chip && piece.Device != null)
+            {
+                hits.Add(new HitChip(
+                    piece.Device.Id, piece.Device.DisplayName,
+                    (int)Math.Floor(padLeft + piece.X), (int)Math.Ceiling(piece.Width)));
+            }
+            else if (piece.Kind == PieceKind.Overflow && !string.IsNullOrEmpty(piece.OverflowTip))
+            {
+                hits.Add(new HitChip(
+                    OverflowHitId, piece.OverflowTip,
+                    (int)Math.Floor(padLeft + piece.X), (int)Math.Ceiling(piece.Width)));
+            }
+        }
+        return hits;
     }
 
     private static float ChipWidth(DeviceStatus d, float scale, Gdi.Font percentFont, Gdi.StringFormat sf)

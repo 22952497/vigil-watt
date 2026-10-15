@@ -15,17 +15,21 @@ namespace VigilWatt.App.Services;
 public sealed class TaskbarPillWindow : IDisposable
 {
     private const string ClassName = "VigilWattTaskbarPill";
+    private const string TipClassName = "VigilWattTaskbarPillTip";
     private const string WindowTitle = "VigilWatt 任务栏电量";
     private const int FollowIntervalMs = 1000;
 
     private const double MinHeightDip = 22, MaxHeightDip = 40;
     private const double TaskbarMarginDip = 6;
     private const double EdgeGapDip = 6;
+    private const double TipGapDip = 4;
 
     /// <summary>交给非托管代码的回调必须静态压住，否则被 GC 回收后窗口再来消息就是访问已释放内存。</summary>
     private static readonly Native.WndProcDele StaticProc = WndProc;
+    private static readonly Native.WndProcDele TipProc = TipWndProc;
 
     private static bool _classRegistered;
+    private static bool _tipClassRegistered;
 
     /// <summary>同一时刻只允许一个贴片；窗口过程是静态的，靠它转回实例。</summary>
     private static TaskbarPillWindow? _current;
@@ -33,9 +37,11 @@ public sealed class TaskbarPillWindow : IDisposable
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
     private readonly DispatcherQueueTimer _timer;
 
-    private IntPtr _hwnd, _taskbar;
+    private IntPtr _hwnd, _taskbar, _tipHwnd;
     private IntPtr _memDc, _dib, _oldDib, _dibBits;
+    private IntPtr _tipMemDc, _tipDib, _tipOldDib, _tipDibBits;
     private int _dibW, _dibH;
+    private int _tipDibW, _tipDibH;
     private Gdi.Bitmap? _bitmap;
     private int _pillW, _pillH;
     private int _offsetPx;
@@ -49,6 +55,11 @@ public sealed class TaskbarPillWindow : IDisposable
     private int _rebuildQueued;
     private bool _needRender = true;
     private bool _disposed;
+    private IReadOnlyList<TaskbarPillRenderer.HitChip> _hits = Array.Empty<TaskbarPillRenderer.HitChip>();
+    private string? _hoverId;
+    private string? _shownTipId;
+    private bool _tipVisible;
+    private bool _hoverArmed;
 
     public TaskbarPillWindow()
     {
@@ -108,6 +119,7 @@ public sealed class TaskbarPillWindow : IDisposable
         _timer.Stop();
         App.Services.Manager.DeviceUpdated -= OnDeviceUpdated;
         App.Services.Manager.DevicesChanged -= OnDevicesChanged;
+        HideTip();
         ReleaseWindow();
 
         if (ReferenceEquals(_current, this)) _current = null;
@@ -151,9 +163,55 @@ public sealed class TaskbarPillWindow : IDisposable
         }
 
         AttachToTaskbar();
+        EnsureTipWindow();
         _windowDpi = TaskbarDpi();
         Native.ShowWindow(_hwnd, Native.SW_SHOWNOACTIVATE);
     }
+
+    private static void RegisterTipClassOnce()
+    {
+        if (_tipClassRegistered) return;
+        _tipClassRegistered = true;
+        var wc = new Native.WNDCLASSW
+        {
+            lpfnWndProc = Marshal.GetFunctionPointerForDelegate(TipProc),
+            hInstance = Native.GetModuleHandleW(null),
+            hCursor = Native.LoadCursorW(IntPtr.Zero, (IntPtr)Native.IDC_ARROW),
+            hbrBackground = IntPtr.Zero,
+            lpszClassName = TipClassName,
+        };
+        Native.RegisterClassW(ref wc);
+    }
+
+    /// <summary>自绘置顶分层提示：不挂任务栏、不用 TOOLTIPS_CLASS（§16.10）。</summary>
+    private void EnsureTipWindow()
+    {
+        if (_tipHwnd != IntPtr.Zero && Native.IsWindow(_tipHwnd)) return;
+        ReleaseTipWindow();
+        RegisterTipClassOnce();
+
+        var hInstance = Native.GetModuleHandleW(null);
+        _tipHwnd = Native.CreateWindowExW(
+            (uint)(Native.WS_EX_LAYERED | Native.WS_EX_TOPMOST | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE),
+            TipClassName, "", Native.WS_POPUP,
+            0, 0, 1, 1, IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+        if (_tipHwnd == IntPtr.Zero)
+            Log.Warn($"任务栏贴片：提示窗创建失败，err={Marshal.GetLastWin32Error()}");
+    }
+
+    private void ReleaseTipWindow()
+    {
+        HideTip();
+        ReleaseTipDib();
+        if (_tipHwnd != IntPtr.Zero)
+        {
+            if (Native.IsWindow(_tipHwnd)) Native.DestroyWindow(_tipHwnd);
+            _tipHwnd = IntPtr.Zero;
+        }
+    }
+
+    private static IntPtr TipWndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam) =>
+        Native.DefWindowProcW(hwnd, msg, wParam, lParam);
 
     /// <summary>
     /// 挂成任务栏的子窗口。**SetParent 不会自动改 WS_CHILD/WS_POPUP**（MSDN 明确要求自己同步），
@@ -189,6 +247,7 @@ public sealed class TaskbarPillWindow : IDisposable
 
     private void ReleaseWindow()
     {
+        ReleaseTipWindow();
         if (_hwnd != IntPtr.Zero)
         {
             if (Native.IsWindow(_hwnd)) Native.DestroyWindow(_hwnd);
@@ -200,6 +259,9 @@ public sealed class TaskbarPillWindow : IDisposable
         _bitmap?.Dispose();
         _bitmap = null;
         _pillW = _pillH = 0;
+        _hits = Array.Empty<TaskbarPillRenderer.HitChip>();
+        _hoverId = null;
+        _hoverArmed = false;
         _needRender = true;
     }
 
@@ -288,22 +350,29 @@ public sealed class TaskbarPillWindow : IDisposable
     {
         if (_pillH <= 0) return;   // 还没算出任务栏厚度，等下一拍
 
-        var devices = SelectDevices(out int overflow);
-        var bmp = TaskbarPillRenderer.Render(devices, overflow, TaskbarPillRenderer.SkinFor(IsLightTheme()), _pillH, Scale, out int width);
+        var devices = SelectDevices(out var overflowNames);
+        var bmp = TaskbarPillRenderer.Render(
+            devices, overflowNames, TaskbarPillRenderer.SkinFor(IsLightTheme()), _pillH, Scale,
+            out int width, out var hits);
 
         _bitmap?.Dispose();
         _bitmap = bmp;
         _pillW = width;
+        _hits = hits;
         _needRender = false;
+
+        // 电量刷新很勤：同一台仍在鼠标下则只重摆位置，不重新计悬停
+        if (_tipVisible && _shownTipId != null)
+            RepositionTipIfStillHovering();
     }
 
     /// <summary>
     /// 取要显示的设备。**本机电量恒定排除**：Windows 任务栏自己已经有一个电池图标，
     /// 再在贴片上重复一遍只是噪音（与托盘"最低电量"不统计本机是同一个理由）。
     /// </summary>
-    private static List<DeviceStatus> SelectDevices(out int overflow)
+    private static List<DeviceStatus> SelectDevices(out IReadOnlyList<string> overflowNames)
     {
-        overflow = 0;
+        overflowNames = Array.Empty<string>();
         var all = App.Services.Manager.Devices
             .Where(d => d.IsOnline && d.Source != DeviceSource.System)
             .OrderBy(d => DeviceStatusFormatter.IsChargingOrFull(d.Charging))
@@ -316,7 +385,7 @@ public sealed class TaskbarPillWindow : IDisposable
 
         int max = TaskbarBatteryOptions.Clamp(App.Services.Settings.TaskbarBatteryMaxDevices);
         if (all.Count <= max) return all;
-        overflow = all.Count - max;
+        overflowNames = all.Skip(max).Select(d => d.DisplayName).ToList();
         return all.GetRange(0, max);
     }
 
@@ -451,7 +520,13 @@ public sealed class TaskbarPillWindow : IDisposable
                     self.OnDoubleClick();
                     return IntPtr.Zero;
                 case Native.WM_MOUSEMOVE:
-                    self.OnMouseMove();
+                    self.OnMouseMove(lParam);
+                    return IntPtr.Zero;
+                case Native.WM_MOUSEHOVER:
+                    self.OnMouseHover();
+                    return IntPtr.Zero;
+                case Native.WM_MOUSELEAVE:
+                    self.OnMouseLeave();
                     return IntPtr.Zero;
                 case Native.WM_LBUTTONUP:
                     self.OnLButtonUp();
@@ -475,6 +550,10 @@ public sealed class TaskbarPillWindow : IDisposable
 
     private void OnLButtonDown()
     {
+        HideTip();
+        _hoverId = null;
+        _hoverArmed = false;
+
         // 用当帧可见（已夹紧）的偏移做起点：屏幕变窄贴片贴边时，一拖不会跳回越界前的记忆值
         int gap = (int)Math.Round(EdgeGapDip * Scale);
         int placeOffset = OffsetForCurrentDpi(out uint dpi);
@@ -489,13 +568,228 @@ public sealed class TaskbarPillWindow : IDisposable
         _dragStartOffset = visible;
     }
 
-    private void OnMouseMove()
+    private void OnMouseMove(IntPtr lParam)
     {
-        if (!_dragging) return;
-        var p = Native.GetCursorPos();
-        // 只沿任务栏方向拖：横向任务栏走 X，竖向走 Y（斜着拖不会把贴片拽离任务栏）
-        _offsetPx = _dragStartOffset + ((_taskbarHorizontal ? p.X : p.Y) - _dragStartCursor);
-        ApplyPosition();
+        if (_dragging)
+        {
+            var p = Native.GetCursorPos();
+            // 只沿任务栏方向拖：横向任务栏走 X，竖向走 Y（斜着拖不会把贴片拽离任务栏）
+            _offsetPx = _dragStartOffset + ((_taskbarHorizontal ? p.X : p.Y) - _dragStartCursor);
+            ApplyPosition();
+            return;
+        }
+
+        long lp = lParam.ToInt64();
+        int x = unchecked((short)(lp & 0xFFFF));
+        string? id = HitIdAt(x);
+
+        if (id != _hoverId)
+        {
+            HideTip();
+            _hoverId = id;
+            _hoverArmed = false;
+        }
+
+        // 已在等 WM_MOUSEHOVER 时不要再 Track——会把悬停计时清零
+        if (_hoverArmed) return;
+
+        // 悬停用 TME_HOVER（WndProc 里启 DispatcherQueueTimer 不可靠）；一次 Track 同时带上 LEAVE
+        ArmMouseTracking(hover: _hoverId != null && !_tipVisible);
+    }
+
+    private void OnMouseHover()
+    {
+        _hoverArmed = false;
+        if (_disposed || _dragging || _hoverId == null) return;
+        int i = IndexOfHit(_hoverId);
+        if (i < 0) return;
+        ShowTip(_hits[i]);
+        ArmMouseTracking(hover: false);
+    }
+
+    private void OnMouseLeave()
+    {
+        _hoverArmed = false;
+        _hoverId = null;
+        HideTip();
+    }
+
+    private void ArmMouseTracking(bool hover)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        var tme = new Native.TRACKMOUSEEVENT
+        {
+            cbSize = (uint)Marshal.SizeOf<Native.TRACKMOUSEEVENT>(),
+            dwFlags = hover ? Native.TME_HOVER | Native.TME_LEAVE : Native.TME_LEAVE,
+            hwndTrack = _hwnd,
+            dwHoverTime = HoverDelayMs(),
+        };
+        if (Native.TrackMouseEvent(ref tme) && hover)
+            _hoverArmed = true;
+    }
+
+    private static uint HoverDelayMs()
+    {
+        uint ms = 400;
+        Native.SystemParametersInfoW(Native.SPI_GETMOUSEHOVERTIME, 0, ref ms, 0);
+        return ms == 0 ? 400u : ms;
+    }
+
+    private string? HitIdAt(int clientX)
+    {
+        if (_hits.Count == 0) return null;
+        var regions = new (int X, int Width)[_hits.Count];
+        for (int i = 0; i < _hits.Count; i++)
+            regions[i] = (_hits[i].X, _hits[i].Width);
+        int iHit = TaskbarLayout.HitTest(regions, clientX);
+        return iHit >= 0 ? _hits[iHit].Id : null;
+    }
+
+    private void RepositionTipIfStillHovering()
+    {
+        if (_shownTipId == null) return;
+        int i = IndexOfHit(_shownTipId);
+        if (i < 0)
+        {
+            HideTip();
+            return;
+        }
+        ShowTip(_hits[i]);
+    }
+
+    private int IndexOfHit(string id)
+    {
+        for (int i = 0; i < _hits.Count; i++)
+            if (_hits[i].Id == id) return i;
+        return -1;
+    }
+
+    private void ShowTip(TaskbarPillRenderer.HitChip chip)
+    {
+        if (_hwnd == IntPtr.Zero || string.IsNullOrEmpty(chip.Tip)) return;
+        EnsureTipWindow();
+        if (_tipHwnd == IntPtr.Zero) return;
+
+        using var bmp = TaskbarTipRenderer.Render(
+            chip.Tip, TaskbarTipRenderer.SkinFor(IsLightTheme()), Scale,
+            out int fullW, out int fullH, out int shadowPx, out int bubbleW, out int bubbleH);
+        // PlaceTooltip 按气泡本体摆，窗口再外扩阴影边距
+        if (!TryChipScreenRect(chip, out var chipScreen)) return;
+        var work = WorkAreaNearPill();
+        int gap = (int)Math.Round(TipGapDip * Scale);
+        var (tx, ty) = TaskbarLayout.PlaceTooltip(_taskbarRect, chipScreen, bubbleW, bubbleH, gap, work);
+
+        UploadTip(bmp, tx - shadowPx, ty - shadowPx, fullW, fullH);
+        Native.ShowWindow(_tipHwnd, Native.SW_SHOWNOACTIVATE);
+        Native.SetWindowPos(_tipHwnd, Native.HWND_TOPMOST, 0, 0, 0, 0,
+            Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_SHOWWINDOW);
+
+        _tipVisible = true;
+        _shownTipId = chip.Id;
+    }
+
+    private void EnsureTipDib(int w, int h)
+    {
+        if (_tipDib != IntPtr.Zero && _tipDibW == w && _tipDibH == h) return;
+        ReleaseTipDib();
+
+        var bmi = new Native.BITMAPINFO
+        {
+            bmiHeader = new Native.BITMAPINFOHEADER
+            {
+                biSize = Marshal.SizeOf<Native.BITMAPINFOHEADER>(),
+                biWidth = w,
+                biHeight = -h,
+                biPlanes = 1,
+                biBitCount = 32,
+                biCompression = 0,
+            },
+        };
+        _tipMemDc = Native.CreateCompatibleDC(IntPtr.Zero);
+        _tipDib = Native.CreateDIBSection(IntPtr.Zero, ref bmi, 0, out _tipDibBits, IntPtr.Zero, 0);
+        _tipOldDib = Native.SelectObject(_tipMemDc, _tipDib);
+        _tipDibW = w;
+        _tipDibH = h;
+    }
+
+    private void ReleaseTipDib()
+    {
+        if (_tipMemDc != IntPtr.Zero)
+        {
+            if (_tipOldDib != IntPtr.Zero) Native.SelectObject(_tipMemDc, _tipOldDib);
+            Native.DeleteDC(_tipMemDc);
+            _tipMemDc = IntPtr.Zero;
+        }
+        if (_tipDib != IntPtr.Zero)
+        {
+            Native.DeleteObject(_tipDib);
+            _tipDib = IntPtr.Zero;
+        }
+        _tipOldDib = IntPtr.Zero;
+        _tipDibBits = IntPtr.Zero;
+        _tipDibW = _tipDibH = 0;
+    }
+
+    private void UploadTip(Gdi.Bitmap bmp, int x, int y, int w, int h)
+    {
+        if (_tipHwnd == IntPtr.Zero) return;
+        EnsureTipDib(w, h);
+        if (_tipDib == IntPtr.Zero) return;
+
+        var data = bmp.LockBits(new Gdi.Rectangle(0, 0, w, h), GdiImaging.ImageLockMode.ReadOnly, GdiImaging.PixelFormat.Format32bppPArgb);
+        try
+        {
+            var row = new byte[w * 4];
+            for (int rowY = 0; rowY < h; rowY++)
+            {
+                Marshal.Copy(data.Scan0 + rowY * data.Stride, row, 0, row.Length);
+                Marshal.Copy(row, 0, _tipDibBits + rowY * w * 4, row.Length);
+            }
+        }
+        finally
+        {
+            bmp.UnlockBits(data);
+        }
+
+        var dst = new Native.POINT { X = x, Y = y };
+        var size = new Native.SIZE { cx = w, cy = h };
+        var src = new Native.POINT { X = 0, Y = 0 };
+        var blend = new Native.BLENDFUNCTION
+        {
+            BlendOp = Native.AC_SRC_OVER,
+            BlendFlags = 0,
+            SourceConstantAlpha = 255,
+            AlphaFormat = Native.AC_SRC_ALPHA,
+        };
+        if (!Native.UpdateLayeredWindow(_tipHwnd, IntPtr.Zero, ref dst, ref size, _tipMemDc, ref src, 0, ref blend, Native.ULW_ALPHA))
+            Log.Warn($"任务栏贴片：提示 UpdateLayeredWindow 失败，err={Marshal.GetLastWin32Error()}");
+    }
+
+    private bool TryChipScreenRect(TaskbarPillRenderer.HitChip chip, out PixelRect rect)
+    {
+        rect = default;
+        if (_hwnd == IntPtr.Zero || !Native.GetWindowRect(_hwnd, out var wr)) return false;
+        rect = new PixelRect(wr.Left + chip.X, wr.Top, chip.Width, _pillH);
+        return true;
+    }
+
+    private PixelRect WorkAreaNearPill()
+    {
+        if (_hwnd == IntPtr.Zero) return default;
+        var mon = Native.MonitorFromWindow(_hwnd, Native.MONITOR_DEFAULTTONEAREST);
+        if (mon == IntPtr.Zero) return default;
+        var info = new Native.MONITORINFO { cbSize = (uint)Marshal.SizeOf<Native.MONITORINFO>() };
+        if (!Native.GetMonitorInfoW(mon, ref info)) return default;
+        var r = info.rcWork;
+        return new PixelRect(r.Left, r.Top, r.Width, r.Height);
+    }
+
+    private void HideTip()
+    {
+        if (_tipHwnd != IntPtr.Zero && Native.IsWindow(_tipHwnd))
+            Native.ShowWindow(_tipHwnd, Native.SW_HIDE);
+        _tipVisible = false;
+        _shownTipId = null;
     }
 
     private void OnLButtonUp()
@@ -518,6 +812,7 @@ public sealed class TaskbarPillWindow : IDisposable
 
     private void OnRightClick()
     {
+        HideTip();
         var p = Native.GetCursorPos();
         AppPopupMenu.Show(_hwnd, p.X, p.Y);
     }
