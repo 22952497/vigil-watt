@@ -150,7 +150,8 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     private readonly Dictionary<string, DateTimeOffset> _probeFailedAt = new();
     private DeviceClaimRegistry _claims = null!;
 
-    public IReadOnlyList<DeviceStatus> Attach(IReadOnlyList<HidDeviceInfo> availableDevices, DeviceClaimRegistry claims)
+    public async Task<IReadOnlyList<DeviceStatus>> AttachAsync(
+        IReadOnlyList<HidDeviceInfo> availableDevices, DeviceClaimRegistry claims)
     {
         _claims = claims;
         var claimed = new List<DeviceStatus>();
@@ -177,11 +178,12 @@ public abstract class BatteryPluginBase : IBatteryPlugin
             toProbe.Add(info);
         }
 
-        // 第二遍（慢）：逐个探测。探测期间只碰局部变量，字典改动统一放到 CommitProbes。
+        // 第二遍（慢）：本插件内逐个探测；与其它插件的 AttachAsync 由 DeviceManager 并行。
         if (toProbe.Count > 0)
         {
             var outcomes = new ProbeOutcome[toProbe.Count];
-            for (int i = 0; i < toProbe.Count; i++) outcomes[i] = RunProbe(toProbe[i]);
+            for (int i = 0; i < toProbe.Count; i++)
+                outcomes[i] = await RunProbeAsync(toProbe[i]).ConfigureAwait(false);
             CommitProbes(outcomes, claimed);
         }
 
@@ -203,10 +205,9 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     }
 
     /// <summary>打开句柄并跑协议探测。成功返回持有句柄 + 探测值；失败/异常返回空句柄并已释放。</summary>
-    private ProbeOutcome RunProbe(HidDeviceInfo info)
+    private async Task<ProbeOutcome> RunProbeAsync(HidDeviceInfo info)
     {
         // 探测会写帧、而写入许可被关：跳过探测，一帧都不发（安全规则 R1，见 docs/hardware/safety.md §3）。
-        // 已认领设备不受影响——它们走 Poll（由 CanWrite 挡住写入），被动监听照常，即规则 2 说的"降级为只被动监听"。
         if (ProbeWrites && !WritesEnabled)
             return new ProbeOutcome(info, null, null);
 
@@ -214,7 +215,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
         try
         {
             handle = info.Open();
-            var probe = Probe(handle);
+            var probe = await ProbeAsync(handle).ConfigureAwait(false);
             if (probe == null)
             {
                 handle.Dispose();
@@ -234,6 +235,10 @@ public abstract class BatteryPluginBase : IBatteryPlugin
             return new ProbeOutcome(info, null, null);
         }
     }
+
+    /// <summary>发现路径用可等待探测；默认把同步 <see cref="Probe"/> 丢到线程池，避免堵死其它插件的 await。</summary>
+    protected virtual Task<(string Protocol, int? Percent, ChargingState Charging)?> ProbeAsync(HidDeviceHandle handle)
+        => Task.Run(() => Probe(handle));
 
     /// <summary>落地探测结果（写字典 + 发认领）。</summary>
     private void CommitProbes(ProbeOutcome[] outcomes, List<DeviceStatus> claimed)

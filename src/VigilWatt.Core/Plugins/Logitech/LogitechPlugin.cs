@@ -25,6 +25,9 @@ public sealed class LogitechPlugin : IBatteryPlugin
     /// <summary>已发现至少一台后，空槽快速扫过的超时。</summary>
     private static readonly TimeSpan FastSlotTimeout = TimeSpan.FromMilliseconds(400);
 
+    /// <summary>空槽 Ping 超时后的负缓存：冷却期内不再写、不等（CR-62）。</summary>
+    private static readonly TimeSpan EmptySlotCooldown = TimeSpan.FromMinutes(5);
+
     /// <summary>插件开关的键，与 <c>AppSettings.PluginEnabled</c> 对应（插件开关即写入开关，见 <see cref="WritesEnabled"/>）。</summary>
     public const string SettingsKey = "Logitech";
 
@@ -104,13 +107,20 @@ public sealed class LogitechPlugin : IBatteryPlugin
         public bool OpenFailed;
         public DateTimeOffset OpenFailedAt;             // 上次打开失败的时刻，供退避重试（CR-17）
         public bool DirectDevice;                       // true = 设备本体直连，false = 接收器
+        public bool InitialScanDone;                    // 首次全槽扫描已完成
         public readonly Dictionary<byte, DevEntry> Devices = new();
+        public readonly Dictionary<byte, DateTimeOffset> EmptySlotUntil = new();
         public Action<byte, byte[]>? NotifyHandler;
         public CancellationTokenSource? ListenCts;
         public Task? ListenTask;
     }
 
-    public IReadOnlyList<DeviceStatus> Attach(IReadOnlyList<HidDeviceInfo> availableDevices, DeviceClaimRegistry claims)
+    public Task<IReadOnlyList<DeviceStatus>> AttachAsync(
+        IReadOnlyList<HidDeviceInfo> availableDevices, DeviceClaimRegistry claims)
+        => Task.Run(() => AttachCore(availableDevices, claims));
+
+    private IReadOnlyList<DeviceStatus> AttachCore(
+        IReadOnlyList<HidDeviceInfo> availableDevices, DeviceClaimRegistry claims)
     {
         var claimed = new List<DeviceStatus>();
 
@@ -125,7 +135,6 @@ public sealed class LogitechPlugin : IBatteryPlugin
             if (!IsHidppInterface(info))
                 continue;
             // 写入许可关闭：HID++ 的发现与读数全靠写帧，直接不认领（safety.md §3 规则 2）。
-            // 已认领的会话不受影响——它们靠被动通知继续工作，即规则 2 说的"降级为只被动监听"。
             if (!WritesEnabled) continue;
             var pref = HidppCatalog.ReportPreference(info.ProductId);
             if (HidppCodec.ShouldSkipInterface(
@@ -141,12 +150,11 @@ public sealed class LogitechPlugin : IBatteryPlugin
                 continue;
             }
             if (!claims.TryClaim(info.DevicePath, Name))
-                continue;   // 已被其他插件认领（注册表兜底，IsHidppInterface 本身也按 VID 过滤）
+                continue;
 
             var session = _sessions.GetOrAdd(info.DevicePath,
                 p => new ReceiverSession { Info = info });
 
-            // 重新扫描后元数据可能更新
             session.Info = info;
 
             if (session.Io == null && CanRetryOpen(session))
@@ -154,7 +162,7 @@ public sealed class LogitechPlugin : IBatteryPlugin
                 try
                 {
                     session.Io = new HidppIO(info.Open());
-                    session.Io.WritesAllowed = () => WritesEnabled;   // 唯一写点的闸门（CR-01）
+                    session.Io.WritesAllowed = () => WritesEnabled;
                     Log.Info($"罗技 HID++ 接口打开: {info} report=0x{session.Io.ReportId:X2}");
                 }
                 catch (UnauthorizedAccessException ex)
@@ -169,18 +177,16 @@ public sealed class LogitechPlugin : IBatteryPlugin
                 }
             }
 
-            // 每次 Attach 按目录槽位数补扫尚未发现的索引（第二台不必等重启）
             if (session.Io != null)
-                DiscoverDevices(session);
-
-            if (session.Io != null && session.Devices.Count > 0)
             {
+                // 空接收器也要听通知，否则只能靠每分钟空槽超时发现设备。
                 EnsureListening(session);
-                claimed.AddRange(session.Devices.Values.Select(d => d.Status));
+                DiscoverDevices(session);
+                if (session.Devices.Count > 0)
+                    claimed.AddRange(session.Devices.Values.Select(d => d.Status));
             }
         }
 
-        // 掉线的接口：关闭句柄，设备标离线，释放认领
         foreach (var path in _sessions.Keys)
         {
             if (availableDevices.Any(d => d.DevicePath == path)) continue;
@@ -200,30 +206,63 @@ public sealed class LogitechPlugin : IBatteryPlugin
     private void DiscoverDevices(ReceiverSession session)
     {
         var io = session.Io!;
+        bool initial = !session.InitialScanDone;
+        int probesThisPass = 0;
+
         if (!session.DirectDevice)
         {
             int maxSlots = HidppCatalog.MaxSlots(session.Info.ProductId);
             for (byte idx = 1; idx <= maxSlots; idx++)
             {
                 if (session.Devices.ContainsKey(idx)) continue;
+
+                if (!initial)
+                {
+                    if (session.EmptySlotUntil.TryGetValue(idx, out var until) &&
+                        DateTimeOffset.Now < until)
+                        continue;
+                    // 冷却期满后每轮最多补探 1 个，单轮闸门占用封顶为一次超时。
+                    if (probesThisPass >= 1) continue;
+                }
+
                 var t = session.Devices.Count > 0 ? FastSlotTimeout : DiscoverTimeout;
                 if (Ping(io, idx, out var major, t))
+                {
+                    session.EmptySlotUntil.Remove(idx);
                     AddDevice(session, idx, major);
+                }
+                else
+                {
+                    session.EmptySlotUntil[idx] = DateTimeOffset.Now + EmptySlotCooldown;
+                    if (!initial) probesThisPass++;
+                }
             }
         }
 
         if (session.Devices.Count == 0)
         {
-            // 直连设备模式：广播索引 0xFF
-            if (Ping(io, 0xFF, out var major, DiscoverTimeout))
+            bool allowDirect = initial
+                || !session.EmptySlotUntil.TryGetValue(0xFF, out var until)
+                || DateTimeOffset.Now >= until;
+            if (allowDirect && (initial || probesThisPass < 1))
             {
-                session.DirectDevice = true;
-                AddDevice(session, 0xFF, major);
+                if (Ping(io, 0xFF, out var major, DiscoverTimeout))
+                {
+                    session.EmptySlotUntil.Remove(0xFF);
+                    session.DirectDevice = true;
+                    AddDevice(session, 0xFF, major);
+                }
+                else
+                {
+                    session.EmptySlotUntil[0xFF] = DateTimeOffset.Now + EmptySlotCooldown;
+                }
             }
         }
+
+        session.InitialScanDone = true;
     }
 
-    /// <summary>通知里出现未知槽位时补发现（设备刚上线）。</summary>
+    /// <summary>通知里出现未知槽位时补发现（不受空槽负缓存限制）。</summary>
     private void TryDiscoverSlot(ReceiverSession session, byte idx)
     {
         if (session.Io == null || session.DirectDevice) return;
@@ -231,8 +270,11 @@ public sealed class LogitechPlugin : IBatteryPlugin
         if (session.Devices.ContainsKey(idx)) return;
         int maxSlots = HidppCatalog.MaxSlots(session.Info.ProductId);
         if (idx > maxSlots) return;
+        session.EmptySlotUntil.Remove(idx);
         if (Ping(session.Io, idx, out var major, FastSlotTimeout))
             AddDevice(session, idx, major);
+        else
+            session.EmptySlotUntil[idx] = DateTimeOffset.Now + EmptySlotCooldown;
     }
 
     private void AddDevice(ReceiverSession session, byte idx, byte protocolMajor)

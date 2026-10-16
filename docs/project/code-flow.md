@@ -21,15 +21,14 @@
 RequestPollAsync                       # 若已有整轮在跑 → 直接复用它的 Task 返回（不静默丢弃）
 └── RunExclusiveAsync(PollOnceAsync)   # Task.Run + _passGate(SemaphoreSlim) 串行：同一时刻只有一段 pass 在动插件
 PollOnceAsync
-├── HidDeviceScanner.Scan()            # CfgMgr32 枚举全部在位 HID 接口，读 VID/PID/usage/报告长度
-├── foreach 插件 (反射发现，按 Name 排序)
-│   ├── 未启用 → plugin.Detach() + 认领注册表 ReleaseAll
-│   ├── plugin.Attach(hidDevices, _claims)  # 幂等认领：先 TryClaim 注册表，再开句柄+探测协议
-│   │      → **返回值 = 本轮认领的设备（含探测时已读到的电量），立即逐个 Upsert**
-│   └── plugin.Poll()                  # 只查已认领设备，返回有更新的 DeviceStatus
-├── await _ble.PollConnectedAsync()    # BLE 兜底轮询（必须 await，见"刷新按钮"那轮）
-├── _classic.RefreshBattery()          # 经典蓝牙电量重读（HFP 设备节点属性，见 §3）
-└── DevicesChanged?.Invoke()           # 收尾再全量刷新一次（增量更新已在上面发生）
+├── HidDeviceScanner.Scan()            # 枚举路径；路径未变则复用元数据缓存，不再 CreateFile
+├── 未启用插件 → Detach + ReleaseAll（串行）
+├── Task.WhenAll(各启用插件 AttachAsync)  # 不同接收器并行探测；同一插件内候选仍串行
+│      → 全部结束后再逐个 Upsert（历史写入不跨任务）
+├── foreach 插件 Poll()                # 已认领设备仍按插件顺序轮询
+├── await _ble.PollConnectedAsync()
+├── _classic.RefreshBattery()
+└── DevicesChanged?.Invoke()
 ```
 
 ### 2.1 快速发现（DiscoverOnlyAsync，每 15 秒）
@@ -39,9 +38,11 @@ PollOnceAsync
 ```
 DiscoverOnlyAsync
 ├── HidDeviceScanner.Scan()
-└── foreach 插件 where (SupportsFastDiscovery || SupportsDiscoveryProbe) && 已启用
-    └── plugin.Attach(hidDevices, _claims)   # 只认领，**不 Poll、不碰 BLE/经典蓝牙、不写任何帧**
+└── Task.WhenAll(SupportsFastDiscovery || SupportsDiscoveryProbe 的启用插件 AttachAsync)
+       → 只认领，不 Poll；Upsert 仍在闸门线程
 ```
+
+**并行粒度（2026-10-16）**：不同品牌各持自己的 HID 句柄，慢探测可重叠；同一句柄（含罗技多槽）仍排队。发现路径用 `ReadInputAsync`（雷柏/英菲克）或把同步 `Probe` 丢到线程池（迈从/北通默认），禁止用 `Parallel.For` 包阻塞的 `GetResult()`。
 
 存在的理由（2026-10-06 实测）：雷柏鼠标**只在醒着时说话**（dongle 休眠即全静音，用户动一下才恢复心跳）。
 主轮询 60 秒一拍，撞上鼠标睡着的窗口就必然落空，而首扫时更是必然落空（用户刚启动应用、还没碰鼠标）。
@@ -71,8 +72,9 @@ DiscoverOnlyAsync
 下一拍只剩 5x 秒会被判"冷却未过"而整轮跳过，实际重试间隔翻倍（雷柏 3 分钟 → 4 分钟、北通 1 分钟 → 2 分钟，
 都是这么来的）。基类默认 **30 秒** = "每一轮都允许重探"。
 
-> 曾尝试用 `Parallel.For` 并行探测多个候选接口。实测那条路不必走：把候选收敛到唯一接口后，串行本就只花 1×窗口；而 `ReadInput` 是**阻塞式**实现（内部 `Task.WhenAny(...).GetAwaiter().GetResult()`），把阻塞 I/O 塞进 `Parallel.For` 会引入线程池饥饿风险。要用并行必须先把这层改成真异步，别直接上 `Parallel.For`。
-> （排查记录：曾把一次首扫后 41 秒无日志误判为"并行卡死"，实际是**轮询正常完成、只是那一轮雷柏鼠标睡着 + 经典蓝牙电量无变化，因而没有任何日志**——下一次轮询在 +60s 准点开跑即为证据。日志"安静"≠"卡死"。）
+> 同一插件内多候选仍串行（候选通常已收敛到 1 条）。跨插件并行见上。日志"安静"≠"卡死"。
+
+**罗技空槽（CR-62）**：首次打开全扫目录槽位；超时槽位负缓存 5 分钟，期满后每轮最多补探 1 个。接收器一打开就 `EnsureListening`（只读），通知到未知 `devIdx` 时立刻补槽、不受冷却限制。
 
 每轮的插件结果逐个 `Upsert(d)`（见 §5）。任何插件抛异常只记日志，不影响其他插件。
 

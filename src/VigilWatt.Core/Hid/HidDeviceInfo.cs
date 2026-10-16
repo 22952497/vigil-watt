@@ -153,8 +153,12 @@ public sealed class HidDeviceHandle : IDisposable
     private Task<int>? _pendingRead;
     private byte[] _readBuffer = Array.Empty<byte>();
 
-    /// <summary>读一个 input report（ReadFile 异步 + 超时）。返回完整缓冲区，buffer[0] 是 report ID。</summary>
+    /// <summary>读一个 input report（阻塞等待）。发现路径请用 <see cref="ReadInputAsync"/>，避免堵死线程池。</summary>
     public byte[]? ReadInput(TimeSpan timeout)
+        => ReadInputAsync(timeout).GetAwaiter().GetResult();
+
+    /// <summary>读一个 input report（可等待）。超时后旧读继续挂着，下次调用再取走。</summary>
+    public async Task<byte[]?> ReadInputAsync(TimeSpan timeout)
     {
         ushort len = Info.InputReportLength;
         if (len == 0) return null;
@@ -165,10 +169,10 @@ public sealed class HidDeviceHandle : IDisposable
                 _readBuffer = new byte[len];
                 _pendingRead = _stream.ReadAsync(_readBuffer, 0, len);
             }
-            var completed = Task.WhenAny(_pendingRead, Task.Delay(timeout)).GetAwaiter().GetResult();
+            var completed = await Task.WhenAny(_pendingRead, Task.Delay(timeout)).ConfigureAwait(false);
             if (completed != _pendingRead)
-                return null; // 超时：读继续挂着，等下次调用
-            int n = _pendingRead.Result;
+                return null;
+            int n = await _pendingRead.ConfigureAwait(false);
             _pendingRead = null;
             if (n <= 0) return null;
             var result = new byte[n];
@@ -177,11 +181,10 @@ public sealed class HidDeviceHandle : IDisposable
         }
         catch (Exception ex)
         {
-            // 读失败多半是设备拔出/句柄失效（预期），但完全静默会连"句柄异常"一起掩盖——
-            // 记 Debug 留痕即可，别升级成 Warn 制造噪声（CR-21）。
+            // 读失败多半是设备拔出/句柄失效（预期），记 Debug 即可（CR-21）。
             if (Utils.Log.IsEnabled(Utils.LogLevel.Debug))
                 Utils.Log.Debug($"ReadInput 失败: {ex.Message}");
-            _pendingRead = null; // 读失败（设备拔出等），下次重建
+            _pendingRead = null;
             return null;
         }
     }

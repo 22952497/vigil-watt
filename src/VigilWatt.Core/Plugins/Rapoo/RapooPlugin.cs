@@ -71,8 +71,12 @@ public sealed class RapooPlugin : BatteryPluginBase
     /// 窗口 5 秒 = 实测心跳间隔 3.04 秒的 1.6 倍余量。探测本身不发任何字节。
     /// </summary>
     protected override (string Protocol, int? Percent, ChargingState Charging)? Probe(HidDeviceHandle handle)
+        => ProbeAsync(handle).GetAwaiter().GetResult();
+
+    protected override async Task<(string Protocol, int? Percent, ChargingState Charging)?> ProbeAsync(
+        HidDeviceHandle handle)
     {
-        var read = ListenStatus(handle, TimeSpan.FromSeconds(5));
+        var read = await ListenStatusAsync(handle, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         if (!read.HasValue) return null;
         return ("status-report7", read.Value.Percent, read.Value.Charging);
     }
@@ -111,13 +115,17 @@ public sealed class RapooPlugin : BatteryPluginBase
         return (status.Percent, status.Charging, Offline: false);
     }
 
-    /// <summary>在截止时间前收 input report，解析 0x07 状态帧。所有听到的帧都记原始日志（协议排错靠它）。</summary>
-    private static (int Percent, ChargingState Charging)? ListenStatus(HidDeviceHandle handle, TimeSpan window)
+    /// <summary>在截止时间前收 input report，解析 0x07 状态帧。</summary>
+    private static async Task<(int Percent, ChargingState Charging)?> ListenStatusAsync(
+        HidDeviceHandle handle, TimeSpan window)
     {
         var deadline = DateTime.UtcNow + window;
         while (DateTime.UtcNow < deadline)
         {
-            var input = handle.ReadInput(TimeSpan.FromMilliseconds(400));
+            var remaining = deadline - DateTime.UtcNow;
+            var slice = remaining < TimeSpan.FromMilliseconds(400) ? remaining : TimeSpan.FromMilliseconds(400);
+            if (slice <= TimeSpan.Zero) break;
+            var input = await handle.ReadInputAsync(slice).ConfigureAwait(false);
             if (input == null) continue;
             if (Log.IsEnabled(LogLevel.Debug)) Log.Debug($"雷柏 收到报文: {Log.Hex(input)}");
 

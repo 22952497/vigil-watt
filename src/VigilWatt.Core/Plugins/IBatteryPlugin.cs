@@ -29,8 +29,9 @@ public interface IBatteryPlugin
     bool SupportsDiscoveryProbe { get; }
 
     /// <summary>从扫描结果中认领属于自己的设备（幂等：新设备补上，消失的设备标记离线并释放认领）。
-    /// 认领前必须经 claims.TryClaim，防止与其他插件抢同一接口。返回认领的设备。</summary>
-    IReadOnlyList<DeviceStatus> Attach(IReadOnlyList<HidDeviceInfo> availableDevices, DeviceClaimRegistry claims);
+    /// 认领前必须经 claims.TryClaim，防止与其他插件抢同一接口。返回认领的设备。
+    /// 各插件可并行 await；同一插件内候选接口仍串行探测。</summary>
+    Task<IReadOnlyList<DeviceStatus>> AttachAsync(IReadOnlyList<HidDeviceInfo> availableDevices, DeviceClaimRegistry claims);
 
     /// <summary>轮询一轮电量，返回本次有更新的设备状态。</summary>
     IReadOnlyList<DeviceStatus> Poll();

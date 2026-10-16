@@ -36,8 +36,12 @@ public sealed class InphicPlugin : BatteryPluginBase
            && info.InputReportLength >= 5;
 
     protected override (string Protocol, int? Percent, ChargingState Charging)? Probe(HidDeviceHandle handle)
+        => ProbeAsync(handle).GetAwaiter().GetResult();
+
+    protected override async Task<(string Protocol, int? Percent, ChargingState Charging)?> ProbeAsync(
+        HidDeviceHandle handle)
     {
-        var status = ListenStatus(handle, TimeSpan.FromSeconds(5));
+        var status = await ListenStatusAsync(handle, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         return status is { } value ? ("inphic-status-report3", value.Percent, value.Charging) : null;
     }
 
@@ -53,12 +57,16 @@ public sealed class InphicPlugin : BatteryPluginBase
         return (percent, charging, Offline: false);
     }
 
-    private static (int Percent, ChargingState Charging)? ListenStatus(HidDeviceHandle handle, TimeSpan window)
+    private static async Task<(int Percent, ChargingState Charging)?> ListenStatusAsync(
+        HidDeviceHandle handle, TimeSpan window)
     {
         var deadline = DateTime.UtcNow + window;
         while (DateTime.UtcNow < deadline)
         {
-            var input = handle.ReadInput(TimeSpan.FromMilliseconds(400));
+            var remaining = deadline - DateTime.UtcNow;
+            var slice = remaining < TimeSpan.FromMilliseconds(400) ? remaining : TimeSpan.FromMilliseconds(400);
+            if (slice <= TimeSpan.Zero) break;
+            var input = await handle.ReadInputAsync(slice).ConfigureAwait(false);
             if (input == null) continue;
             if (!InphicCodec.TryParse(input, out int percent, out var charging, out _)) continue;
             return (percent, charging);

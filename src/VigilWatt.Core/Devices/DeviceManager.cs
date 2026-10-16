@@ -328,34 +328,33 @@ public sealed class DeviceManager : IDisposable
         DevicesChanged?.Invoke();
     }
 
-    /// <summary>只认领、不读电量（见 RequestDiscoveryAsync）。</summary>
-    private Task DiscoverOnlyAsync()
+    /// <summary>只认领、不读电量（见 RequestDiscoveryAsync）。各插件慢探测并行，Upsert 仍在本线程。</summary>
+    private async Task DiscoverOnlyAsync()
     {
         try
         {
             var hidDevices = HidDeviceScanner.Scan();
+            var tasks = new List<Task<IReadOnlyList<DeviceStatus>>>();
             foreach (var plugin in _plugins)
             {
                 // 零写入插件（雷柏）与"写入由 ProbeCooldown 兜住"的插件（迈从）都参与；
                 // 其余会写帧的插件仍只吃 60 秒主轮询，避免成倍抬高写入频率。
                 if (!plugin.SupportsFastDiscovery && !plugin.SupportsDiscoveryProbe) continue;
                 if (!IsPluginEnabled(plugin)) continue;
-                try
-                {
-                    foreach (var d in plugin.Attach(hidDevices, _claims))
-                        Upsert(d);
-                }
-                catch (Exception ex)
-                {
-                    Log.Error($"插件 {plugin.Name} 快速发现失败", ex);
-                }
+                tasks.Add(AttachSafeAsync(plugin, hidDevices, "快速发现"));
+            }
+
+            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            foreach (var claimed in results)
+            {
+                foreach (var d in claimed)
+                    Upsert(d);
             }
         }
         catch (Exception ex)
         {
             Log.Error("快速发现周期异常", ex);
         }
-        return Task.CompletedTask;
     }
 
     private async Task PollOnceAsync()
@@ -364,6 +363,7 @@ public sealed class DeviceManager : IDisposable
         {
             var hidDevices = HidDeviceScanner.Scan();
 
+            var attachTasks = new List<Task<(IBatteryPlugin Plugin, IReadOnlyList<DeviceStatus> Claimed)>>();
             foreach (var plugin in _plugins)
             {
                 bool enabled = IsPluginEnabled(plugin);
@@ -376,9 +376,21 @@ public sealed class DeviceManager : IDisposable
                         DropDevicesOf(plugin.Name);
                         continue;
                     }
-                    // Attach 的返回值 = 本轮认领的设备（含探测时已读到的电量），必须立即 Upsert：新设备即时进 UI，
-                    // 且避免紧接着的 Poll 白重读一遍（基类已把本轮新认领设备标记 FreshlyClaimed、Poll 会跳过）。
-                    foreach (var d in plugin.Attach(hidDevices, _claims))
+                    attachTasks.Add(AttachLabeledAsync(plugin, hidDevices));
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"插件 {plugin.Name} 轮询失败", ex);
+                }
+            }
+
+            var attached = await Task.WhenAll(attachTasks).ConfigureAwait(false);
+            foreach (var (plugin, claimed) in attached)
+            {
+                try
+                {
+                    // Attach 返回值立即 Upsert：新设备即时进 UI；FreshlyClaimed 本轮 Poll 跳过。
+                    foreach (var d in claimed)
                         Upsert(d);
                     foreach (var d in plugin.Poll())
                         Upsert(d);
@@ -389,7 +401,7 @@ public sealed class DeviceManager : IDisposable
                 }
             }
 
-            // 必须 await：以前 fire-and-forget 会让"刷新"在 BLE 侧还没跑完就返回，用户看到的列表纹丝不动
+            // 必须 await：以前 fire-and-forget 会让"刷新"在 BLE 侧还没跑完就返回
             await _ble.PollConnectedAsync();
             _classic.RefreshBattery();
             if (_settings.MonitorSystemBattery) _system.Refresh();
@@ -399,6 +411,27 @@ public sealed class DeviceManager : IDisposable
         {
             Log.Error("轮询周期异常", ex);
         }
+    }
+
+    private async Task<IReadOnlyList<DeviceStatus>> AttachSafeAsync(
+        IBatteryPlugin plugin, IReadOnlyList<HidDeviceInfo> hidDevices, string label)
+    {
+        try
+        {
+            return await plugin.AttachAsync(hidDevices, _claims).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"插件 {plugin.Name} {label}失败", ex);
+            return Array.Empty<DeviceStatus>();
+        }
+    }
+
+    private async Task<(IBatteryPlugin Plugin, IReadOnlyList<DeviceStatus> Claimed)> AttachLabeledAsync(
+        IBatteryPlugin plugin, IReadOnlyList<HidDeviceInfo> hidDevices)
+    {
+        var claimed = await AttachSafeAsync(plugin, hidDevices, "认领").ConfigureAwait(false);
+        return (plugin, claimed);
     }
 
     /// <summary>立即按保留天数清理历史。设置保存后调用，也由 6 小时定时任务调用。</summary>

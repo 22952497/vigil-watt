@@ -6,9 +6,13 @@ namespace VigilWatt.Core.Hid;
 /// <summary>
 /// 功 能： 枚举当前在位的所有 HID 接口，收集元数据供插件匹配。
 /// 2026/10/06 15:53:36 xliu
+/// 路径未变时复用上次元数据，避免发现节拍反复 CreateFile（见 docs/project/code-flow.md §2.1）。
 /// </summary>
 public static class HidDeviceScanner
 {
+    private static readonly object CacheGate = new();
+    private static readonly Dictionary<string, HidDeviceInfo> Cache = new(StringComparer.OrdinalIgnoreCase);
+
     public static List<HidDeviceInfo> Scan()
     {
         var list = new List<HidDeviceInfo>();
@@ -17,31 +21,55 @@ public static class HidDeviceScanner
 
         if (NativeHid.CM_Get_Device_Interface_List_SizeW(out uint size, ref guid, null,
                 NativeHid.CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != 0 || size == 0)
+        {
+            lock (CacheGate) Cache.Clear();
             return list;
+        }
 
         var buffer = new char[size];
         if (NativeHid.CM_Get_Device_Interface_ListW(ref guid, null, buffer, size,
                 NativeHid.CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != 0)
+        {
+            lock (CacheGate) Cache.Clear();
             return list;
+        }
 
         // 多字符串（double-null 结尾）
         var paths = new string(buffer).Split('\0', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var path in paths)
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        lock (CacheGate)
         {
-            try
+            foreach (var path in paths)
             {
-                var info = Inspect(path, meta);
-                if (info != null) list.Add(info);
+                seen.Add(path);
+                if (Cache.TryGetValue(path, out var cached))
+                {
+                    list.Add(cached);
+                    continue;
+                }
+
+                try
+                {
+                    var info = Inspect(path, meta);
+                    if (info == null) continue;
+                    Cache[path] = info;
+                    list.Add(info);
+                }
+                catch
+                {
+                    // 个别接口打不开不影响整体枚举
+                }
             }
-            catch
+
+            if (Cache.Count != seen.Count)
             {
-                // 个别接口打不开不影响整体枚举
+                foreach (var key in Cache.Keys.Where(k => !seen.Contains(k)).ToList())
+                    Cache.Remove(key);
             }
         }
 
-        // 明细（每接口一行元数据 + 一行摘要）只在**设备集合变化时**打：每次扫描 24 接口≈50 行，
-        // 而扫描每分钟 1 次 + 快速发现每 15 秒 1 次，全打会把 app.log 冲爆（旧日志 725KB 绝大部分是重复行）。
-        // 插拔/首次枚举时集合变了，明细照样完整落盘，排错信息不丢。去重交给 Log.InfoOnChange。
+        // 明细只在设备集合变化时打，去重交给 Log.InfoOnChange（见 docs/dev/logging.md）。
         var signature = string.Join("|", list
             .Select(d => $"{d.VendorId:X4}:{d.ProductId:X4}:{d.UsagePage:X4}:{d.Usage:X4}:{d.InputReportLength}:{d.OutputReportLength}:{d.FeatureReportLength}")
             .OrderBy(s => s, StringComparer.Ordinal));
