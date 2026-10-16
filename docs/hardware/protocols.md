@@ -128,7 +128,7 @@ WebHID 侧 reportId 自动加首字节；Windows WriteFile 时 [0] 就是要写�
 
 帧：flag=0x55 / 响应 expect=0xAA，`[55, cmd, 0, chk, size, offsetLo, offsetHi, 0, payload…]`（chk 逻辑见 JS）。批量灯效/配置走这条。电量推送：dongle 自发 `[FA, FB, 07, 电量%, 充电标志]`。
 
-## 3. 罗技 / 雷柏 / Elan 现状
+## 3. 罗技 / 雷柏现状
 
 ### 罗技 Logitech (VID_046D) —— ✅ Bolt 真机验证（2026-10-08）；协议驱动 + 嵌入目录
 
@@ -270,7 +270,7 @@ dongle 每 ~3 秒自发推送 **input report 0x07（19 字节，hidraw 含 ID �
 
 ### 弱水时砂 ROSE FIRST ANGEL（2.4G dongle = 38FF:0001）—— ❌ 2.4G 无电量通道（2026-10-05 完整勘察）
 
-**身份澄清（修正旧记录）**：`ROSE FIRST ANGEL (VID_38FF&PID_0001)` 就是**2.4G dongle 本体**（USB 声卡 + HID 复合设备，MI_00=MEDIA 音频、MI_03=HID），不是耳机或无关设备。旧记录里的 `04F3:026F`（Elan）是另一台设备，与此耳机无关（Elan 插件观察结论仍保留，见下）。官方配套软件 RoseLink（Flutter + BLE 自定义协议）与官方升级助手 first_angel_upgrade.exe 均已逆向。
+**身份澄清（修正旧记录）**：`ROSE FIRST ANGEL (VID_38FF&PID_0001)` 就是**2.4G dongle 本体**（USB 声卡 + HID 复合设备，MI_00=MEDIA 音频、MI_03=HID），不是耳机或无关设备。旧记录里的 `04F3:026F`（义隆 Elan）是另一台设备，与此耳机无关。官方配套软件 RoseLink（Flutter + BLE 自定义协议）与官方升级助手 first_angel_upgrade.exe 均已逆向。
 
 **结论：2.4G dongle 模式下主机侧不存在电量数据通道。** 逐路证伪：
 
@@ -302,8 +302,9 @@ dongle 每 ~3 秒自发推送 **input report 0x07（19 字节，hidraw 含 ID �
 
 判据：`OUT=0 / FEATURE=0` ⇒ 主机**物理上无法向 dongle 发起任何查询**（连"问一句"的通道都没有）；输入报文无电量字段 ⇒ 即便被动监听也没有数据源。**2.4G 无解是硬件事实，与代码适配无关**（当前 App 里 `38FF` 本就不在任何插件候选范围，连设备列表都不会出现）。
 
-### Elan (VID_04F3&PID_026F) —— ⚠️ 纯观察（与本耳机无关的另一设备）
-`GetFeature(0x05)` 回 ASCII "1010"（固件版本），电量命令未知。插件当前**只占位、不探测**：`Probe` 恒返回 null（不认领任何设备），探测不做任何 I/O，符合 safety.md §3 规则 7（CR-10）。曾被误记为弱水时砂耳机接收器，2026-10-05 已澄清。
+### Elan (VID_04F3&PID_026F) —— 已删除占位（与炽天使无关）
+
+义隆另一台 2.4G 接收器，曾被误记为弱水时砂耳机接收器（2026-10-05 已澄清）。仅确认过 `GetFeature(0x05)` 回 ASCII `"1010"`（固件版本），电量命令未知；占位插件已从应用移除，**勿再投入**。
 
 ## 4. 北通手柄 BETOP（接收器 VID_20BC）—— ✅ 插件已落地
 

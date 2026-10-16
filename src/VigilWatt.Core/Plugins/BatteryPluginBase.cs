@@ -64,8 +64,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
     ///
     /// 取值必须**明显小于轮询周期（60 秒）**：失败发生在轮询开始后几秒处，若冷却等于一整轮，
     /// 下一拍会被判"冷却未过"而白白跳过，实际重试间隔翻倍（雷柏/北通都踩过这个相位坑）。
-    /// 默认 30 秒 = "每一轮都允许重探"；只有代价真的高、且不指望短期恢复的插件才调大（Elan 的
-    /// feature 全扫 = 5 分钟）。
+    /// 默认 30 秒 = "每一轮都允许重探"；只有代价真的高、且不指望短期恢复的插件才调大。
     /// </summary>
     protected virtual TimeSpan ProbeCooldown => TimeSpan.FromSeconds(30);
 
@@ -83,7 +82,7 @@ public abstract class BatteryPluginBase : IBatteryPlugin
 
     /// <summary>
     /// <see cref="Probe"/> 是否会向设备写帧：写帧的插件（迈从会话帧 / 北通查询）保持默认 true，
-    /// 零写入探测（雷柏纯被动、Elan 只读扫描）置 false。这是**机制事实**声明，与用户开关无关。
+    /// 零写入探测（雷柏、英菲克纯被动）置 false。这是**机制事实**声明，与用户开关无关。
     /// </summary>
     protected virtual bool ProbeWrites => true;
 

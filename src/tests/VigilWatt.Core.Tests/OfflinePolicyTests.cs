@@ -30,7 +30,7 @@ public class OfflinePolicyTests
     [Fact]
     public void O2_默认把轮询空读算失败且阈值为3()
     {
-    // 默认面向"传统查询型插件"（如 Elan）：轮询发了帧却没读数就是失联。
+    // 默认面向"传统查询型插件"：轮询发了帧却没读数就是失联。
     // 雷柏 / 迈从 / 北通必须显式置 false —— 这正是把"轮询空读算不算失败"从 SupportsPassiveListen
     // 里拆出来的目的（曾经合成一个布尔量，导致迈从键盘关机后永不显示离线）。
         Assert.True(OfflinePolicy.Default.CountPollFailures);

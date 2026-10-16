@@ -20,8 +20,7 @@ VigilWatt.sln
 │   ├── Hid/
 │   │   ├── NativeHid                  # Win32 P/Invoke（CfgMgr32 / hid.dll / CreateFileW）
 │   │   ├── HidDeviceScanner           # 枚举在位 HID 接口 + 读元数据
-│   │   ├── HidDeviceInfo              # 元数据 + HidDeviceHandle（读写通道，单悬空读）
-│   │   └── HidWriteProbe              # 探测矩阵：多数变体已无调用方，仅 Elan 观察模式仍用 FeatureSweep 做只读扫描
+│   │   └── HidDeviceInfo              # 元数据 + HidDeviceHandle（读写通道，单悬空读）
 │   ├── Plugins/
 │   │   ├── IBatteryPlugin             # 插件契约：Attach / Poll / Detach
 │   │   ├── BatteryPluginBase          # "接口认领"型基类：冷却/熔断/生命周期/稳定Id/被动实时监听(StatusPushed)
@@ -31,7 +30,7 @@ VigilWatt.sln
 │   │   ├── Rapoo/RapooPlugin          # 雷柏 status-report7（纯被动零写入）
 │   │   ├── Mchose/MchosePlugin        # 0x13 会话协议（在用）+ QHW 0x4D（备用）
 │   │   ├── Betop/BetopPlugin          # 北通手柄：厂商接口 0x15 状态报告 + T9 被动流 + BetopCodec（纯逻辑）
-│   │   └── Elan/ElanHeadsetPlugin     # 纯观察模式（不认领设备）
+│   │   └── Inphic/                    # 英菲克 report 0x03 被动状态帧
 │   ├── Models/DeviceStatus            # 统一设备状态快照（Id/电量/充电/在线）
 │   ├── Settings/AppSettings           # settings.json 读写
 │   ├── Storage/HistoryStore           # SQLite（Microsoft.Data.Sqlite）：写入/查询/按设备删除/VACUUM
@@ -123,7 +122,7 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
   - 轮询型重复日志用 `Log.InfoOnChange(key, state, message)`（状态变了才记，返回"是否变化"）或
     `Log.InfoThrottled(key, message, interval)` 降噪，**不要在各调用点自己攒去重字段**。
 - 插件所有硬件写入必须能被熔断/开关控制：**授权入口就是插件开关**（`AppSettings.PluginEnabled[Name]`）——基类 `WritesEnabled => IsWritesEnabled(Name)` 直读它，发帧前再检查 `CanWrite(dev)`；熔断（连续 3 次失败停写）由基类自动执行，见 safety.md §3。**没有独立的"写入许可"开关**（2026-10-10 取消，见 CR-37）。
-  - 零写入插件（雷柏、Elan）覆盖 `WritesEnabled => false` **且** `ProbeWrites => false`——它们是机制事实声明，与用户开关无关。
+  - 零写入插件（雷柏、英菲克）覆盖 `WritesEnabled => false` **且** `ProbeWrites => false`——它们是机制事实声明，与用户开关无关。
   - `LogitechPlugin` 不继承基类（会话型，自建通知泵），**故自建了等价的闸门 + 熔断 + 退避**：`HidppIO.WritesAllowed`（唯一写点内检查，读插件开关）、连续 3 次失败停写 10 分钟、打开失败 10 分钟退避。CR-01 已关闭，改动时别把这道闸门拆掉。
 - 新插件清单：加一个 `IBatteryPlugin` 实现类（最简：继承 `BatteryPluginBase`，实现 IsCandidate/Probe/PollDevice）→ 设置页自动出现开关，注册/发现/熔断/认领全自动。
   - ⚠️ **别忘了在 `AppSettings.PluginEnabled` 默认表里加该插件的键**（`AppSettings.Load` 会给老 settings.json 补缺失键，但默认表是唯一来源）。

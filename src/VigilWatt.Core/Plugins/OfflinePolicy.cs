@@ -33,7 +33,7 @@ public sealed record OfflinePolicy
     public int MaxFailures { get; init; } = 3;
 
     /// <summary>
-    /// 轮询返回 null 是否**直接**计入失败。默认 true（传统查询型插件，如 Elan）；
+    /// 轮询返回 null 是否**直接**计入失败。默认 true（传统查询型插件）；
     /// 置 false 的两种情况：协议根本没有查询命令（雷柏），或 null 与"未开写入 / 熔断中 /
     /// 纯推送协议"不可区分、只有插件自己知道这一轮发没发帧（迈从、北通）。
     /// **必须**与"要不要起被动监听"分开：曾经把两者合成一个布尔量，导致迈从键盘关机后

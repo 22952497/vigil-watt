@@ -187,8 +187,7 @@ app-2026-10-10.log   ← 当天
 > `%LOCALAPPDATA%\VigilWatt\logs\` 下的按日日志（`app-*.log`），按上表各簇 `grep -c` 统计。
 > 行示例修正：实际是 `收到托盘回调: 0x{mouseMessage:X4}`（`TrayService.cs`），非 `NxN`。
 
-**补充归类（原表遗漏，均归 Debug）**：`[探测]`（`HidWriteProbe.cs`）、`[Elan 探测]`（`ElanHeadsetPlugin.cs`）、
-Mchose 逐帧/握手簇（`MchosePlugin.cs`）、`雷柏 电量越界丢弃`（`RapooPlugin.cs`）。
+**补充归类（原表遗漏，均归 Debug）**：Mchose 逐帧/握手簇（`MchosePlugin.cs`）、`雷柏 电量越界丢弃`（`RapooPlugin.cs`）。
 
 **关键：排障能力零损失。** 两条协议解析日志的**行尾本来就带着原始 hex**：
 

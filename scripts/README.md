@@ -17,8 +17,6 @@
 | `parse-minidump.py` | **minidump 内存布局解剖**（纯标准库，无需 WinDbg）：解析 stream 3/4/9/12/16/17，给出进程时长、句柄/模块/线程数、dump 实抓量、分层提交（PRIVATE/MAPPED/IMAGE）与最大区域。**核心判据：dump 文件大小 ≠ 进程占用**（本机 725 MB 的 dump 里 181 MB 是 NVIDIA 驱动 DLL）。另有 FILETIME 时区坑：必须走 UTC 再本地化 |
 | `probe-classic-kind.py` | **经典蓝牙设备类型信号探针**（纯 ctypes + SetupAPI）：枚举 `BTHENUM\*` 节点，打印服务 UUID（实例 ID 前缀）、`DEVPKEY_DeviceDisplay_Category`（如 `Input.Mouse`）与 ClassGuid。用来回答"这台经典蓝牙设备到底是耳机还是鼠标"，`--all` dump 全属性 |
 | `test-rapou7.ps1` | 雷柏 dongle（VID_24AE）HID P/Invoke 直测。也是 build.md §7"PowerShell 5.1" 的范例：本机 Add-Type 不支持字符串插值/内联 out/可空注解，要用老式语法 |
-| `test-elan-dongle-passive.py` | Elan dongle（04F3:026F）被动监听 90 秒，零写入——看 2.4G 模式下 dongle 是否推状态/电量帧 |
-| `test-elan-dongle-wait.py` | 同上，但轮询等待 dongle 插入后再监听 |
 | `test-rose-dongle-interactive.py` | ROSE dongle（38FF:0001）交互式被动监听 5 分钟，零写入——耳机按键操作会经 dongle 出现在这里，可当"耳机已连接"探针 |
 | `test-rose-dongle-passive.py` | ROSE dongle MI_03（consumer）被动监听 60 秒，零写入 |
 | `test-rose-headset-getinfo.py` | FIRST ANGEL USB 直连官方 GET_INFO 查询（report 0xAB，帧格式来自官方升级工具反编译），纯只读 |

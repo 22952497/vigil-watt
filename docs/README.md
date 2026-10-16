@@ -27,7 +27,7 @@
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|
 | [safety.md](hardware/safety.md) | **硬件安全规则 + 两次事故复盘**（必读） | 任何要向设备写数据的改动之前 |
-| [protocols.md](hardware/protocols.md) | 2.4G 协议手册（迈从 G87 已打通、QHW 新协议、北通手柄、雷柏/Elan 现状） | 动 Mchose/Logitech/Betop/Elan 插件、接入新设备 |
+| [protocols.md](hardware/protocols.md) | 2.4G 协议手册（迈从 G87 已打通、QHW 新协议、北通手柄、雷柏现状） | 动 Mchose/Logitech/Betop/Rapoo/Inphic 插件、接入新设备 |
 | [debugging.md](hardware/debugging.md) | 调试手法（抓官方软件的包、HID 直测、日志考古、验证清单） | 协议不通、要校准新设备时 |
 
 ## 📁 reviews/ — 审查跟踪与报告

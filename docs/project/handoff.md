@@ -27,7 +27,6 @@
 | 英菲克 ZHEN（VID_1D57&PID_FA65） | report 0x03 被动状态帧 | 已打通，零写入；放电 `0x01` / 充电 `0x03` 已校准（protocols.md §6） |
 | 北通 T9（PID_5073）/ 鲲鹏20（PID_5191） | 厂商接口 0xFF00；T9 走 Col04 被动流 | T9 已真机验证；鲲鹏20 主动查询未验证 |
 | 弱水时砂 2.4G（38FF:0001） | — | 无电量通道（protocols.md §3），不再投入 |
-| Elan（04F3:026F） | feature | 纯观察，无电量命令 |
 | EDIFIER W820NB | HFP 网关 `DEVPKEY_Device_BatteryLevel` | 已打通，与设置页一致 |
 | 华硕 AURA、Virtual Multitouch、lifeme 音箱 | — | 与电量无关，勿探测 |
 | 本机电池 | `GetSystemPowerStatus`，Id `sys:battery` | 已接入，默认关。托盘最低电量不统计本机 |
