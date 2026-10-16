@@ -10,11 +10,11 @@ namespace VigilWatt.App.Services;
 /// <summary>
 /// 功 能： 更新下载共用 UI（进度对话框 + 状态/托盘提示）。
 /// 2026/10/16 14:40:00 xliu
-/// 确认框关掉后原先只剩设置页一行小字，用户不知道是否在下。
+/// 确认框关掉后原先只剩状态一行小字，用户不知道是否在下。
 /// </summary>
 internal static class UpdateDownloadUi
 {
-    /// <summary>设置页进度条等旁路订阅；Percent 在 Active=false 时无意义。</summary>
+    /// <summary>关于页进度条等旁路订阅；Percent 在 Active=false 时无意义。</summary>
     public static event Action<bool, int, string>? ProgressChanged;
 
     /// <summary>弹进度框、下载、成功则 ApplyAndRestart（进程会退出）；失败抛异常。</summary>

@@ -8,7 +8,7 @@ using Microsoft.UI.Xaml.Media;
 
 namespace VigilWatt.App;
 /// <summary>
-/// 功 能： 主窗口，在设备、统计、历史和设置之间切换。
+/// 功 能： 主窗口，在设备、统计、历史、设置和关于之间切换。
 /// 2026/10/06 15:53:36 xliu
 /// </summary>
 
@@ -164,9 +164,10 @@ public sealed partial class MainWindow : Window
             "stats" => typeof(StatsPage),
             "history" => typeof(HistoryPage),
             "settings" => typeof(SettingsPage),
+            "about" => typeof(AboutPage),
             _ => typeof(DevicesPage),
         });
-        // 四个页面都已 NavigationCacheMode.Required 常驻，BackStack 只剩无界累积的簿记（CR-65）
+        // 各页都已 NavigationCacheMode.Required 常驻，BackStack 只剩无界累积的簿记（CR-65）
         ContentFrame.BackStack.Clear();
     }
 }

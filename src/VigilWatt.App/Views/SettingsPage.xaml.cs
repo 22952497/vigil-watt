@@ -34,37 +34,10 @@ public sealed partial class SettingsPage : Page
     public SettingsPage()
     {
         InitializeComponent();
-        App.UpdateStatusChanged += status => DispatcherQueue.TryEnqueue(() =>
-            UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)} · {status}");
-        UpdateDownloadUi.ProgressChanged += OnUpdateProgressChanged;
         // 页面被缓存复用：构造函数只跑一次，所以"建一次"的活留这里，"每次进来都要重读"的活放 Loaded
         NavigationCacheMode = NavigationCacheMode.Required;
         BuildOptions();
         Loaded += OnPageLoaded;
-    }
-
-    private void OnUpdateProgressChanged(bool active, int percent, string message)
-    {
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            if (!active)
-            {
-                UpdateProgressBar.Visibility = Visibility.Collapsed;
-                UpdateProgressBar.IsIndeterminate = false;
-                return;
-            }
-
-            UpdateProgressBar.Visibility = Visibility.Visible;
-            if (percent <= 0)
-            {
-                UpdateProgressBar.IsIndeterminate = true;
-            }
-            else
-            {
-                UpdateProgressBar.IsIndeterminate = false;
-                UpdateProgressBar.Value = Math.Clamp(percent, 0, 100);
-            }
-        });
     }
 
     private void OnPageLoaded(object sender, RoutedEventArgs e)
@@ -105,7 +78,6 @@ public sealed partial class SettingsPage : Page
         AutostartToggle.IsOn = AutostartService.IsEnabled();
         WidgetToggle.IsOn = s.WidgetEnabled;
         SystemBatteryToggle.IsOn = s.MonitorSystemBattery;
-        UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)} · {App.UpdateStatusMessage}";
 
         // 小组件显示方式：与"窗口背景"同一套路，下拉框存偏好、副标题写实际行为
         var mode = WidgetDisplayMode.Normalize(s.WidgetDisplayMode);
@@ -512,61 +484,6 @@ public sealed partial class SettingsPage : Page
 
         // 日志级别不热更新（重启生效），保存后给一句提示，避免用户以为"点了没反应"
         ShowSavedFeedback(s.LogLevel == LogLevelNames.Default ? "已保存" : "已保存（日志级别重启后生效）");
-    }
-
-    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
-    {
-        CheckUpdateButton.IsEnabled = false;
-        App.UpdateStatusMessage = "正在检查 Gitee 更新…";
-        UpdateStatusText.Text = "正在检查更新…";
-        try
-        {
-            var svc = new UpdateService();
-            if (!svc.IsInstalled)
-            {
-                App.UpdateStatusMessage = "当前是未安装的运行副本（bin/publish），无法自动更新";
-                UpdateStatusText.Text = App.UpdateStatusMessage;
-                return;
-            }
-
-            var info = await svc.CheckAsync();
-            if (info == null)
-            {
-                App.UpdateStatusMessage = $"已是最新版本（{svc.CurrentVersion}）";
-                UpdateStatusText.Text = App.UpdateStatusMessage;
-                return;
-            }
-
-            var dialog = new ContentDialog
-            {
-                Title = "发现新版本 " + info.TargetFullRelease.Version,
-                Content = $"当前 {svc.CurrentVersion} → 最新 {info.TargetFullRelease.Version}，下载并安装？\n安装完成后应用会自动重启。",
-                PrimaryButtonText = "下载并安装",
-                CloseButtonText = "取消",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = XamlRoot,
-            };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-            {
-                App.UpdateStatusMessage = "已取消更新";
-                UpdateStatusText.Text = App.UpdateStatusMessage;
-                return;
-            }
-
-            await UpdateDownloadUi.DownloadAndApplyAsync(svc, info, XamlRoot);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("检查更新失败: " + ex.Message);
-            // DownloadAndApply 已写过「更新安装失败」时不要盖成「检查更新失败」
-            if (!App.UpdateStatusMessage.StartsWith("更新安装失败", StringComparison.Ordinal))
-                App.UpdateStatusMessage = "检查更新失败：" + ex.Message;
-            UpdateStatusText.Text = App.UpdateStatusMessage;
-        }
-        finally
-        {
-            CheckUpdateButton.IsEnabled = true;
-        }
     }
 
     private void OpenLogDir_Click(object sender, RoutedEventArgs e)
