@@ -36,10 +36,35 @@ public sealed partial class SettingsPage : Page
         InitializeComponent();
         App.UpdateStatusChanged += status => DispatcherQueue.TryEnqueue(() =>
             UpdateStatusText.Text = $"当前版本 {GetType().Assembly.GetName().Version?.ToString(3)} · {status}");
+        UpdateDownloadUi.ProgressChanged += OnUpdateProgressChanged;
         // 页面被缓存复用：构造函数只跑一次，所以"建一次"的活留这里，"每次进来都要重读"的活放 Loaded
         NavigationCacheMode = NavigationCacheMode.Required;
         BuildOptions();
         Loaded += OnPageLoaded;
+    }
+
+    private void OnUpdateProgressChanged(bool active, int percent, string message)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!active)
+            {
+                UpdateProgressBar.Visibility = Visibility.Collapsed;
+                UpdateProgressBar.IsIndeterminate = false;
+                return;
+            }
+
+            UpdateProgressBar.Visibility = Visibility.Visible;
+            if (percent <= 0)
+            {
+                UpdateProgressBar.IsIndeterminate = true;
+            }
+            else
+            {
+                UpdateProgressBar.IsIndeterminate = false;
+                UpdateProgressBar.Value = Math.Clamp(percent, 0, 100);
+            }
+        });
     }
 
     private void OnPageLoaded(object sender, RoutedEventArgs e)
@@ -528,23 +553,14 @@ public sealed partial class SettingsPage : Page
                 return;
             }
 
-            // 进度回调在线程池线程，回 UI 线程刷新
-            var dispatcher = DispatcherQueue;
-            UpdateStatusText.Text = "下载中…";
-            await svc.DownloadAsync(info, pct => dispatcher.TryEnqueue(() =>
-            {
-                App.UpdateStatusMessage = $"下载中 {pct}%";
-                UpdateStatusText.Text = App.UpdateStatusMessage;
-            }));
-
-            App.UpdateStatusMessage = "下载完成，正在应用更新并重启…";
-            UpdateStatusText.Text = App.UpdateStatusMessage;
-            svc.ApplyAndRestart(info);
+            await UpdateDownloadUi.DownloadAndApplyAsync(svc, info, XamlRoot);
         }
         catch (Exception ex)
         {
             Log.Warn("检查更新失败: " + ex.Message);
-            App.UpdateStatusMessage = "检查更新失败：" + ex.Message;
+            // DownloadAndApply 已写过「更新安装失败」时不要盖成「检查更新失败」
+            if (!App.UpdateStatusMessage.StartsWith("更新安装失败", StringComparison.Ordinal))
+                App.UpdateStatusMessage = "检查更新失败：" + ex.Message;
             UpdateStatusText.Text = App.UpdateStatusMessage;
         }
         finally

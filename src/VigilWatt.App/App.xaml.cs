@@ -289,19 +289,7 @@ public partial class App : Application
                 return;
             }
 
-            UpdateStatusMessage = $"正在下载版本 {version}…";
-            // 进度回调在线程池线程；节流到每 5% 刷一次，既不刷屏也让设置页/托盘能看到进度
-            var lastBucket = -1;
-            await updater.DownloadAsync(update, pct =>
-            {
-                if (pct / 5 == lastBucket) return;
-                lastBucket = pct / 5;
-                UpdateStatusMessage = $"正在下载版本 {version}… {pct}%";
-                Log.Info($"启动更新下载进度 {pct}%");
-            });
-            UpdateStatusMessage = $"版本 {version} 下载完成，正在重启应用…";
-            Log.Info($"版本 {version} 下载完成，开始应用并重启");
-            updater.ApplyAndRestart(update);
+            await UpdateDownloadUi.DownloadAndApplyAsync(updater, update, root.XamlRoot);
         }
         catch (Exception ex)
         {

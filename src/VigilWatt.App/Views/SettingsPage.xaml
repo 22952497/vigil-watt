@@ -359,9 +359,13 @@
                     <Border Style="{StaticResource CardStyle}">
                         <StackPanel>
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Padding="0,12">
-                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                                    <TextBlock x:Name="UpdateTitleText" Text="检查更新" Style="{StaticResource RowTitleStyle}" />
-                                    <TextBlock x:Name="UpdateStatusText" Style="{StaticResource RowDescStyle}" />
+                                <StackPanel Grid.Column="0" Spacing="8" VerticalAlignment="Center">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock x:Name="UpdateTitleText" Text="检查更新" Style="{StaticResource RowTitleStyle}" />
+                                        <TextBlock x:Name="UpdateStatusText" Style="{StaticResource RowDescStyle}" />
+                                    </StackPanel>
+                                    <ProgressBar x:Name="UpdateProgressBar" Height="6" Minimum="0" Maximum="100"
+                                                 Visibility="Collapsed" />
                                 </StackPanel>
                                 <Button Grid.Column="1" x:Name="CheckUpdateButton" Click="CheckUpdate_Click"
                                         VerticalAlignment="Center">

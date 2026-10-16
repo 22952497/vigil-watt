@@ -330,6 +330,24 @@ public sealed class TrayService : IDisposable
 
     public void ShowUpdateAvailable(string version)
     {
+        ShowBalloon("发现 VigilWatt 更新",
+            $"版本 {version} 已就绪。打开 VigilWatt 后可选择下载并安装。");
+    }
+
+    public void ShowUpdateDownloading(string version) =>
+        ShowBalloon("正在下载更新", $"正在下载 VigilWatt {version}…");
+
+    public void ShowUpdateDownloadDone(string version) =>
+        ShowBalloon("下载完成", $"VigilWatt {version} 下载完成，即将重启安装");
+
+    public void ShowUpdateDownloadFailed(string detail)
+    {
+        var msg = string.IsNullOrWhiteSpace(detail) ? "请稍后重试或到设置页查看原因。" : TrimBalloon(detail);
+        ShowBalloon("更新下载失败", msg);
+    }
+
+    private void ShowBalloon(string title, string body)
+    {
         try
         {
             var data = new Native.NOTIFYICONDATAW
@@ -338,8 +356,8 @@ public sealed class TrayService : IDisposable
                 hWnd = _hwnd,
                 uID = 1,
                 uFlags = Native.NIF_INFO,
-                szInfo = $"版本 {version} 已就绪。打开 VigilWatt 后可选择下载并安装。",
-                szInfoTitle = "发现 VigilWatt 更新",
+                szInfo = TrimBalloon(body),
+                szInfoTitle = TrimBalloon(title, 63),
                 dwInfoFlags = Native.NIIF_INFO,
             };
             Native.Shell_NotifyIconW(Native.NIM_MODIFY, ref data);
@@ -348,6 +366,13 @@ public sealed class TrayService : IDisposable
         {
             Log.Warn($"更新提示气泡失败: {ex.Message}");
         }
+    }
+
+    /// <summary>NOTIFYICONDATA 标题/正文有固定缓冲，超出会截断或失败。</summary>
+    private static string TrimBalloon(string text, int max = 255)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        return text.Length <= max ? text : text[..(max - 1)] + "…";
     }
 
     public void Dispose()
