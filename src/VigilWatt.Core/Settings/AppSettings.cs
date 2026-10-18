@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using VigilWatt.Core.Models;
 using VigilWatt.Core.Utils;
 
 namespace VigilWatt.Core.Settings;
@@ -69,6 +70,8 @@ public class AppSettings
     /// 注意：纯 bool，老 settings.json 缺该字段时反序列化直接用属性默认值 false，不需要像 <see cref="PluginEnabled"/> 那样手动补键。</summary>
     public bool MonitorSystemBattery { get; set; } = false;
 
+    public Dictionary<string, DeviceCustomization> DeviceCustomizations { get; set; } = new();
+
     /// <summary>日志级别。取值见 <see cref="VigilWatt.Core.Utils.LogLevelNames"/>（Off/Debug/Info/Warn/Error），默认 Info；未知取值按 Info。**重启生效**（启动时赋给 Log.MinLevel）。</summary>
     public string LogLevel { get; set; } = VigilWatt.Core.Utils.LogLevelNames.Default;
 
@@ -106,6 +109,7 @@ public class AppSettings
             }
 
             _cached = loaded ?? new AppSettings();
+            _cached.DeviceCustomizations ??= new Dictionary<string, DeviceCustomization>();
 
             // 老 settings.json 缺新插件的开关键时补默认值：反序列化会用 JSON 里的字典**整体替换**默认字典，
             // 缺键的插件会被 DeviceManager/设置页的 TryGetValue 判成"关闭"，新增插件（如 Betop）装上去默认不工作、用户还以为是功能没实现。

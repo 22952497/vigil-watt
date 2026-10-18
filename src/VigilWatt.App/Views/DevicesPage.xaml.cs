@@ -3,7 +3,13 @@ using VigilWatt.Core.Models;
 using VigilWatt.Core.Utils;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using VigilWatt.Core.Settings;
 using Microsoft.UI.Xaml.Navigation;
+using VigilWatt.App.Services;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace VigilWatt.App.Views;
 /// <summary>
@@ -71,7 +77,7 @@ public sealed partial class DevicesPage : Page
     private void Refresh()
     {
         var devices = App.Services.Manager.Devices;
-        DeviceList.ItemsSource = devices.Select(DeviceRowModel.From).ToList();
+        DeviceList.ItemsSource = devices.Select(d => DeviceRowModel.From(d, App.Services.Settings)).ToList();
         var online = devices.Count(d => d.IsOnline);
         // 带上时间戳：即使设备数没变，用户也能一眼看出这次刷新确实跑过了
         SummaryText.Text = $"{online} 台在线 / 共 {devices.Count} 台 · {DateTime.Now:HH:mm:ss} 更新";
@@ -79,6 +85,192 @@ public sealed partial class DevicesPage : Page
         bool empty = devices.Count == 0;
         DeviceList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
         EmptyState.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void CustomizeDevice_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem item || item.Tag is not string id) return;
+        var device = App.Services.Manager.Find(id);
+        if (device == null || device.Source == DeviceSource.System) return;
+
+        var settings = App.Services.Settings;
+        settings.DeviceCustomizations.TryGetValue(id, out var current);
+        var nameBox = new TextBox
+        {
+            Text = current?.Name ?? device.DisplayName,
+            MaxLength = 80,
+            PlaceholderText = "输入设备名称",
+        };
+        var nameError = new TextBlock
+        {
+            Text = "名称不能为空。",
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromArgb(255, 196, 43, 28)),
+            Visibility = Visibility.Collapsed,
+        };
+        nameBox.TextChanged += (_, _) => nameError.Visibility = Visibility.Collapsed;
+
+        var automaticKind = device.Kind == DeviceKind.Unknown
+            ? DeviceKindGuesser.Guess(device.DisplayName)
+            : device.Kind;
+        DeviceKind? selectedKind = current?.IconKind;
+        var iconChoices = new List<(RadioButton Button, Border Card)>();
+        var iconGrid = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
+        for (int i = 0; i < 4; i++)
+            iconGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int i = 0; i < 2; i++)
+            iconGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var options = new (DeviceKind? Value, DeviceKind Preview, string Label)[]
+        {
+            (null, automaticKind, "自动"), (DeviceKind.Unknown, DeviceKind.Unknown, "通用"),
+            (DeviceKind.Mouse, DeviceKind.Mouse, "鼠标"), (DeviceKind.Keyboard, DeviceKind.Keyboard, "键盘"),
+            (DeviceKind.Headset, DeviceKind.Headset, "耳机"), (DeviceKind.Speaker, DeviceKind.Speaker, "音箱"),
+            (DeviceKind.Gamepad, DeviceKind.Gamepad, "手柄"), (DeviceKind.Computer, DeviceKind.Computer, "电脑"),
+        };
+        var primaryBrush = Application.Current.Resources["TextFillColorPrimaryBrush"] as SolidColorBrush;
+        var iconColor = primaryBrush?.Color ?? Color.FromArgb(255, 80, 80, 80);
+        Brush GetBrush(string key, Brush fallback) =>
+            Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush ? brush : fallback;
+        var cardBrush = GetBrush("CardBackgroundFillColorDefaultBrush",
+            new SolidColorBrush(Color.FromArgb(255, 248, 248, 248)));
+        var borderBrush = GetBrush("CardStrokeColorDefaultBrush",
+            new SolidColorBrush(Color.FromArgb(255, 220, 220, 220)));
+        var accentBrush = GetBrush("AccentFillColorDefaultBrush",
+            new SolidColorBrush(Color.FromArgb(255, 0, 120, 212)));
+        var accentColor = (accentBrush as SolidColorBrush)?.Color ?? Color.FromArgb(255, 0, 120, 212);
+        var accentTint = new SolidColorBrush(Color.FromArgb(28, accentColor.R, accentColor.G, accentColor.B));
+
+        for (int i = 0; i < options.Length; i++)
+        {
+            var option = options[i];
+            var card = new Border
+            {
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(4, 9, 4, 8),
+                Background = cardBrush,
+                BorderBrush = borderBrush,
+                Child = new StackPanel
+                {
+                    Spacing = 6,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Children =
+                    {
+                        new Grid
+                        {
+                            Width = 28,
+                            Height = 28,
+                            Children = { DeviceIconFactory.Glyph(option.Preview, iconColor) },
+                        },
+                        new TextBlock
+                        {
+                            Text = option.Label,
+                            FontSize = 12,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                        },
+                    },
+                },
+            };
+            var radio = new RadioButton
+            {
+                GroupName = "DeviceIconChoice",
+                Tag = option.Value,
+                IsChecked = selectedKind == option.Value,
+                Content = card,
+                Padding = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Stretch,
+                MinWidth = 0,
+            };
+            radio.Checked += (_, _) =>
+            {
+                selectedKind = option.Value;
+                UpdateIconChoiceCards();
+            };
+            iconChoices.Add((radio, card));
+            Grid.SetColumn(radio, i % 4);
+            Grid.SetRow(radio, i / 4);
+            iconGrid.Children.Add(radio);
+        }
+
+        void UpdateIconChoiceCards()
+        {
+            foreach (var (radio, card) in iconChoices)
+            {
+                bool selected = radio.IsChecked == true;
+                card.BorderBrush = selected ? accentBrush : borderBrush;
+                card.Background = selected ? accentTint : cardBrush;
+            }
+        }
+        UpdateIconChoiceCards();
+
+        var body = new StackPanel { Spacing = 10, MinWidth = 400 };
+        body.Children.Add(new TextBlock { Text = "设备名称", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        body.Children.Add(nameBox);
+        body.Children.Add(nameError);
+        body.Children.Add(new TextBlock
+        {
+            Text = "图标",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 4, 0, 0),
+        });
+        body.Children.Add(iconGrid);
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "设备外观",
+            Content = body,
+            PrimaryButtonText = "保存",
+            SecondaryButtonText = "恢复默认",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            if (string.IsNullOrWhiteSpace(nameBox.Text))
+            {
+                nameError.Visibility = Visibility.Visible;
+                args.Cancel = true;
+            }
+        };
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.None) return;
+
+        if (result == ContentDialogResult.Secondary)
+        {
+            settings.DeviceCustomizations.Remove(id);
+        }
+        else
+        {
+            var name = nameBox.Text.Trim();
+            var custom = new DeviceCustomization();
+            custom.Name = name;
+            custom.IconKind = selectedKind;
+            if (custom.Name == null && custom.IconKind == null) settings.DeviceCustomizations.Remove(id);
+            else settings.DeviceCustomizations[id] = custom;
+        }
+
+        settings.Save();
+        App.Services.Manager.RefreshPresentation();
+        Refresh();
+    }
+
+    private void DeviceRow_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement row || row.DataContext is not DeviceRowModel model) return;
+        var device = App.Services.Manager.Find(model.Id);
+        if (device == null || device.Source == DeviceSource.System) return;
+
+        var menu = new MenuFlyout();
+        menu.Items.Add(new MenuFlyoutItem
+        {
+            Text = "自定义名称和图标",
+            Tag = model.Id,
+        });
+        var item = (MenuFlyoutItem)menu.Items[0];
+        item.Click += CustomizeDevice_Click;
+        menu.ShowAt(row, new FlyoutShowOptions { Position = e.GetPosition(row) });
+        e.Handled = true;
     }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e)

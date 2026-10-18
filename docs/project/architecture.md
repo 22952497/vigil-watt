@@ -102,7 +102,7 @@ DeviceManager.Upsert() 是唯一的状态汇聚点（BLE 和插件都汇到它�
 
 | 位置 | 内容 |
 |---|---|
-| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关（**即写入授权**）/MonitorSystemBattery/**LogLevel**/**LogRetentionDays**） |
+| `%LOCALAPPDATA%\VigilWatt\settings.json` | AppSettings（阈值/采样/保留天数/自启/小组件（开关/位置/显示方式/最多显示数）/插件开关（**即写入授权**）/MonitorSystemBattery/**LogLevel**/**LogRetentionDays**/按设备 ID 保存的名称与图标覆盖） |
 | `%LOCALAPPDATA%\VigilWatt\history.db` | SQLite `samples(device_id, name, percent, charging, ts)`，索引 (device_id, ts)。**ts = UTC 毫秒**（`DateTimeOffset.ToUnixTimeMilliseconds`） |
 | `%LOCALAPPDATA%\VigilWatt\logs\app-yyyy-MM-dd.log` | **按本地日期每天一个文件**的运行日志（协议原始报文也在）。行首为**本地时间**；文件首行是"时间基准"声明，用于与 history.db 的 UTC 时间对齐 |
 | `%LOCALAPPDATA%\VigilWatt\logs\log-error.txt` | 兜底文件：连续写日志失败时记录（带节流与上限），正常运行时不产生 |

@@ -1,5 +1,6 @@
 using VigilWatt.App.Services;
 using VigilWatt.Core.Models;
+using VigilWatt.Core.Settings;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
@@ -11,6 +12,7 @@ namespace VigilWatt.App.ViewModels;
 /// </summary>
 public sealed class DeviceRowModel
 {
+    public string Id { get; init; } = "";
     public string IconGlyph { get; init; } = "\uE702";
     public string Name { get; init; } = "";
     public string PercentText { get; init; } = "--%";
@@ -32,10 +34,11 @@ public sealed class DeviceRowModel
     /// 注意 x:Bind 绑 null 会压掉样式默认前景导致文字不可见，此属性必须非空。</summary>
     public Brush PercentBrush { get; init; } = UiPalette.Brush(UiPalette.Offline);
 
-    public static DeviceRowModel From(DeviceStatus d)
+    public static DeviceRowModel From(DeviceStatus source, AppSettings settings)
     {
+        var d = DevicePresentation.Apply(source, settings);
         var percent = d.BatteryPercent;
-        var icon = GlyphFor(d.Kind, d.DisplayName);
+        var icon = GlyphFor(d.Kind, d.DisplayName, DevicePresentation.HasIconOverride(d.Id, settings));
 
         bool charging = DeviceStatusFormatter.IsCharging(d.Charging);
         string state = DeviceStatusFormatter.ChargeSuffix(d.Charging);
@@ -53,6 +56,7 @@ public sealed class DeviceRowModel
 
         return new DeviceRowModel
         {
+            Id = d.Id,
             IconGlyph = icon,
             Name = d.DisplayName,
             PercentText = DeviceStatusFormatter.PercentText(percent),
@@ -73,9 +77,9 @@ public sealed class DeviceRowModel
     /// 真机显示名里一个关键字都没有（"Rapoo Gaming Device"/"MCHOSE 2.4G Wireless"/"EDIFIER W820NB"），
     /// 靠名字猜必然退化成通用蓝牙图标。见 docs/project/handoff.md「第三轮：改显式声明设备类型」。
     /// </summary>
-    private static string GlyphFor(DeviceKind kind, string displayName)
+    private static string GlyphFor(DeviceKind kind, string displayName, bool customized)
     {
-        if (kind == DeviceKind.Unknown) kind = DeviceKindGuesser.Guess(displayName);
+        if (kind == DeviceKind.Unknown && !customized) kind = DeviceKindGuesser.Guess(displayName);
         return kind switch
         {
             DeviceKind.Gamepad => "\uE7FC",   // Game

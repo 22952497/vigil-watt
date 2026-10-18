@@ -98,6 +98,12 @@ public sealed class DeviceManager : IDisposable
 
     public DeviceStatus? Find(string id) => _devices.TryGetValue(id, out var d) ? d : null;
 
+    public void RefreshPresentation()
+    {
+        foreach (var device in Devices) DeviceUpdated?.Invoke(device);
+        DevicesChanged?.Invoke();
+    }
+
     public void Start()
     {
         _ble.Start();
@@ -456,7 +462,7 @@ public sealed class DeviceManager : IDisposable
             foreach (var d in _devices.Values)
             {
                 if (d.IsOnline && d.BatteryPercent.HasValue)
-                    _history.Insert(d);
+                    _history.Insert(DeviceCustomizationResolver.ApplyName(d, _settings.DeviceCustomizations));
             }
             ExpireTombstones();
         }
@@ -496,7 +502,7 @@ public sealed class DeviceManager : IDisposable
         {
             // 电量变化立即写一条历史（含从离线恢复）
             if (status.BatteryPercent.HasValue)
-                _history.Insert(status);
+                _history.Insert(DeviceCustomizationResolver.ApplyName(status, _settings.DeviceCustomizations));
             DeviceUpdated?.Invoke(status);
         }
         else if (status.Kind != previousKind)

@@ -375,6 +375,7 @@ public sealed class TaskbarPillWindow : IDisposable
         overflowNames = Array.Empty<string>();
         var all = App.Services.Manager.Devices
             .Where(d => d.IsOnline && d.Source != DeviceSource.System)
+            .Select(d => DevicePresentation.Apply(d, App.Services.Settings))
             .OrderBy(d => DeviceStatusFormatter.IsChargingOrFull(d.Charging))
             .ThenBy(d => d.BatteryPercent ?? 999)
             .ThenBy(d => d.DisplayName)

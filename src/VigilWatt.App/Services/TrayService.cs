@@ -149,7 +149,7 @@ public sealed class TrayService : IDisposable
             // 本机电量不参与托盘的"最低电量"取值（用户 2026-10-06 明确）：笔记本正常用到 30% 是常态，
             // 让它把托盘染红会盖掉"外设快没电了"这个真正的信号。它仍进设备列表/小组件/历史统计。
             if (d.Source == DeviceSource.System) continue;
-            if (lowest == null || p < lowest.BatteryPercent) lowest = d;
+            if (lowest == null || p < lowest.BatteryPercent) lowest = DevicePresentation.Apply(d, _services.Settings);
         }
 
         int? percent = lowest?.BatteryPercent;
@@ -245,8 +245,9 @@ public sealed class TrayService : IDisposable
             Native.AppendMenuW(menu, Native.MF_STRING, (IntPtr)IdOpen, "打开主窗口");
             Native.AppendMenuW(menu, Native.MF_SEPARATOR, IntPtr.Zero, null);
 
-            foreach (var d in _services.Manager.Devices)
+            foreach (var raw in _services.Manager.Devices)
             {
+                var d = DevicePresentation.Apply(raw, _services.Settings);
                 deviceIndex++;
                 var text = d.IsOnline
                     ? $"{d.DisplayName}　{DeviceStatusFormatter.PercentText(d.BatteryPercent, "?")}" +

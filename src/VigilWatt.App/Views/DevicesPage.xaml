@@ -35,7 +35,8 @@
                 <DataTemplate x:DataType="v:DeviceRowModel">
                     <Border Style="{StaticResource AppCardStyle}"
                             Padding="16,12"
-                            Margin="0,0,0,8">
+                            Margin="0,0,0,8"
+                            RightTapped="DeviceRow_RightTapped">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
                             <FontIcon Grid.Column="0" FontSize="22" Glyph="{x:Bind IconGlyph}" />
                             <StackPanel Grid.Column="1" Spacing="6">

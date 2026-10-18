@@ -33,7 +33,7 @@ public sealed class AppServices : IDisposable
         Tray = tray;
         // 事件从后台线程来，气泡必须回 UI 线程
         Manager.LowBatteryDetected += device => MainWindow?.DispatcherQueue.TryEnqueue(
-            () => Tray.ShowLowBattery(device));
+            () => Tray.ShowLowBattery(DevicePresentation.Apply(device, Settings)));
 
             // 设备状态变化时刷新托盘图标/提示。以前只在启动时渲染一次，而启动那会儿设备还没扫出来，
             // 于是托盘永远显示"暂无在线设备"。两个事件都要订：DeviceUpdated 覆盖电量/在线变化，

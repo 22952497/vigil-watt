@@ -1,4 +1,5 @@
 using VigilWatt.App.ViewModels;
+using VigilWatt.App.Services;
 using VigilWatt.Core.Utils;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -53,7 +54,10 @@ public sealed partial class HistoryPage : Page
                 KpiEarliestSub.Text = "—";
             }
 
-            _rows = devices.Select(HistoryDeviceRow.From).ToList();
+            _rows = devices.Select(d => HistoryDeviceRow.From(d with
+            {
+                Name = DevicePresentation.DisplayName(d.DeviceId, d.Name, App.Services.Settings),
+            })).ToList();
             DeviceList.ItemsSource = _rows;
 
             bool empty = _rows.Count == 0;

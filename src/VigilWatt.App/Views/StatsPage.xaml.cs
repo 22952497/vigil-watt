@@ -95,10 +95,13 @@ public sealed partial class StatsPage : Page
 
             // 设备列表按历史库走：所选时间范围内有过采样的设备都在列（含已下线/换过 Id 的历史设备），
             // 不跟随当前在线设备——否则昨天用旧协议采的曲线永远选不到。
-        var entries = await Task.Run(() => App.Services.History
+        var historyEntries = await Task.Run(() => App.Services.History
             .DistinctDevices(DateTimeOffset.Now.AddHours(-hours))
-            .Select(d => new DeviceEntry(d.DeviceId, d.Name))
             .ToList());
+        var entries = historyEntries
+            .Select(d => new DeviceEntry(d.DeviceId,
+                DevicePresentation.DisplayName(d.DeviceId, d.Name, App.Services.Settings)))
+            .ToList();
         if (seq != _renderSeq) return;   // 期间又发起了新刷新，丢弃这次过期结果
 
         // 列表内容没变就不重建 ItemsSource——重建会强制关闭打开中的下拉框并把选择弹回，
