@@ -115,16 +115,16 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 
 - `Program.cs`：自定义入口（csproj `DISABLE_XAML_GENERATED_MAIN` 关掉了 XAML 生成的 Main）。`VelopackApp.Build().Run()` 必须最先跑——安装/更新/卸载钩子进程带 `--veloapp-*` 参数被拉起，在这里被消费后直接退出，所以 `App.OnLaunched` 的单实例互斥不会误杀钩子进程，也不用改。
 - 卸载清理：`OnBeforeUninstallFastCallback` 里调 `AutostartService.SetEnabled(false)` 删 HKCU Run 自启动残留。
-- `Services/UpdateService.cs` + 设置页"软件更新"区：更新源是 Velopack **内置的 `GiteaSource`**，不是自写适配器——Gitee 的 `/api/v1` 与 `/api/v5` 返回一致（2026-10-14 实测：同仓库同键同值），而 `GiteaSource` 的 API 基址正是硬编码的 `{host}/api/v1/`，所以直接可用。仓库 URL 是常量 `UpdateService.RepoUrl`，必须与 `scripts/publish-gitee.ps1` 的 `$owner/$repository` 指向同一个仓库。启动时检查一次，设置页保留手动检查。运行副本未安装时不执行安装更新。
+- `Services/UpdateService.cs` + 关于页"软件更新"区：更新源是 Velopack **内置的 `GithubSource` / `GiteaSource`**，不是自写适配器——Gitee 的 `/api/v1` 与 `/api/v5` 返回一致（2026-10-14 实测：同仓库同键同值），而 `GiteaSource` 的 API 基址正是硬编码的 `{host}/api/v1/`，所以直接可用。**GitHub 优先，8 秒内没结果或抛错就回退 Gitee**（`ProbeTimeout`）；检查成功后源固定，delta 包必须从给出清单的那个源继续下载。两个仓库 URL 是常量，必须分别与 `scripts/publish-github.ps1`、`scripts/publish-gitee.ps1` 指向同一个仓库，且两边的 Release 资产要一致。启动时检查一次，关于页保留手动检查。运行副本未安装时不执行安装更新。
 - 版本号唯一来源：`VigilWatt.App.csproj` 的 `<Version>`，exe FileVersion、设置页显示、安装包版本都从它来。
 
 ### 已验证（2026-10-06）
 
 安装（静默）→ 目录/快捷方式/卸载条目正确、数据目录不冲突；自动更新（把 1.0.1 nupkg 丢进 `packages\` 后启动 1.0.0 → 自动升级重启到 1.0.1）；卸载 → 安装目录/快捷方式/卸载条目/HKCU Run 残留全部清掉，用户数据保留。
 
-### 发布到 Gitee（Release 即更新源）
+### 发布到 Gitee（回退源）
 
-自动更新读取公开仓库 `gitee.com/YGWG-LX/vigil-watt` 的 Release：`GiteaSource` 经 `/api/v1/repos/.../releases` 列出版本（空仓库返回 `[]`，视为无新版本），Velopack 清单与包从 Release 附件下载。Gitee Release 下载路由见[官方说明](https://blog.gitee.com/2022/08/18/update/)；`vpk pack` 产出的 `releases.win.json` 与各 `.nupkg` 都要作为附件上传，确保清单引用的包都可下载。
+自动更新**先读 GitHub**（`github.com/evren-oct/vigil-watt`），8 秒内不可达或报错才回退 `gitee.com/YGWG-LX/vigil-watt`。两边走的是同一套 Velopack 清单：`GiteaSource` 经 `/api/v1/repos/.../releases` 列出版本（空仓库返回 `[]`，视为无新版本），Velopack 清单与包从 Release 附件下载。Gitee Release 下载路由见[官方说明](https://blog.gitee.com/2022/08/18/update/)；`vpk pack` 产出的 `releases.win.json` 与各 `.nupkg` 都要作为附件上传，确保清单引用的包都可下载。**两个仓库都要传同一份资产**，否则国内用户回退到 Gitee 时会看不到新版本。
 
 **一次性配置**：Gitee 个人访问令牌（需仓库写权限）。脚本只认两种来源：`-Token` 参数，或 `GITEE_TOKEN` 环境变量——**它不会自己去读令牌文件**（读文件的是 `publish-github.ps1`）。本机的令牌在仓库根 `.vpk-github-token`（**文件名是历史遗留，内容是 Gitee 令牌**，已 gitignore），所以要先把它读进环境变量再跑脚本：
 

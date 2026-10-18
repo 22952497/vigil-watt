@@ -3,6 +3,20 @@
 > 只留「改了什么 + 为什么」。协议、坑、流程在专题文档，这里不抄第二份。
 > 新会话不必读。每条一两句；单日新增超过 15 行就是写长了。发版只在文末版本表加一行。构建结果、打包耗时、文件清单不记（`AGENTS.md` §3）。
 
+## 2026-10-18
+
+- **协议与实现来源索引**：新增硬件来源文档，集中记录外部协议依据、参考项目、许可与本机验证边界，并从 docs 首页建立入口。
+- **README 与文档首页整理**：确认 Logitech Bolt 已真机验证、QHW 待对应设备验证，移除易过期的包大小和测试数；根 README 和文档首页改为精简导航，专题索引避免堆叠长表。
+
+## 2026-10-17
+
+- **关于页**：去掉「打开发布页」按钮，换成「打开 GitHub」；项目行同时列出 Gitee / GitHub 两个地址。
+- **GitHub 仓库统一到 `evren-oct/vigil-watt`**：`publish-github.ps1` 里的旧账号地址（`ACoolOctober/VigilWatt`）一并改掉，顺带修正脚本末尾过时的"设置页更新源"提示。
+- **署名统一**：csproj 的 `Authors` / `Company` / `Copyright` 改为 `evren-oct`（旧 GitHub 账号 `ACoolOctober` 已停用）；README 新增「仓库与账号」一节，说明 GitHub `evren-oct` 与 Gitee `YGWG-LX` 是同一人。
+- **README 版本徽章改成动态**：`shields.io/github/v/release/evren-oct/vigil-watt` 直接读 GitHub 最新 Release 的 tag，发版后不必再手改 README；徽章点击跳 Releases，下载节补上 GitHub 链接、Gitee 标为镜像。
+- **更新源改为 GitHub 优先、Gitee 回退**：`UpdateService` 同时持有 `GithubSource` 与 `GiteaSource`，GitHub 8 秒内无响应或报错才换 Gitee；检查成功后源固定，delta 包继续从同一个源下。界面文案不再写死 "Gitee"，回退时状态栏会提示"GitHub 不可达"。两仓库需传同一份 Release 资产（`build.md` §8）。
+- **README 补任务栏贴片截图**：截图从剪贴板默认名 `image-20261017…png` 改为 `assets/screenshot-taskbar.png`，与其它 `screenshot-*` 命名一致，避免相对路径下线上裂图。顺手删掉无任何引用的遗留图 `assets/image-20261009210019246.png`。
+
 ## 2026-10-16
 
 - **扫描提速**：HID 路径未变时复用元数据，不再每拍 CreateFile；各插件 `AttachAsync` 并行探测（同句柄仍串行）。见 `code-flow.md` §2。

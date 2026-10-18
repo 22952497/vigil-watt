@@ -67,7 +67,7 @@
                             <StackPanel Spacing="2">
                                 <TextBlock x:Name="UpdateStatusText" Style="{StaticResource RowTitleStyle}"
                                            FontWeight="SemiBold" />
-                                <TextBlock Text="启动时自动检查 Gitee Release；发现新版本后会先征求确认"
+                                <TextBlock Text="启动时自动检查 GitHub Release，连不上再回退 Gitee；发现新版本后会先征求确认"
                                            Style="{StaticResource RowDescStyle}" />
                             </StackPanel>
                             <ProgressBar x:Name="UpdateProgressBar" Height="6" Minimum="0" Maximum="100"
@@ -91,7 +91,8 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Padding="0,12">
                         <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                             <TextBlock Text="项目" Style="{StaticResource RowTitleStyle}" />
-                            <TextBlock Text="YGWG-LX / vigil-watt" Style="{StaticResource RowDescStyle}" />
+                            <TextBlock Text="Gitee：YGWG-LX / vigil-watt" Style="{StaticResource RowDescStyle}" />
+                            <TextBlock Text="GitHub：evren-oct / vigil-watt" Style="{StaticResource RowDescStyle}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
                                     VerticalAlignment="Center">
@@ -101,10 +102,10 @@
                                     <TextBlock Text="打开 Gitee" />
                                 </StackPanel>
                             </Button>
-                            <Button Click="OpenReleases_Click">
+                            <Button Click="OpenGitHub_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE8A7;" FontSize="14" />
-                                    <TextBlock Text="打开发布页" />
+                                    <FontIcon Glyph="&#xE774;" FontSize="14" />
+                                    <TextBlock Text="打开 GitHub" />
                                 </StackPanel>
                             </Button>
                         </StackPanel>

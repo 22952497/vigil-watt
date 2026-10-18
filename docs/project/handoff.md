@@ -6,9 +6,9 @@
 
 ## 1. 当前状态
 
-当前安装包 **1.2.0**（`dist/`，本机试装用；正式线上仍以 Gitee 最新 Release 为准）。更新源走 Gitee Release（1.0.11 起）。发新版时留着上一版 `*-full.nupkg`，才会有 delta；规则见 `dev/build.md` §8。
+当前安装包 **1.2.0**（`dist/`，本机试装用；正式线上以 GitHub 最新 Release 为准，Gitee 是回退源）。更新源：GitHub 优先、8 秒不通回退 Gitee（**尚未发版**，1.2.0 及以前只走 Gitee）。发新版时留着上一版 `*-full.nupkg`，才会有 delta；两个仓库都要传同一份资产，规则见 `dev/build.md` §8。
 
-本机已打通：迈从 G87（0x13）、雷柏 VT3（status-report7，纯被动）、北通 T9（被动流）、经典蓝牙耳机（HFP 网关节点 `DEVPKEY_Device_BatteryLevel`）。本机电量可选，默认关。弱水时砂 2.4G 无电量通道，不再投入。罗技 HID++ 已实现，本机无 VID_046D，未真机验证。
+本机已打通：迈从 G87（0x13）、雷柏 VT3（status-report7，纯被动）、北通 T9（被动流）、经典蓝牙耳机（HFP 网关节点 `DEVPKEY_Device_BatteryLevel`）。罗技 Bolt 接收器（C548）+ MX Master 3S 已真机验证。本机电量可选，默认关。弱水时砂 2.4G 无电量通道，不再投入。
 
 任务栏贴片是原生子窗口 `Services/TaskbarPillWindow.cs`（`SetParent` 进 `Shell_TrayWnd`），不是 WinUI 覆盖窗。小组件仍用 `TransparentWindowSurface`；Win10 上因此没有 DWM 投影（BACKLOG **CR-57**，未做）。旧覆盖窗的白框、裁字、抢 Z 序在新贴片上已不存在。原理见 `dev/runtime-pitfalls.md` §16；§17 只对小组件。
 
@@ -23,6 +23,7 @@
 | 设备 | 通道 | 状态 |
 |---|---|---|
 | 迈从 G87（VID_41E4&PID_2001） | 0x13 会话 | 已打通 |
+| 罗技 Bolt（C548 + MX Master 3S） | HID++ | 已真机验证 |
 | 雷柏 VT3 二代（VID_24AE&PID_1412） | status-report7 被动心跳 | 已打通，零写入。雷柏不是 HID++，勿让 Logitech 插件认领 |
 | 英菲克 ZHEN（VID_1D57&PID_FA65） | report 0x03 被动状态帧 | 已打通，零写入；放电 `0x01` / 充电 `0x03` 已校准（protocols.md §6） |
 | 北通 T9（PID_5073）/ 鲲鹏20（PID_5191） | 厂商接口 0xFF00；T9 走 Col04 被动流 | T9 已真机验证；鲲鹏20 主动查询未验证 |

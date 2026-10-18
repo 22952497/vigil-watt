@@ -14,7 +14,7 @@ namespace VigilWatt.App.Views;
 public sealed partial class AboutPage : Page
 {
     private const string RepoUrl = "https://gitee.com/YGWG-LX/vigil-watt";
-    private const string ReleasesUrl = "https://gitee.com/YGWG-LX/vigil-watt/releases";
+    private const string GitHubUrl = "https://github.com/evren-oct/vigil-watt";
 
     public AboutPage()
     {
@@ -61,7 +61,7 @@ public sealed partial class AboutPage : Page
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
     {
         CheckUpdateButton.IsEnabled = false;
-        App.UpdateStatusMessage = "正在检查 Gitee 更新…";
+        App.UpdateStatusMessage = "正在检查更新…";
         UpdateStatusText.Text = App.UpdateStatusMessage;
         try
         {
@@ -76,7 +76,9 @@ public sealed partial class AboutPage : Page
             var info = await svc.CheckAsync();
             if (info == null)
             {
-                App.UpdateStatusMessage = $"已是最新版本（{svc.CurrentVersion}）";
+                // 回退到 Gitee 说明 GitHub 那边不通，顺带告诉用户为什么慢了
+                var via = svc.SourceName == "Gitee" ? "（GitHub 不可达，已回退 Gitee）" : "";
+                App.UpdateStatusMessage = $"已是最新版本（{svc.CurrentVersion}）{via}";
                 UpdateStatusText.Text = App.UpdateStatusMessage;
                 return;
             }
@@ -114,7 +116,7 @@ public sealed partial class AboutPage : Page
 
     private void OpenRepo_Click(object sender, RoutedEventArgs e) => OpenUrl(RepoUrl);
 
-    private void OpenReleases_Click(object sender, RoutedEventArgs e) => OpenUrl(ReleasesUrl);
+    private void OpenGitHub_Click(object sender, RoutedEventArgs e) => OpenUrl(GitHubUrl);
 
     private static void OpenUrl(string url)
     {

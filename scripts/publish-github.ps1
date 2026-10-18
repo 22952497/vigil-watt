@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot   # scripts\ 的上一级 = 仓库根
 $dist = Join-Path $root "dist"
-$repoUrl = "https://github.com/ACoolOctober/VigilWatt"
+$repoUrl = "https://github.com/evren-oct/vigil-watt"
 
 # 1) token：-Token 参数 > 环境变量 > 本地文件
 if ($Token -eq "") { $Token = $env:VPK_GITHUB_TOKEN }
@@ -55,4 +55,4 @@ vpk @vpkArgs
 if ($LASTEXITCODE -ne 0) { throw "vpk upload 失败" }
 
 Write-Host "==> 完成: $repoUrl/releases/tag/v$version"
-Write-Host "    用户侧：设置页'更新源'填 $repoUrl 即可收到此更新"
+Write-Host "    客户端更新源仍是 Gitee（UpdateService 硬编码），此 Release 作镜像/手动下载用"

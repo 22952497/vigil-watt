@@ -62,7 +62,7 @@ public sealed class AppServices : IDisposable
 public partial class App : Application
 {
     public static AppServices Services { get; private set; } = null!;
-    private static string _updateStatusMessage = "启动时检查 Gitee 更新";
+    private static string _updateStatusMessage = "启动时检查更新";
     public static event Action<string>? UpdateStatusChanged;
     public static string UpdateStatusMessage
     {
@@ -200,20 +200,20 @@ public partial class App : Application
                 return;
             }
 
-            UpdateStatusMessage = "正在检查 Gitee 更新…";
-            Log.Info("启动时检查 Gitee 更新");
+            UpdateStatusMessage = "正在检查更新…";
+            Log.Info("启动时检查更新（GitHub 优先，失败回退 Gitee）");
             var update = await updater.CheckAsync();
             if (update == null)
             {
                 UpdateStatusMessage = $"已是最新版本（{updater.CurrentVersion}）";
-                Log.Info($"Gitee 更新检查完成，当前已是最新版本 {updater.CurrentVersion}");
+                Log.Info($"{updater.SourceName} 更新检查完成，当前已是最新版本 {updater.CurrentVersion}");
                 return;
             }
 
             _pendingStartupUpdate = update;
             var version = update.TargetFullRelease.Version.ToString();
             UpdateStatusMessage = $"发现新版本 {version}";
-            Log.Info($"Gitee 发现新版本 {version}");
+            Log.Info($"{updater.SourceName} 发现新版本 {version}");
             if (Services.Settings.StartMinimized)
             {
                 Services.Tray.ShowUpdateAvailable(version);
@@ -226,7 +226,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             UpdateStatusMessage = "自动检查失败：" + ex.Message;
-            Log.Warn("启动时检查 Gitee 更新失败: " + ex.Message);
+            Log.Warn("启动时检查更新失败: " + ex.Message);
         }
     }
 
