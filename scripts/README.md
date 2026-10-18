@@ -17,8 +17,10 @@
 | `parse-minidump.py` | **minidump 内存布局解剖**（纯标准库，无需 WinDbg）：解析 stream 3/4/9/12/16/17，给出进程时长、句柄/模块/线程数、dump 实抓量、分层提交（PRIVATE/MAPPED/IMAGE）与最大区域。**核心判据：dump 文件大小 ≠ 进程占用**（本机 725 MB 的 dump 里 181 MB 是 NVIDIA 驱动 DLL）。另有 FILETIME 时区坑：必须走 UTC 再本地化 |
 | `probe-classic-kind.py` | **经典蓝牙设备类型信号探针**（纯 ctypes + SetupAPI）：枚举 `BTHENUM\*` 节点，打印服务 UUID（实例 ID 前缀）、`DEVPKEY_DeviceDisplay_Category`（如 `Input.Mouse`）与 ClassGuid。用来回答"这台经典蓝牙设备到底是耳机还是鼠标"，`--all` dump 全属性 |
 | `test-rapou7.ps1` | 雷柏 dongle（VID_24AE）HID P/Invoke 直测。也是 build.md §7"PowerShell 5.1" 的范例：本机 Add-Type 不支持字符串插值/内联 out/可空注解，要用老式语法 |
+| `probe-hid-caps.py` | **HID 接口能力探针**（纯 ctypes，只读）：`HidP_GetCaps` + `HidP_GetButtonCaps` 打出 UsagePage、IN/OUT/FEATURE 报告长度与逐条 button caps。回答"这个接口到底有没有主机→设备通道"——`OUT=0 / FEATURE=0` 即物理上无法主动查询（弱水时砂 dongle 的判据）。用法 `python probe-hid-caps.py 38FF`（参数为设备路径里的大小写无关片段，可省） |
 | `test-rose-dongle-interactive.py` | ROSE dongle（38FF:0001）交互式被动监听 5 分钟，零写入——耳机按键操作会经 dongle 出现在这里，可当"耳机已连接"探针 |
 | `test-rose-dongle-passive.py` | ROSE dongle MI_03（consumer）被动监听 60 秒，零写入 |
+| `test-rose-dongle-endpoint.py` | ROSE dongle 接口 3 **绕过 HID 栈直读物理端点**（pyusb/libusb），只读不写。前提是 MI_03 已用 Zadig 换成 WinUSB——HID 驱动下 libusb 打不开设备，且 HID 栈只按描述符的 3 字节取包，端点上的长帧会被它丢掉。`--info` 打印配置/接口/端点，默认监听 0x82 300 秒 |
 | `test-rose-headset-getinfo.py` | FIRST ANGEL USB 直连官方 GET_INFO 查询（report 0xAB，帧格式来自官方升级工具反编译），纯只读 |
 | `test-rose-headset-passive.py` | FIRST ANGEL USB 直连 MI_03 被动监听 60 秒，零写入——看耳机是否自发推 0xAB 帧 |
 

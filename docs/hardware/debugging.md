@@ -178,3 +178,7 @@ dotnet run --project src/tests/VigilWatt.ProtocolCapture -- ble capture --second
 ```
 
 记录文件默认写到用户指定路径。USB 原始数据保存在 pcap；WebHID、BLE 和 USB 导出统一为每行一个 JSON 对象的 JSONL。USB device address 是临时地址，仅对该次采集有效。
+
+**USBPcap 不在本机**（2026-10-18 查：`C:\Program Files\USBPcap` 不存在），所以上面 `usb capture` 那条路径在本机从未跑过，只用过 WebHID 与 BLE。装它最省事的是 Wireshark 官方 Windows 安装器勾选 "Install USBPcap" 可选组件；也可装 desowin/usbpcap 的独立包。它是过滤驱动，装卸都要重启，个别 USB 设备会受影响。
+
+**向别人要采集材料时只要五样**：USBPcap 的 pcap（一次完整会话）、HID Report Descriptor 的**原始字节**（不是 preparsed 结果）、GET_REPORT 请求+响应完整 hex（注明用的哪个 API、连发三次句柄是否变化）、带时间戳且标注了操作的被动监听日志、VID/PID + 固件版本 + 芯片丝印。录屏与截图堆没有价值。
