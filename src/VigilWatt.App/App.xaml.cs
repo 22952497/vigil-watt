@@ -273,16 +273,7 @@ public partial class App : Application
 
             var updater = _startupUpdateService ?? new UpdateService();
             var version = update.TargetFullRelease.Version.ToString();
-            var dialog = new ContentDialog
-            {
-                Title = "发现新版本 " + version,
-                Content = $"当前 {updater.CurrentVersion} → 最新 {version}，下载并安装？\n安装完成后应用会自动重启。",
-                PrimaryButtonText = "下载并安装",
-                CloseButtonText = "稍后",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = root.XamlRoot,
-            };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            if (!await UpdatePrompt.ShowAsync(updater, update, root.XamlRoot, "稍后"))
             {
                 UpdateStatusMessage = $"已选择稍后安装版本 {version}";
                 Log.Info($"用户选择稍后安装版本 {version}");

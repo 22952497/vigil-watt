@@ -26,19 +26,36 @@ $parts = $Version.Split('.')
 if ($parts.Length -gt 3) { $Version = ($parts[0..2] -join '.') }
 Write-Host "==> 打包版本: $Version"
 
-# 4) Velopack 打包。packId 必须用 VigilWattApp 而不是 VigilWatt：
+# 4) 更新说明：截 docs\project\release-notes.md 里当前版本那一段（格式契约见该文件头）。
+#    缺这一段只警告不中断——应用内会显示「本版本没有更新说明」，比打不出包好。
+. (Join-Path $PSScriptRoot "get-release-notes.ps1")
+$notesFile = Join-Path ([System.IO.Path]::GetTempPath()) "vigilwatt-release-notes-$Version.md"
+$notes = Get-ReleaseNotes -Root $root -Version $Version
+if ($notes) {
+    Write-ReleaseNotesFile -Text $notes -Path $notesFile | Out-Null
+    Write-Host "==> 更新说明: release-notes.md 的 $Version 段"
+}
+else {
+    Write-Warning "release-notes.md 里没有 $Version 段，本次打包不带更新说明"
+}
+
+# 5) Velopack 打包。packId 必须用 VigilWattApp 而不是 VigilWatt：
 #    Velopack 默认装到 %LocalAppData%\<packId>，叫 VigilWatt 会和应用数据目录
 #    %LOCALAPPDATA%\VigilWatt（settings.json/history.db/logs）撞车，升级时数据被清。
 $dist = Join-Path $root "dist"
-vpk pack `
-    --packId VigilWattApp `
-    --packTitle VigilWatt `
-    --packVersion $Version `
-    --packDir $publishDir `
-    --mainExe VigilWatt.App.exe `
-    --icon (Join-Path $root "src\VigilWatt.App\Assets\VigilWatt.ico") `
-    --runtime win-x64 `
-    --outputDir $dist
+$vpkArgs = @(
+    "pack"
+    "--packId", "VigilWattApp"
+    "--packTitle", "VigilWatt"
+    "--packVersion", $Version
+    "--packDir", $publishDir
+    "--mainExe", "VigilWatt.App.exe"
+    "--icon", (Join-Path $root "src\VigilWatt.App\Assets\VigilWatt.ico")
+    "--runtime", "win-x64"
+    "--outputDir", $dist
+)
+if ($notes) { $vpkArgs += @("--releaseNotes", $notesFile) }
+vpk @vpkArgs
 if ($LASTEXITCODE -ne 0) { throw "vpk pack 失败" }
 
 $feed = Join-Path $dist "releases.win.json"

@@ -20,6 +20,8 @@
 
 审查标准在 `docs/dev/review-standard.md`，未修项全集在 `docs/reviews/BACKLOG.md`（不要在本文再抄一份）。
 
+更新说明是用户向的 `docs/project/release-notes.md`，随包分发：关于页「更新日志」离线可看全部历史，更新确认框显示目标版本的内容（来自更新源 notes，缺失时只显示版本行）。规则见 `dev/build.md` §8。
+
 下结论前先跑 `cmd /c ver`。**本机现在是 `10.0.26200.9445`（Win11 25H2）**——文档曾记成 Win11，2026-10-12 复核为 Win10 19045.6456，2026-10-14 再查已升到 26200。所以「哪一层背景可见」「Win10 上透明与 DWM 投影互斥」（CR-57）这类基于 Win10 的判断都要按新系统重判，别照抄。
 
 ## 2. 用户设备清单（勿对号入座错）
@@ -89,6 +91,7 @@
 | 历史库 | `Storage/HistoryStore.cs`；页面 `Views/HistoryPage`、`Views/StatsPage` |
 | 日志 | `Utils/Log.cs`；设置页「日志」；设计 `dev/logging.md` |
 | 语言包白名单 | `VigilWatt.App.csproj` 的 `MuiLanguagesToKeep`（build.md §6） |
+| 更新说明（用户向） | `docs/project/release-notes.md`；解析 `Services/ReleaseNotes.cs`、渲染 `ReleaseNotesView.cs`、确认框 `UpdatePrompt.cs` |
 | 某轮为什么这么做 | `docs/project/changelog.md` |
 | 还有什么没修 | `docs/reviews/BACKLOG.md` |
 | 审查红线 | `docs/dev/review-standard.md` |

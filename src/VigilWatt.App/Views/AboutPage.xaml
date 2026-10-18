@@ -95,6 +95,27 @@
                 </StackPanel>
             </Border>
 
+            <!-- 更新日志：内容来自随包的 release-notes.md，离线可看 -->
+            <Border Style="{StaticResource CardStyle}" Margin="0,12,0,0">
+                <StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Padding="0,12">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="更新日志" Style="{StaticResource RowTitleStyle}" FontWeight="SemiBold" />
+                            <TextBlock Text="每个版本改了什么，随安装包分发，离线可看"
+                                       Style="{StaticResource RowDescStyle}" />
+                        </StackPanel>
+                        <HyperlinkButton Grid.Column="1" Content="在 GitHub 查看"
+                                         Click="OpenReleases_Click" VerticalAlignment="Center" />
+                    </Grid>
+                    <Border Style="{StaticResource RowDividerStyle}" />
+                    <StackPanel x:Name="CurrentNotesHost" Padding="0,12" Spacing="6" />
+                    <Expander x:Name="OlderNotesExpander" Header="更早的版本"
+                              HorizontalAlignment="Stretch" Visibility="Collapsed">
+                        <StackPanel x:Name="OlderNotesHost" Padding="0,4,0,12" Spacing="16" />
+                    </Expander>
+                </StackPanel>
+            </Border>
+
             <!-- 项目 / 联系 -->
             <Border Style="{StaticResource CardStyle}" Margin="0,12,0,0">
                 <StackPanel>

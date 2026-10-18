@@ -14,7 +14,10 @@ namespace VigilWatt.App.Views;
 public sealed partial class AboutPage : Page
 {
     private const string RepoUrl = "https://gitee.com/YGWG-LX/vigil-watt";
+    private const string ReleasesUrl = "https://github.com/evren-oct/vigil-watt/releases";
     private const string GitHubUrl = "https://github.com/evren-oct/vigil-watt";
+
+    private bool _notesRendered;
 
     public AboutPage()
     {
@@ -32,6 +35,40 @@ public sealed partial class AboutPage : Page
         UpdateStatusText.Text = string.IsNullOrEmpty(App.UpdateStatusMessage)
             ? "检查更新"
             : App.UpdateStatusMessage;
+        RenderReleaseNotes();
+    }
+
+    // 页面缓存为 Required，Loaded 会反复触发；控件只建一次，避免重复叠加
+    private void RenderReleaseNotes()
+    {
+        if (_notesRendered) return;
+        _notesRendered = true;
+
+        var version = GetType().Assembly.GetName().Version?.ToString(3);
+        var current = ReleaseNotes.ForVersion(version);
+
+        if (current != null)
+        {
+            CurrentNotesHost.Children.Add(ReleaseNotesView.BuildVersionHeader(current));
+            CurrentNotesHost.Children.Add(ReleaseNotesView.BuildBody(current));
+        }
+        else
+        {
+            CurrentNotesHost.Children.Add(ReleaseNotesView.BuildMissingHint(version ?? "—"));
+        }
+
+        foreach (var section in ReleaseNotes.All)
+        {
+            if (ReferenceEquals(section, current)) continue;
+            var block = new StackPanel { Spacing = 6 };
+            block.Children.Add(ReleaseNotesView.BuildVersionHeader(section));
+            block.Children.Add(ReleaseNotesView.BuildBody(section));
+            OlderNotesHost.Children.Add(block);
+        }
+
+        OlderNotesExpander.Visibility = OlderNotesHost.Children.Count > 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void OnUpdateProgressChanged(bool active, int percent, string message)
@@ -83,16 +120,7 @@ public sealed partial class AboutPage : Page
                 return;
             }
 
-            var dialog = new ContentDialog
-            {
-                Title = "发现新版本 " + info.TargetFullRelease.Version,
-                Content = $"当前 {svc.CurrentVersion} → 最新 {info.TargetFullRelease.Version}，下载并安装？\n安装完成后应用会自动重启。",
-                PrimaryButtonText = "下载并安装",
-                CloseButtonText = "取消",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = XamlRoot,
-            };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            if (!await UpdatePrompt.ShowAsync(svc, info, XamlRoot, "取消"))
             {
                 App.UpdateStatusMessage = "已取消更新";
                 UpdateStatusText.Text = App.UpdateStatusMessage;
@@ -115,6 +143,8 @@ public sealed partial class AboutPage : Page
     }
 
     private void OpenRepo_Click(object sender, RoutedEventArgs e) => OpenUrl(RepoUrl);
+
+    private void OpenReleases_Click(object sender, RoutedEventArgs e) => OpenUrl(ReleasesUrl);
 
     private void OpenGitHub_Click(object sender, RoutedEventArgs e) => OpenUrl(GitHubUrl);
 

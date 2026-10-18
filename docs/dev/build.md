@@ -118,6 +118,16 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 - `Services/UpdateService.cs` + 关于页"软件更新"区：更新源是 Velopack **内置的 `GithubSource` / `GiteaSource`**，不是自写适配器——Gitee 的 `/api/v1` 与 `/api/v5` 返回一致（2026-10-14 实测：同仓库同键同值），而 `GiteaSource` 的 API 基址正是硬编码的 `{host}/api/v1/`，所以直接可用。**GitHub 优先，8 秒内没结果或抛错就回退 Gitee**（`ProbeTimeout`）；检查成功后源固定，delta 包必须从给出清单的那个源继续下载。两个仓库 URL 是常量，必须分别与 `scripts/publish-github.ps1`、`scripts/publish-gitee.ps1` 指向同一个仓库，且两边的 Release 资产要一致。启动时检查一次，关于页保留手动检查。运行副本未安装时不执行安装更新。
 - 版本号唯一来源：`VigilWatt.App.csproj` 的 `<Version>`，exe FileVersion、设置页显示、安装包版本都从它来。
 
+### 更新说明（release notes）
+
+`docs/project/release-notes.md` 是**用户向**更新日志（`changelog.md` 是开发向，两者别混）。同一份文件喂给三个地方：
+
+- `build-installer.ps1` 按 `<Version>` 截出当前版本段 → `vpk pack --releaseNotes`，落进 `releases.win.json` 的 `NotesMarkdown` / `NotesHTML`（2026-10-18 用临时目录实测确认）；
+- `publish-gitee.ps1` 用同一段当 Release 正文；
+- 应用把整份文件打进包里（csproj `Content`）：关于页离线渲染全部历史，更新确认框读 feed 里目标版本的 notes。
+
+格式契约（`## 版本` / 可选 `YYYY-MM-DD` 行 / `- ` 条目）写在文件头，解析器是 `Services/ReleaseNotes.cs`，截段脚本是 `scripts/get-release-notes.ps1`。**改格式要三处一起改**。版本段缺失只警告不阻断打包，但应用内会显示「本版本没有更新说明」；`NotesMarkdown` 为空时确认框只显示版本行，不留空框。
+
 ### 已验证（2026-10-06）
 
 安装（静默）→ 目录/快捷方式/卸载条目正确、数据目录不冲突；自动更新（把 1.0.1 nupkg 丢进 `packages\` 后启动 1.0.0 → 自动升级重启到 1.0.1）；卸载 → 安装目录/快捷方式/卸载条目/HKCU Run 残留全部清掉，用户数据保留。

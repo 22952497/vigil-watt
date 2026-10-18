@@ -32,6 +32,11 @@ $parts = $version.Split('.')
 if ($parts.Length -gt 3) { $version = $parts[0..2] -join '.' }
 $tag = "v$version"
 
+# Release body = the same user-facing notes the app shows (docs/project/release-notes.md).
+. (Join-Path $PSScriptRoot "get-release-notes.ps1")
+$notes = Get-ReleaseNotes -Root $root -Version $version
+if (-not $notes) { Write-Warning "No release-notes.md section for $version; the Release body will stay generic." }
+
 $tagRef = git ls-remote --exit-code origin "refs/tags/$tag"
 if ($LASTEXITCODE -ne 0 -or -not $tagRef) {
     throw "Tag $tag is not present on origin. Push the matching version tag to Gitee before publishing."
@@ -70,7 +75,7 @@ try {
     $fields["tag_name"] = $tag
     $fields["target_commitish"] = $targetCommit
     $fields["name"] = "VigilWatt $version"
-    $fields["body"] = "VigilWatt $version release. The attached files include the Velopack update feed and packages."
+    if ($notes) { $fields["body"] = $notes } else { $fields["body"] = "VigilWatt $version" }
     $fields["prerelease"] = "false"
     $createUri = "$apiUrl/releases"
     $formContent = [System.Net.Http.FormUrlEncodedContent]::new($fields)

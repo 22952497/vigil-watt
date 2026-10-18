@@ -70,6 +70,8 @@
   <ItemGroup>
     <None Update="Assets\VigilWatt.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 更新日志随包分发：关于页离线可看全部历史版本，不必联网；格式契约见该文件头 -->
+    <Content Include="..\..\docs\project\release-notes.md" Link="release-notes.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -9,6 +9,7 @@
 - [code-flow.md](project/code-flow.md)：启动、设备发现、轮询和 UI 更新流程。
 - [experience.md](project/experience.md)：项目经验与后续规划；不维护待办。
 - [changelog.md](project/changelog.md)：按日期记录重要改动及原因。
+- [release-notes.md](project/release-notes.md)：用户向更新日志，随安装包分发；关于页与更新确认框读它。
 
 ## 开发与排查
 
