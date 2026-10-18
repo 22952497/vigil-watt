@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Navigation;
 using VigilWatt.App.Services;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
+using System.Text;
 
 namespace VigilWatt.App.Views;
 /// <summary>
@@ -77,7 +78,8 @@ public sealed partial class DevicesPage : Page
     private void Refresh()
     {
         var devices = App.Services.Manager.Devices;
-        DeviceList.ItemsSource = devices.Select(d => DeviceRowModel.From(d, App.Services.Settings)).ToList();
+        DeviceList.ItemsSource = devices.Select(d => DeviceRowModel.From(
+            d, App.Services.Settings, App.Services.Manager.GetRemainingTimeEstimate(d))).ToList();
         var online = devices.Count(d => d.IsOnline);
         // 带上时间戳：即使设备数没变，用户也能一眼看出这次刷新确实跑过了
         SummaryText.Text = $"{online} 台在线 / 共 {devices.Count} 台 · {DateTime.Now:HH:mm:ss} 更新";
@@ -98,7 +100,7 @@ public sealed partial class DevicesPage : Page
         var nameBox = new TextBox
         {
             Text = current?.Name ?? device.DisplayName,
-            MaxLength = 80,
+            MaxLength = 20,
             PlaceholderText = "输入设备名称",
         };
         var nameError = new TextBlock
@@ -108,7 +110,31 @@ public sealed partial class DevicesPage : Page
             Foreground = new SolidColorBrush(Color.FromArgb(255, 196, 43, 28)),
             Visibility = Visibility.Collapsed,
         };
-        nameBox.TextChanged += (_, _) => nameError.Visibility = Visibility.Collapsed;
+        var nameHint = new TextBlock
+        {
+            Text = "仅支持中文、英文、数字、空格及常见中英文标点。",
+            FontSize = 12,
+            Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Brush,
+        };
+        bool filteringName = false;
+        nameBox.TextChanged += (_, _) =>
+        {
+            nameError.Visibility = Visibility.Collapsed;
+            if (filteringName) return;
+            var filtered = FilterDeviceNameInput(nameBox.Text, nameBox.SelectionStart, nameBox.SelectionLength);
+            if (filtered.Text == nameBox.Text) return;
+            filteringName = true;
+            try
+            {
+                nameBox.Text = filtered.Text;
+                nameBox.SelectionStart = filtered.SelectionStart;
+                nameBox.SelectionLength = filtered.SelectionLength;
+            }
+            finally
+            {
+                filteringName = false;
+            }
+        };
 
         var automaticKind = device.Kind == DeviceKind.Unknown
             ? DeviceKindGuesser.Guess(device.DisplayName)
@@ -207,6 +233,7 @@ public sealed partial class DevicesPage : Page
         var body = new StackPanel { Spacing = 10, MinWidth = 400 };
         body.Children.Add(new TextBlock { Text = "设备名称", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         body.Children.Add(nameBox);
+        body.Children.Add(nameHint);
         body.Children.Add(nameError);
         body.Children.Add(new TextBlock
         {
@@ -227,11 +254,15 @@ public sealed partial class DevicesPage : Page
         };
         dialog.PrimaryButtonClick += (_, args) =>
         {
-            if (string.IsNullOrWhiteSpace(nameBox.Text))
+            var filtered = FilterDeviceNameInput(nameBox.Text, nameBox.SelectionStart, nameBox.SelectionLength);
+            var normalized = filtered.Text.Trim();
+            if (string.IsNullOrWhiteSpace(normalized))
             {
                 nameError.Visibility = Visibility.Visible;
                 args.Cancel = true;
+                return;
             }
+            nameBox.Text = normalized;
         };
         var result = await dialog.ShowAsync();
         if (result == ContentDialogResult.None) return;
@@ -242,7 +273,7 @@ public sealed partial class DevicesPage : Page
         }
         else
         {
-            var name = nameBox.Text.Trim();
+            var name = FilterDeviceNameInput(nameBox.Text, 0, 0).Text.Trim();
             var custom = new DeviceCustomization();
             custom.Name = name;
             custom.IconKind = selectedKind;
@@ -271,6 +302,34 @@ public sealed partial class DevicesPage : Page
         item.Click += CustomizeDevice_Click;
         menu.ShowAt(row, new FlyoutShowOptions { Position = e.GetPosition(row) });
         e.Handled = true;
+    }
+
+    private static (string Text, int SelectionStart, int SelectionLength) FilterDeviceNameInput(
+        string input, int selectionStart, int selectionLength)
+    {
+        const string symbols = " -_.,!?@#$%&+()[]{}'\"/:;=~`\\|<>*^，。！？、：；（）【】《》〈〉「」『』‘’“”…—–·￥";
+        var output = new StringBuilder(input.Length);
+        int filteredStart = 0;
+        int filteredEnd = 0;
+        int inputOffset = 0;
+        int selectionEnd = selectionStart + selectionLength;
+        foreach (var rune in input.EnumerateRunes())
+        {
+            int value = rune.Value;
+            bool allowed = value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9'
+                or >= 0xFF10 and <= 0xFF19 or >= 0xFF21 and <= 0xFF3A or >= 0xFF41 and <= 0xFF5A
+                or >= 0x3400 and <= 0x4DBF or >= 0x4E00 and <= 0x9FFF or >= 0xF900 and <= 0xFAFF
+                or >= 0x20000 and <= 0x323AF
+                || value == 0x3000 || symbols.Contains(rune.ToString(), StringComparison.Ordinal);
+            if (allowed)
+            {
+                output.Append(rune.ToString());
+                if (inputOffset < selectionStart) filteredStart += rune.Utf16SequenceLength;
+                if (inputOffset < selectionEnd) filteredEnd += rune.Utf16SequenceLength;
+            }
+            inputOffset += rune.Utf16SequenceLength;
+        }
+        return (output.ToString(), filteredStart, Math.Max(0, filteredEnd - filteredStart));
     }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e)

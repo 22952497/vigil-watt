@@ -352,7 +352,9 @@ public sealed class TaskbarPillWindow : IDisposable
 
         var devices = SelectDevices(out var overflowNames);
         var bmp = TaskbarPillRenderer.Render(
-            devices, overflowNames, TaskbarPillRenderer.SkinFor(IsLightTheme()), _pillH, Scale,
+            devices, overflowNames,
+            devices.ToDictionary(d => d.Id, d => App.Services.Manager.GetRemainingTimeEstimate(d)),
+            TaskbarPillRenderer.SkinFor(IsLightTheme()), _pillH, Scale,
             out int width, out var hits);
 
         _bitmap?.Dispose();

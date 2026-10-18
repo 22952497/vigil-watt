@@ -1,5 +1,6 @@
 using VigilWatt.App.Services;
 using VigilWatt.Core.Models;
+using VigilWatt.Core.Devices;
 using VigilWatt.Core.Settings;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -34,7 +35,7 @@ public sealed class DeviceRowModel
     /// 注意 x:Bind 绑 null 会压掉样式默认前景导致文字不可见，此属性必须非空。</summary>
     public Brush PercentBrush { get; init; } = UiPalette.Brush(UiPalette.Offline);
 
-    public static DeviceRowModel From(DeviceStatus source, AppSettings settings)
+    public static DeviceRowModel From(DeviceStatus source, AppSettings settings, RemainingTimeEstimateResult remainingTime)
     {
         var d = DevicePresentation.Apply(source, settings);
         var percent = d.BatteryPercent;
@@ -64,7 +65,7 @@ public sealed class DeviceRowModel
             SourceText = DeviceSourceInfo.ShortLabel(d.Source),
             SourceBrush = UiPalette.Brush(sourceColor),
             SourceBackgroundBrush = UiPalette.Brush(UiPalette.Tint(sourceColor)),
-            SubText = $"{d.Protocol}{state} · 更新于 {d.LastUpdated:HH:mm:ss}",
+            SubText = $"{d.Protocol}{state}{(remainingTime.IsAvailable ? $" · 约{RemainingTimeEstimator.Format(remainingTime.Remaining!.Value)}剩余" : $" · {remainingTime.Explain()}")} · 更新于 {d.LastUpdated:HH:mm:ss}",
             IsCharging = charging,
             ProgressBrush = UiPalette.Brush(progressColor),
             PercentBrush = percentBrush,

@@ -6,7 +6,7 @@
 
 ## 1. 当前状态
 
-当前安装包 **1.2.0**（`dist/`，本机试装用；正式线上以 GitHub 最新 Release 为准，Gitee 是回退源）。更新源：GitHub 优先、8 秒不通回退 Gitee（**尚未发版**，1.2.0 及以前只走 Gitee）。发新版时留着上一版 `*-full.nupkg`，才会有 delta；两个仓库都要传同一份资产，规则见 `dev/build.md` §8。
+当前安装包 **1.2.1**（`dist/`，本机试装用；尚未上传正式 Release）。正式线上以 GitHub 最新 Release 为准，Gitee 是回退源；更新源 GitHub 优先、8 秒不通回退 Gitee。发新版时保留上一版 `*-full.nupkg` 作为 delta 基准；规则见 `dev/build.md` §8。
 
 本机已打通：迈从 G87（0x13）、雷柏 VT3（status-report7，纯被动）、北通 T9（被动流）、经典蓝牙耳机（HFP 网关节点 `DEVPKEY_Device_BatteryLevel`）。罗技 Bolt 接收器（C548）+ MX Master 3S 已真机验证。本机电量可选，默认关。弱水时砂 2.4G 无电量通道，不再投入。
 
@@ -15,6 +15,8 @@
 页面已缓存（`NavigationCacheMode = Required`），订阅跟 `Loaded`/`Unloaded`。设置页可搜索。日志按日：`logs\app-日期.log`。插件开关即写入授权，没有第二套「写入许可」。
 
 设备列表支持外设右键自定义名称与图标，按设备 ID 持久化；实时展示读取展示快照，历史页面用当前自定义名，已有采样不改写，后续采样保留自定义名称。
+
+设备列表与任务栏悬停支持剩余时间估算；至少 3 个不同时间点且有净下降才显示，无法估算时显示原因；设置页全局开关默认开启。实现与限制见 `docs/project/code-flow.md` §5。
 
 审查标准在 `docs/dev/review-standard.md`，未修项全集在 `docs/reviews/BACKLOG.md`（不要在本文再抄一份）。
 

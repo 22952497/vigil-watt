@@ -72,6 +72,7 @@ public sealed partial class SettingsPage : Page
     {
         var s = App.Services.Settings;
         ThresholdBox.Value = s.LowBatteryThreshold;
+        RemainingTimeEstimateToggle.IsOn = s.RemainingTimeEstimateEnabled;
         SampleBox.Value = s.SampleIntervalMinutes;
         RetentionBox.Value = s.HistoryRetentionDays;
         StartMinimizedToggle.IsOn = s.StartMinimized;
@@ -412,6 +413,7 @@ public sealed partial class SettingsPage : Page
     {
         var s = App.Services.Settings;
         s.LowBatteryThreshold = (int)ThresholdBox.Value;
+        s.RemainingTimeEstimateEnabled = RemainingTimeEstimateToggle.IsOn;
         s.SampleIntervalMinutes = (int)SampleBox.Value;
         s.HistoryRetentionDays = (int)RetentionBox.Value;
         s.StartMinimized = StartMinimizedToggle.IsOn;

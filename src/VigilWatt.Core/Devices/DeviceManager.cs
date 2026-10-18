@@ -25,6 +25,7 @@ public sealed class DeviceManager : IDisposable
     private readonly List<IBatteryPlugin> _plugins;
     private readonly DeviceClaimRegistry _claims = new();
     private readonly ConcurrentDictionary<string, DeviceStatus> _devices = new();
+    private readonly ConcurrentDictionary<string, RemainingTimeEstimateResult> _remainingTimeEstimates = new();
 
     /// <summary>每台设备"是否已就低电量提醒过"。电量回到阈值之上（或充电）就复位，下次跌破再提醒一次；
     /// 设备条目被移除时也一并清掉（见 <see cref="ExpireTombstones"/> / <see cref="DropDevicesOf"/>，CR-23）。</summary>
@@ -97,6 +98,25 @@ public sealed class DeviceManager : IDisposable
         .OrderByDescending(d => d.IsOnline).ThenBy(d => d.DisplayName).ToList();
 
     public DeviceStatus? Find(string id) => _devices.TryGetValue(id, out var d) ? d : null;
+
+    public RemainingTimeEstimateResult GetRemainingTimeEstimate(DeviceStatus device)
+    {
+        if (!_settings.RemainingTimeEstimateEnabled)
+            return new(null, RemainingTimeUnavailableReason.Disabled);
+        if (!device.IsOnline)
+            return new(null, RemainingTimeUnavailableReason.Offline);
+        if (device.Charging == ChargingState.Charging)
+            return new(null, RemainingTimeUnavailableReason.Charging);
+        if (device.Charging == ChargingState.Full || device.BatteryPercent >= 100)
+            return new(null, RemainingTimeUnavailableReason.Full);
+        if (!device.BatteryPercent.HasValue)
+            return new(null, RemainingTimeUnavailableReason.MissingReading);
+        if (device.BatteryPercent is <= 0 or > 100)
+            return new(null, RemainingTimeUnavailableReason.InvalidReading);
+        return _remainingTimeEstimates.TryGetValue(device.Id, out var result)
+            ? result
+            : new(null, RemainingTimeUnavailableReason.CollectingSamples);
+    }
 
     public void RefreshPresentation()
     {
@@ -190,6 +210,7 @@ public sealed class DeviceManager : IDisposable
         foreach (var id in expired)
         {
             _devices.TryRemove(id, out _);
+            _remainingTimeEstimates.TryRemove(id, out _);
             _tombstoneIds.Remove(id);
             _lowBatteryNotified.TryRemove(id, out _);
         }
@@ -224,6 +245,7 @@ public sealed class DeviceManager : IDisposable
     {
         ApplySystemBatterySetting();
         StartTimers();
+        RefreshPresentation();
         // 立刻跑一轮：否则"关掉插件"要等最多 60 秒的下一个轮询才撤掉设备，
         // 期间列表/托盘仍显示着它，用户会以为开关没生效。
         _ = RequestPollAsync();
@@ -241,6 +263,7 @@ public sealed class DeviceManager : IDisposable
         _system.Stop();
         if (_devices.TryRemove(SystemBatteryWatcher.DeviceId, out _))
         {
+            _remainingTimeEstimates.TryRemove(SystemBatteryWatcher.DeviceId, out _);
             _tombstoneIds.Remove(SystemBatteryWatcher.DeviceId);
             _lowBatteryNotified.TryRemove(SystemBatteryWatcher.DeviceId, out _);
             Log.Info("已关闭本机电量监控，移除系统电量条目");
@@ -327,6 +350,7 @@ public sealed class DeviceManager : IDisposable
         foreach (var id in dropped)
         {
             _devices.TryRemove(id, out _);
+            _remainingTimeEstimates.TryRemove(id, out _);
             _tombstoneIds.Remove(id);
             _lowBatteryNotified.TryRemove(id, out _);
         }
@@ -463,6 +487,7 @@ public sealed class DeviceManager : IDisposable
             {
                 if (d.IsOnline && d.BatteryPercent.HasValue)
                     _history.Insert(DeviceCustomizationResolver.ApplyName(d, _settings.DeviceCustomizations));
+                RefreshRemainingTimeEstimate(d, notify: true);
             }
             ExpireTombstones();
         }
@@ -512,6 +537,30 @@ public sealed class DeviceManager : IDisposable
         }
 
         CheckLowBattery(status, previousPercent);
+        RefreshRemainingTimeEstimate(status, notify: true);
+    }
+
+    private void RefreshRemainingTimeEstimate(DeviceStatus device, bool notify)
+    {
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var samples = _history.Query(device.Id, now - RemainingTimeEstimator.Window, now);
+            var result = device.BatteryPercent is { } percent
+                ? RemainingTimeEstimator.Evaluate(samples, percent, now)
+                : new(null, RemainingTimeUnavailableReason.MissingReading);
+            bool changed = !_remainingTimeEstimates.TryGetValue(device.Id, out var prior) || prior != result;
+            _remainingTimeEstimates[device.Id] = result;
+            if (notify && changed) DeviceUpdated?.Invoke(device);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"剩余时间估算失败: {device.DisplayName}", ex);
+            var failure = new RemainingTimeEstimateResult(null, RemainingTimeUnavailableReason.InvalidHistory);
+            bool changed = !_remainingTimeEstimates.TryGetValue(device.Id, out var prior) || prior != failure;
+            _remainingTimeEstimates[device.Id] = failure;
+            if (notify && changed) DeviceUpdated?.Invoke(device);
+        }
     }
 
     /// <summary>低电量提醒的骤降保护阈值（百分点）：降幅超过它先暂缓提醒，等下次读数确认。</summary>

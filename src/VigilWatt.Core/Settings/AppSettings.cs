@@ -15,6 +15,8 @@ public class AppSettings
     /// <summary>低于该电量弹提醒，0 关闭。</summary>
     public int LowBatteryThreshold { get; set; } = 20;
 
+    public bool RemainingTimeEstimateEnabled { get; set; } = true;
+
     /// <summary>采样间隔（分钟）：无变化时也定时写一条历史。</summary>
     public int SampleIntervalMinutes { get; set; } = 5;
 

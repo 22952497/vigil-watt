@@ -1,4 +1,5 @@
 using VigilWatt.Core.Models;
+using VigilWatt.Core.Devices;
 using Gdi = System.Drawing;
 using Gdi2 = System.Drawing.Drawing2D;
 using GdiImaging = System.Drawing.Imaging;
@@ -51,6 +52,7 @@ public static class TaskbarPillRenderer
     /// <summary>画一整条贴片，返回位图；<paramref name="widthPx"/> 是裁掉右侧空白后的实际宽度。</summary>
     public static Gdi.Bitmap Render(
         IReadOnlyList<DeviceStatus> devices, IReadOnlyList<string> overflowNames,
+        IReadOnlyDictionary<string, RemainingTimeEstimateResult>? remainingTimeEstimates,
         Skin skin, int heightPx, float scale, out int widthPx, out IReadOnlyList<HitChip> hits)
     {
         using var percentFont = new Gdi.Font("Microsoft YaHei UI", (float)(PercentFontSize * scale), Gdi.FontStyle.Bold, Gdi.GraphicsUnit.Pixel);
@@ -74,7 +76,7 @@ public static class TaskbarPillRenderer
         }
 
         widthPx = Math.Min(width, ContentRight(bmp) + (int)Math.Ceiling(PadH * scale));
-        hits = BuildHits(pieces, scale);
+        hits = BuildHits(pieces, scale, remainingTimeEstimates);
         return bmp;
     }
 
@@ -126,7 +128,7 @@ public static class TaskbarPillRenderer
         return pieces;
     }
 
-    private static List<HitChip> BuildHits(List<Piece> pieces, float scale)
+    private static List<HitChip> BuildHits(List<Piece> pieces, float scale, IReadOnlyDictionary<string, RemainingTimeEstimateResult>? remainingTimeEstimates)
     {
         float padLeft = (float)(PadH * scale);
         var hits = new List<HitChip>();
@@ -134,8 +136,13 @@ public static class TaskbarPillRenderer
         {
             if (piece.Kind == PieceKind.Chip && piece.Device != null)
             {
+                string tip = piece.Device.DisplayName;
+                if (remainingTimeEstimates != null && remainingTimeEstimates.TryGetValue(piece.Device.Id, out var remaining))
+                    tip += remaining.IsAvailable
+                        ? $"\n约{RemainingTimeEstimator.Format(remaining.Remaining!.Value)}剩余"
+                        : $"\n{remaining.Explain()}";
                 hits.Add(new HitChip(
-                    piece.Device.Id, piece.Device.DisplayName,
+                    piece.Device.Id, tip,
                     (int)Math.Floor(padLeft + piece.X), (int)Math.Ceiling(piece.Width)));
             }
             else if (piece.Kind == PieceKind.Overflow && !string.IsNullOrEmpty(piece.OverflowTip))
