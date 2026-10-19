@@ -17,6 +17,14 @@
 | `probe-process-memory.py` | **进程内存分层采样**（纯 ctypes、只读）：按 `VirtualQueryEx` 的 `Type` 分层统计 **PRIVATE / MAPPED / IMAGE**，并附工作集、提交大小、句柄数。位置参数：`<进程名或PID> [秒数] [输出文件] [间隔秒]`。用来区分**"私有提交泄漏"（真泄漏，PRIVATE 单调涨）**与**"工作集可回收驻留"（高水位，回收后 PRIVATE 不动）**——判据见 `docs/reviews/archive/memory-growth-2026-10-12.md` §6。**注意：已提交虚拟内存总量 ≠ 任务管理器「提交大小」**，IMAGE 与文件后备 MAPPED 不计入进程提交量 |
 | `parse-minidump.py` | **minidump 内存布局解剖**（纯标准库，无需 WinDbg）：解析 stream 3/4/9/12/16/17，给出进程时长、句柄/模块/线程数、dump 实抓量、分层提交（PRIVATE/MAPPED/IMAGE）与最大区域。**核心判据：dump 文件大小 ≠ 进程占用**（本机 725 MB 的 dump 里 181 MB 是 NVIDIA 驱动 DLL）。另有 FILETIME 时区坑：必须走 UTC 再本地化 |
 | `probe-classic-kind.py` | **经典蓝牙设备类型信号探针**（纯 ctypes + SetupAPI）：枚举 `BTHENUM\*` 节点，打印服务 UUID（实例 ID 前缀）、`DEVPKEY_DeviceDisplay_Category`（如 `Input.Mouse`）与 ClassGuid。用来回答"这台经典蓝牙设备到底是耳机还是鼠标"，`--all` dump 全属性 |
+| `probe-hid-enumerate.py` | **HID 接口枚举**（hidapi）：打印每个接口的 VID/PID/interface_number/usage_page/usage/product/path。`--all` 看全机、`--vid 0x0C45` 定向。查"某品牌到底有几个 vendor collection"的第一步 |
+| `probe-hid-descriptor.py` | **HID 报告描述符解析**（纯 ctypes + HidD_GetPreparsedData）：列出每个 collection 的 in/out/feat 项（page/usage/reportId/size/count），自动标记 Battery Strength 与 vendor page。判断"该发 output 还是 feature"看它 |
+| `probe-hid-passive.py` | **零写入被动监听**（多线程）：对候选接口只听不发，记录前 8 帧样本并统计帧数。用来判断设备是"自发推送型"还是"纯查询型" |
+| `probe-hid-feature.py` | 对指定厂商接口读 feature report（纯读，零写入），dump 原始字节 |
+| `probe-eweadn-caps.py` | 前行者各 vendor 接口的 HID caps（in/out/feat 长度）。**关键用法**：同 usage 的多个接口靠长度区分，X87 的 MI_03(33) vs MI_04(65) 就是这样定出来的 |
+| `probe-eweadn-battery.py` | **X87 键盘电量查询**（已跑通）：发官方 33 字节帧读电量。含 overlapped 异步 IO 实现——同步 `ReadFile` 会永久阻塞，这是必须踩过的坑 |
+| `probe-eweadn-s9-basics.py` | **S9 鼠标电量查询**（已跑通）：`--feature` 走 feature report 0x03（正确通道），`--output` 走 0xFF06 输出（死路，留作反例）。无参数 = 只读 |
+| `unpack-asar.py` | **Electron asar 解包**（纯标准库）：手动解析 Chromium pickle 嵌套头。`unpack-asar.py <app.asar> <outdir> [--list]`。官方 Hub 是壳、真正 HID 逻辑在远程网页，靠它定位到 `hub.eweadn.cn` |
 | `test-rapou7.ps1` | 雷柏 dongle（VID_24AE）HID P/Invoke 直测。也是 build.md §7"PowerShell 5.1" 的范例：本机 Add-Type 不支持字符串插值/内联 out/可空注解，要用老式语法 |
 | `probe-hid-caps.py` | **HID 接口能力探针**（纯 ctypes，只读）：`HidP_GetCaps` + `HidP_GetButtonCaps` 打出 UsagePage、IN/OUT/FEATURE 报告长度与逐条 button caps。回答"这个接口到底有没有主机→设备通道"——`OUT=0 / FEATURE=0` 即物理上无法主动查询（弱水时砂 dongle 的判据）。用法 `python probe-hid-caps.py 38FF`（参数为设备路径里的大小写无关片段，可省） |
 | `test-rose-dongle-interactive.py` | ROSE dongle（38FF:0001）交互式被动监听 5 分钟，零写入——耳机按键操作会经 dongle 出现在这里，可当"耳机已连接"探针 |

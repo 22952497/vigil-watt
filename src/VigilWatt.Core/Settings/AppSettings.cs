@@ -66,6 +66,8 @@ public class AppSettings
         ["Rapoo"] = true,     // 雷柏走纯被动心跳读取，零写入，默认开启
         ["Betop"] = true,     // 北通手柄：发官方同款只读状态查询（cmd=0x5），默认开启
         ["Inphic"] = true,    // 英菲克 report 0x03 被动监听，不发送任何帧
+        ["EweadnKeyboard"] = false,  // 前行者 X87：发官方原样电量查询帧（会写），默认关闭待用户主动开
+        ["EweadnMouse"] = false,     // 前行者 S9：发官方 BASICS 帧到 feature 0x03（会写），默认关闭
     };
 
     /// <summary>是否把本机（笔记本）电池也纳入监控。默认关闭——它是"另一类设备"，不像外设那样需要盯着，用户明确要时才开（见设置页「监控本机电量」）。

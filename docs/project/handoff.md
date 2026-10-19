@@ -8,7 +8,7 @@
 
 当前安装包 **1.2.1**（`dist/`，本机试装用；尚未上传正式 Release）。正式线上以 GitHub 最新 Release 为准，Gitee 是回退源；更新源 GitHub 优先、8 秒不通回退 Gitee。发新版时保留上一版 `*-full.nupkg` 作为 delta 基准；规则见 `dev/build.md` §8。
 
-本机已打通：迈从 G87（0x13）、雷柏 VT3（status-report7，纯被动）、北通 T9（被动流）、经典蓝牙耳机（HFP 网关节点 `DEVPKEY_Device_BatteryLevel`）。罗技 Bolt 接收器（C548）+ MX Master 3S 已真机验证。本机电量可选，默认关。弱水时砂 2.4G 无电量通道，不再投入。
+本机已打通：迈从 G87（0x13）、雷柏 VT3（status-report7，纯被动）、北通 T9（被动流）、经典蓝牙耳机（HFP 网关节点 `DEVPKEY_Device_BatteryLevel`）、**前行者 X87 键盘（33 字节查询帧）与 S9 鼠标（feature report 0x03，贝盈协议）**。罗技 Bolt 接收器（C548）+ MX Master 3S 已真机验证。本机电量可选，默认关。弱水时砂 2.4G 无电量通道，不再投入。
 
 任务栏贴片是原生子窗口 `Services/TaskbarPillWindow.cs`（`SetParent` 进 `Shell_TrayWnd`），不是 WinUI 覆盖窗。小组件仍用 `TransparentWindowSurface`；Win10 上因此没有 DWM 投影（BACKLOG **CR-57**，未做）。旧覆盖窗的白框、裁字、抢 Z 序在新贴片上已不存在。原理见 `dev/runtime-pitfalls.md` §16；§17 只对小组件。
 
@@ -33,6 +33,8 @@
 | 雷柏 VT3 二代（VID_24AE&PID_1412） | status-report7 被动心跳 | 已打通，零写入。雷柏不是 HID++，勿让 Logitech 插件认领 |
 | 英菲克 ZHEN（VID_1D57&PID_FA65） | report 0x03 被动状态帧 | 已打通，零写入；放电 `0x01` / 充电 `0x03` 已校准（protocols.md §6） |
 | 北通 T9（PID_5073）/ 鲲鹏20（PID_5191） | 厂商接口 0xFF00；T9 走 Col04 被动流 | T9 已真机验证；鲲鹏20 主动查询未验证 |
+| 前行者 X87 键盘（VID_0C45&PID_FEFE&MI_03） | 33 字节查询帧（0x20/0x01，校验和 [32]） | 已打通，真机 100%。MI_04 是 65 字节同 usage 陷阱，只能写 MI_03（protocols.md §7.1） |
+| 前行者 S9 鼠标（VID_372E&PID_1026） | feature report 0x03，贝盈 beiyin_uuid | 已打通，真机 72~73%。`0xFF06` 输出通道是死路（§7.2） |
 | 弱水时砂 2.4G（38FF:0001） | — | 无电量通道（protocols.md §3），不再投入 |
 | EDIFIER W820NB | HFP 网关 `DEVPKEY_Device_BatteryLevel` | 已打通，与设置页一致 |
 | 华硕 AURA、Virtual Multitouch、lifeme 音箱 | — | 与电量无关，勿探测 |
@@ -75,7 +77,7 @@
 
 | 要动什么 | 去哪 |
 |---|---|
-| 迈从 / 雷柏 / 北通协议 | `Plugins/Mchose/`、`Plugins/Rapoo/`、`Plugins/Betop/`（规格在 protocols.md） |
+| 迈从 / 雷柏 / 北通 / 前行者协议 | `Plugins/Mchose/`、`Plugins/Rapoo/`、`Plugins/Betop/`、`Plugins/Eweadn/`（规格在 protocols.md） |
 | 离线判定 | `Plugins/OfflinePolicy.cs` + `BatteryPluginBase` 的 `MarkOffline` / `RequestOffline` / `RequestConfirm` |
 | 写入授权 | `AppSettings.PluginEnabled`；基类 `WritesEnabled`。设置页 `AddPluginRow` |
 | 新增品牌 | 新建插件继承 `BatteryPluginBase`。会写帧的默认关 |
